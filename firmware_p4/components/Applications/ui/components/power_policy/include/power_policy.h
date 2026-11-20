@@ -23,6 +23,8 @@
 extern "C" {
 #endif
 
+#define POWER_POLICY_BACK_HOLD_MS 5000
+
 /**
  * @brief Start the global power policy (idempotent). Call once from ui_init(),
  *        under the LVGL lock (it creates an lv_timer).

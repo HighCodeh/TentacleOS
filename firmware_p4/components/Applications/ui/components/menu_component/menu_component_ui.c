@@ -24,7 +24,7 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define HEADER_BG   current_theme.bg_secondary
+#define HEADER_BG   current_theme.bg_primary
 #define HEADER_LINE current_theme.border_accent
 #define FOOTER_LINE current_theme.border_interface
 #define TITLE_COLOR current_theme.border_accent
@@ -41,12 +41,12 @@
 #define RIGHT_GUTTER 16
 #define ITEMS_Y      (HEADER_H + 4)
 #define OUTER_BORDER 4
-#define THUMB_FALLBACK_H 45
+#define THUMB_WIDTH  10
+#define THUMB_HEIGHT 18
 #define SCROLL_ANIM_MS   200
 #define OVERFLOW_SLOP_PX 2
 
-#define DEFAULT_HINT \
-  LV_SYMBOL_UP LV_SYMBOL_DOWN "  Nav    " LV_SYMBOL_OK "  OK    " LV_SYMBOL_LEFT "  Back"
+#define DEFAULT_HINT LV_SYMBOL_UP LV_SYMBOL_DOWN " Move   OK Open   BACK"
 
 static lv_obj_t *make_icon_dsc(lv_obj_t *parent, const lv_image_dsc_t *dsc) {
   if (!dsc)
@@ -61,7 +61,12 @@ static lv_obj_t *make_icon_dsc(lv_obj_t *parent, const lv_image_dsc_t *dsc) {
 static lv_obj_t *make_icon(lv_obj_t *parent, const char *icon_path) {
   if (!icon_path)
     return NULL;
-  return make_icon_dsc(parent, assets_get(icon_path));
+  lv_obj_t *image = make_icon_dsc(parent, assets_get(icon_path));
+  if (image != NULL) {
+    lv_obj_set_style_image_recolor(image, current_theme.border_accent, 0);
+    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+  }
+  return image;
 }
 
 static bool list_overflows(menu_component_t *m) {
@@ -77,10 +82,18 @@ static void update_scroll_state(menu_component_t *m) {
   if (!m || !m->items_cont)
     return;
   bool overflow = list_overflows(m);
-  if (m->scroll_track)
-    lv_obj_remove_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
-  if (m->scroll_bar)
-    lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  if (m->scroll_track) {
+    if (overflow)
+      lv_obj_remove_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (m->scroll_bar) {
+    if (overflow)
+      lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  }
   if (overflow) {
     lv_obj_add_flag(m->items_cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_snap_y(m->items_cont, LV_SCROLL_SNAP_NONE);
@@ -91,16 +104,24 @@ static void update_scroll_state(menu_component_t *m) {
   }
 }
 
-static void update_scroll_bar(menu_component_t *m) {
-  if (!m->scroll_bar || m->item_count <= 1)
+static void position_scroll_bar(menu_component_t *m, int32_t value, int32_t maximum) {
+  if (!m->scroll_bar)
     return;
   int32_t thumb_h = lv_obj_get_height(m->scroll_bar);
   if (thumb_h <= 0)
-    thumb_h = THUMB_FALLBACK_H;
+    thumb_h = THUMB_HEIGHT;
+  if (value < 0)
+    value = 0;
+  if (maximum < 0)
+    maximum = 0;
+  if (value > maximum)
+    value = maximum;
   int32_t travel = m->track_h - thumb_h;
   if (travel < 0)
     travel = 0;
-  int32_t pos = m->track_y_start + (m->selected * travel) / (m->item_count - 1);
+  int32_t pos = m->track_y_start;
+  if (maximum > 0)
+    pos += (int32_t)(((int64_t)value * travel) / maximum);
 
   lv_anim_t a;
   lv_anim_init(&a);
@@ -112,8 +133,58 @@ static void update_scroll_bar(menu_component_t *m) {
   lv_anim_start(&a);
 }
 
+static void update_scroll_bar(menu_component_t *m) {
+  if (m == NULL || m->items_cont == NULL)
+    return;
+  lv_obj_update_layout(m->items_cont);
+  lv_point_t end;
+  lv_obj_get_scroll_end(m->items_cont, &end);
+  int32_t maximum = lv_obj_get_scroll_top(m->items_cont) + lv_obj_get_scroll_bottom(m->items_cont);
+  position_scroll_bar(m, end.y, maximum);
+}
+
+void menu_component_scroll_to_item(menu_component_t *m, lv_obj_t *item) {
+  if (m == NULL || item == NULL || m->items_cont == NULL)
+    return;
+  update_scroll_state(m);
+  if (list_overflows(m))
+    lv_obj_scroll_to_view(item, LV_ANIM_ON);
+  update_scroll_bar(m);
+}
+
+void menu_component_scroll_content(menu_component_t *m, int32_t delta_y) {
+  if (m == NULL || m->items_cont == NULL)
+    return;
+  lv_obj_update_layout(m->items_cont);
+  int32_t maximum = lv_obj_get_scroll_top(m->items_cont) + lv_obj_get_scroll_bottom(m->items_cont);
+  if (maximum < 0)
+    maximum = 0;
+  int64_t target = (int64_t)lv_obj_get_scroll_y(m->items_cont) + delta_y;
+  if (target < 0)
+    target = 0;
+  if (target > maximum)
+    target = maximum;
+  lv_obj_scroll_to_y(m->items_cont, (int32_t)target, LV_ANIM_OFF);
+  position_scroll_bar(m, (int32_t)target, maximum);
+  if (maximum == 0) {
+    lv_obj_add_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(m->scroll_track, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 static void update_selection(menu_component_t *m) {
   for (int i = 0; i < m->item_count; i++) {
+    for (uint32_t child = 0; child < lv_obj_get_child_count(m->items[i]); ++child) {
+      lv_obj_t *name = lv_obj_get_child(m->items[i], child);
+      if (lv_obj_check_type(name, &lv_label_class)) {
+        lv_label_set_long_mode(
+            name, i == m->selected ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+        break;
+      }
+    }
     if (i == m->selected) {
       lv_obj_set_style_border_color(m->items[i], SEL_BORDER, 0);
       lv_obj_set_style_bg_opa(m->items[i], LV_OPA_COVER, 0);
@@ -130,7 +201,7 @@ static void update_selection(menu_component_t *m) {
       }
     } else {
       lv_obj_set_style_border_color(m->items[i], ITEM_BORDER, 0);
-      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_90, 0);
+      lv_obj_set_style_bg_opa(m->items[i], LV_OPA_COVER, 0);
       lv_obj_set_style_shadow_width(m->items[i], 0, 0);
       if (m->sel_dots[i])
         lv_obj_add_flag(m->sel_dots[i], LV_OBJ_FLAG_HIDDEN);
@@ -144,6 +215,46 @@ static void update_selection(menu_component_t *m) {
   update_scroll_bar(m);
 }
 
+void menu_component_attach_scroll(menu_component_t *m, lv_obj_t *parent, lv_obj_t *content) {
+  m->screen = parent;
+  m->items_cont = content;
+  lv_obj_update_layout(content);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLL_ELASTIC);
+  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  int track_x = ui_screen_w() - OUTER_BORDER - 9;
+  m->track_y_start = lv_obj_get_y(content) + 8;
+  m->track_h = lv_obj_get_height(content) - 16;
+  if (m->track_h < 0)
+    m->track_h = 0;
+
+  static const lv_point_precise_t track_pts[] = {{0, 0}, {0, LV_PCT(100)}};
+
+  m->scroll_track = lv_line_create(m->screen);
+  lv_line_set_points(m->scroll_track, track_pts, 2);
+  lv_obj_set_size(m->scroll_track, 2, m->track_h);
+  lv_obj_set_pos(m->scroll_track, track_x, m->track_y_start);
+  lv_obj_set_style_line_color(m->scroll_track, current_theme.border_inactive, 0);
+  lv_obj_set_style_line_opa(m->scroll_track, LV_OPA_COVER, 0);
+  lv_obj_set_style_line_width(m->scroll_track, 2, 0);
+  lv_obj_set_style_line_dash_width(m->scroll_track, 2, 0);
+  lv_obj_set_style_line_dash_gap(m->scroll_track, 4, 0);
+
+  m->scroll_bar = lv_obj_create(m->screen);
+  lv_obj_set_size(m->scroll_bar, THUMB_WIDTH, THUMB_HEIGHT);
+  lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(m->scroll_bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_pad_all(m->scroll_bar, 0, 0);
+  lv_obj_set_style_radius(m->scroll_bar, 3, 0);
+  lv_obj_set_style_border_width(m->scroll_bar, 2, 0);
+  lv_obj_set_style_border_color(m->scroll_bar, current_theme.border_accent, 0);
+  lv_obj_set_style_bg_color(m->scroll_bar, current_theme.bg_primary, 0);
+  lv_obj_set_style_bg_opa(m->scroll_bar, LV_OPA_COVER, 0);
+  lv_obj_set_pos(m->scroll_bar, track_x - THUMB_WIDTH / 2, m->track_y_start);
+  lv_obj_move_foreground(m->scroll_bar);
+  update_scroll_state(m);
+}
+
 menu_component_t
 menu_component_create(lv_obj_t *parent, const char *title, const char *title_icon_path) {
   menu_component_t m = {0};
@@ -153,10 +264,7 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_size(m.screen, lv_pct(100), lv_pct(100));
   lv_obj_align(m.screen, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_remove_flag(m.screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(m.screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_grad_color(m.screen, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_dir(m.screen, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_bg_opa(m.screen, LV_OPA_COVER, 0);
+  ui_chrome_gradient(m.screen, current_theme.screen_base, current_theme.bg_primary, ui_screen_h());
   lv_obj_set_style_pad_all(m.screen, 0, 0);
   lv_obj_set_style_border_width(m.screen, 0, 0);
   lv_obj_set_style_radius(m.screen, 0, 0);
@@ -191,56 +299,10 @@ menu_component_create(lv_obj_t *parent, const char *title, const char *title_ico
   lv_obj_set_scrollbar_mode(m.items_cont, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_scroll_snap_y(m.items_cont, LV_SCROLL_SNAP_NONE);
 
-  int track_x = ui_screen_w() - OUTER_BORDER - 9;
-  m.track_y_start = ITEMS_Y + 8;
-  m.track_h = items_h - 16;
-  if (m.track_h < 0)
-    m.track_h = 0;
+  menu_component_attach_scroll(&m, m.screen, m.items_cont);
 
-  static lv_point_precise_t track_pts[2];
-  track_pts[0].x = 0;
-  track_pts[0].y = 0;
-  track_pts[1].x = 0;
-  track_pts[1].y = m.track_h;
-
-  m.scroll_track = lv_line_create(m.screen);
-  lv_line_set_points(m.scroll_track, track_pts, 2);
-  lv_obj_set_pos(m.scroll_track, track_x, m.track_y_start);
-  lv_obj_set_style_line_color(m.scroll_track, current_theme.border_inactive, 0);
-  lv_obj_set_style_line_opa(m.scroll_track, LV_OPA_COVER, 0);
-  lv_obj_set_style_line_width(m.scroll_track, 3, 0);
-  lv_obj_set_style_line_dash_width(m.scroll_track, 4, 0);
-  lv_obj_set_style_line_dash_gap(m.scroll_track, 4, 0);
-
-  static lv_image_dsc_t *slide_bar_v_dsc = NULL;
-  if (!slide_bar_v_dsc)
-    slide_bar_v_dsc = assets_get("/assets/icons/drag_indicator.bin");
-
-  m.scroll_bar = lv_image_create(m.screen);
-  if (slide_bar_v_dsc)
-    lv_image_set_src(m.scroll_bar, slide_bar_v_dsc);
-  lv_obj_set_pos(m.scroll_bar, track_x - 4, m.track_y_start);
-  lv_obj_move_foreground(m.scroll_bar);
-
-  m.footer = lv_obj_create(m.screen);
-  lv_obj_set_size(m.footer, lv_pct(100), FOOTER_H);
-  lv_obj_align(m.footer, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-  lv_obj_remove_flag(m.footer, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(m.footer, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(m.footer, HEADER_BG, 0);
-  lv_obj_set_style_bg_opa(m.footer, LV_OPA_COVER, 0);
-  lv_obj_set_style_radius(m.footer, 0, 0);
-  lv_obj_set_style_pad_all(m.footer, 0, 0);
-  lv_obj_set_style_border_width(m.footer, 2, 0);
-  lv_obj_set_style_border_color(m.footer, FOOTER_LINE, 0);
-  lv_obj_set_style_border_side(m.footer, LV_BORDER_SIDE_TOP, 0);
-
-  m.hint_label = lv_label_create(m.footer);
-  lv_label_set_text(m.hint_label, DEFAULT_HINT);
-  lv_obj_set_style_text_color(m.hint_label, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(m.hint_label, LV_OPA_70, 0);
-  lv_obj_set_style_text_font(m.hint_label, &lv_font_montserrat_12, 0);
-  lv_obj_center(m.hint_label);
+  m.footer = ui_chrome_footer(m.screen, DEFAULT_HINT);
+  m.hint_label = lv_obj_get_child(m.footer, 0);
   lv_obj_move_foreground(m.footer);
 
   m.item_count = 0;
@@ -262,14 +324,11 @@ static lv_obj_t *item_begin(menu_component_t *menu) {
   lv_obj_set_height(item, ITEM_H);
   lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(item, 10, 0);
-  lv_obj_set_style_bg_opa(item, LV_OPA_90, 0);
-  lv_obj_set_style_bg_color(item, current_theme.bg_item_top, 0);
-  lv_obj_set_style_bg_grad_color(item, current_theme.bg_item_bot, 0);
-  lv_obj_set_style_bg_grad_dir(item, LV_GRAD_DIR_VER, 0);
+  ui_chrome_gradient(item, current_theme.bg_item_top, current_theme.bg_item_bot, ITEM_H);
   lv_obj_set_style_border_width(item, 2, 0);
   lv_obj_set_style_border_color(item, ITEM_BORDER, 0);
   lv_obj_set_style_pad_left(item, 6, 0);
-  lv_obj_set_style_pad_right(item, 8, 0);
+  lv_obj_set_style_pad_right(item, 18, 0);
   lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(item, 8, 0);
@@ -281,7 +340,9 @@ static lv_obj_t *item_finish(menu_component_t *menu, lv_obj_t *item, const char 
   lv_label_set_text(lbl, label ? label : "");
   lv_obj_set_style_text_color(lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+  lv_obj_set_width(lbl, 0);
   lv_obj_set_flex_grow(lbl, 1);
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
   lv_obj_set_style_pad_left(lbl, 0, 0);
 
   static lv_image_dsc_t *pointer_dsc = NULL;
@@ -291,6 +352,8 @@ static lv_obj_t *item_finish(menu_component_t *menu, lv_obj_t *item, const char 
   lv_obj_t *ptr = lv_image_create(item);
   if (pointer_dsc)
     lv_image_set_src(ptr, pointer_dsc);
+  lv_obj_set_style_image_recolor(ptr, current_theme.border_accent, 0);
+  lv_obj_set_style_image_recolor_opa(ptr, LV_OPA_COVER, 0);
   lv_obj_add_flag(ptr, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_FLOATING);
   lv_obj_align(ptr, LV_ALIGN_RIGHT_MID, -6, 0);
 
@@ -347,8 +410,8 @@ lv_obj_t *menu_component_add_selector(menu_component_t *menu,
       val, LV_SYMBOL_LEFT " %s " LV_SYMBOL_RIGHT, initial_value ? initial_value : "");
   lv_obj_set_style_text_color(val, current_theme.border_accent, 0);
   lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
-  lv_obj_add_flag(val, LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(val, LV_ALIGN_RIGHT_MID, -6, 0);
+  lv_obj_set_style_max_width(val, (ui_screen_w() - 70) / 2, 0);
+  lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
 
   menu->val_labels[idx] = val;
   lv_obj_add_flag(menu->sel_dots[idx], LV_OBJ_FLAG_HIDDEN);
@@ -376,8 +439,7 @@ lv_obj_t *menu_component_add_toggle(menu_component_t *menu,
     return NULL;
 
   toggle_ui_create(&menu->toggles[idx], item);
-  lv_obj_add_flag(menu->toggles[idx].obj, LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(menu->toggles[idx].obj, LV_ALIGN_RIGHT_MID, -6, 0);
+  lv_obj_remove_flag(menu->toggles[idx].obj, LV_OBJ_FLAG_FLOATING);
   toggle_ui_set(&menu->toggles[idx], initial_state);
   menu->has_toggle[idx] = true;
   lv_obj_add_flag(menu->sel_dots[idx], LV_OBJ_FLAG_HIDDEN);
@@ -416,8 +478,7 @@ lv_obj_t *menu_component_add_intensity(menu_component_t *menu,
     return NULL;
 
   intensity_bar_create(&menu->intensities[idx], item);
-  lv_obj_add_flag(menu->intensities[idx].obj, LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(menu->intensities[idx].obj, LV_ALIGN_RIGHT_MID, -6, 0);
+  lv_obj_remove_flag(menu->intensities[idx].obj, LV_OBJ_FLAG_FLOATING);
   intensity_bar_set(&menu->intensities[idx], initial_level);
   menu->has_intensity[idx] = true;
   lv_obj_add_flag(menu->sel_dots[idx], LV_OBJ_FLAG_HIDDEN);

@@ -15,6 +15,8 @@
 
 #include "vfs_sdcard.h"
 
+#include <stdatomic.h>
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -42,8 +44,29 @@
 
 static const char *TAG = "VFS_SDCARD";
 
+#define SD_MSC_STOP_TIMEOUT_MS 1000
+#define SD_VOLUME_LABEL        "Highboy"
+#define SD_INVALID_DRIVE       UINT8_MAX
+#define SD_LABEL_PATH_SIZE     (sizeof(SD_VOLUME_LABEL) + 3)
+
+static atomic_flag s_access = ATOMIC_FLAG_INIT;
+static vfs_sdcard_format_cb_t s_format_cb;
+static void *s_format_ctx;
+static BYTE s_format_drive = SD_INVALID_DRIVE;
+static bool s_format_cancelled;
+
+int ff_mkfs_progress(BYTE drive, const char *stage, UINT percent) {
+  if (s_format_cb == NULL || drive != s_format_drive)
+    return 1;
+  if (!s_format_cancelled && !s_format_cb(stage, (uint8_t)percent, s_format_ctx))
+    s_format_cancelled = true;
+  return !s_format_cancelled;
+}
+
+static esp_err_t deinit_card(void);
+
 static struct {
-  bool mounted;
+  atomic_bool mounted;
   sdmmc_card_t *card;
 } s_sdcard = {0};
 
@@ -161,12 +184,7 @@ static esp_err_t sdcard_get_fs(FATFS **fs, DWORD *free_clusters) {
   if (!s_sdcard.mounted || !s_sdcard.card) {
     return ESP_ERR_INVALID_STATE;
   }
-  BYTE pdrv = ff_diskio_get_pdrv_card(s_sdcard.card);
-  if (pdrv >= FF_VOLUMES || pdrv > 9) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  char drv[3] = {(char)('0' + pdrv), ':', 0};
-  return f_getfree(drv, free_clusters, fs) == FR_OK ? ESP_OK : ESP_FAIL;
+  return esp_vfs_fat_get_free_clusters("/sdcard", fs, free_clusters);
 }
 
 static esp_err_t sdcard_statvfs(vfs_statvfs_t *stat) {
@@ -226,10 +244,13 @@ static const vfs_backend_ops_t s_sdcard_ops = {
     .statvfs = sdcard_statvfs,
 };
 
-esp_err_t vfs_sdcard_init(void) {
+static esp_err_t init_card(void) {
   if (s_sdcard.mounted) {
     return ESP_OK;
   }
+
+  if (s_sdcard.card != NULL)
+    return ESP_ERR_INVALID_STATE;
 
   ESP_LOGI(TAG, "Initializing SD card (SDMMC/SDIO 4-bit mode)");
 
@@ -274,7 +295,7 @@ esp_err_t vfs_sdcard_init(void) {
   ret = vfs_register_backend(&backend_config);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Register failed");
-    vfs_sdcard_deinit();
+    deinit_card();
     return ret;
   }
 
@@ -287,7 +308,7 @@ esp_err_t vfs_sdcard_init(void) {
   return ESP_OK;
 }
 
-esp_err_t vfs_sdcard_deinit(void) {
+static esp_err_t deinit_card(void) {
   if (!s_sdcard.mounted) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -354,12 +375,29 @@ static esp_err_t sdcard_format(bool exfat) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  esp_err_t ret = exfat ? esp_vfs_fat_sdcard_format_exfat(VFS_MOUNT_POINT, s_sdcard.card)
-                        : esp_vfs_fat_sdcard_format(VFS_MOUNT_POINT, s_sdcard.card);
+  s_format_drive = ff_diskio_get_pdrv_card(s_sdcard.card);
+  if (!ff_mkfs_progress(s_format_drive, "Preparing card", 0))
+    return ESP_ERR_NOT_FINISHED;
+  esp_err_t ret = esp_vfs_fat_suspend(VFS_MOUNT_POINT);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Format refused: SD files open or suspend failed");
+    return ret;
+  }
+
+  if (!ff_mkfs_progress(s_format_drive, "Preparing filesystem", 2)) {
+    if (esp_vfs_fat_resume(VFS_MOUNT_POINT) != ESP_OK)
+      deinit_card();
+    return ESP_ERR_NOT_FINISHED;
+  }
+  ret = exfat ? esp_vfs_fat_sdcard_format_exfat(VFS_MOUNT_POINT, s_sdcard.card)
+              : esp_vfs_fat_sdcard_format(VFS_MOUNT_POINT, s_sdcard.card);
+  if (ret == ESP_ERR_NO_MEM) {
+    esp_vfs_fat_resume(VFS_MOUNT_POINT);
+  }
   if (!esp_vfs_fat_sdcard_is_mounted(VFS_MOUNT_POINT, s_sdcard.card)) {
     // The formatter retained the handle, but its remount failed. Release it
     // exactly once and leave the backend unmounted for a deliberate retry.
-    vfs_sdcard_deinit();
+    deinit_card();
     return ret == ESP_OK ? ESP_FAIL : ret;
   }
   if (ret != ESP_OK) {
@@ -367,16 +405,47 @@ static esp_err_t sdcard_format(bool exfat) {
     return ret;
   }
 
-  ESP_LOGI(TAG, "SD formatted (%s)", vfs_sdcard_fs_type());
+  if (!ff_mkfs_progress(s_format_drive, "Naming volume", 98))
+    return ESP_ERR_NOT_FINISHED;
+  BYTE drive = ff_diskio_get_pdrv_card(s_sdcard.card);
+  if (drive == SD_INVALID_DRIVE)
+    return ESP_ERR_INVALID_STATE;
+  char label[SD_LABEL_PATH_SIZE];
+  snprintf(label, sizeof(label), "%u:%s", (unsigned)drive, SD_VOLUME_LABEL);
+  FRESULT result = f_setlabel(label);
+  if (result != FR_OK) {
+    ESP_LOGE(TAG, "Format completed, but volume label failed (%d)", result);
+    return ESP_FAIL;
+  }
+
+  ESP_LOGI(TAG, "SD formatted (%s), label=%s", vfs_sdcard_fs_type(), SD_VOLUME_LABEL);
   return ESP_OK;
 }
 
+esp_err_t vfs_sdcard_format_with_progress(bool exfat, vfs_sdcard_format_cb_t cb, void *ctx) {
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+  s_format_cb = cb;
+  s_format_ctx = ctx;
+  s_format_cancelled = false;
+  esp_err_t ret = sdcard_format(exfat);
+  if (s_format_cancelled)
+    ret = ESP_ERR_NOT_FINISHED;
+  if (ret == ESP_OK && cb != NULL)
+    cb("Complete", 100, ctx);
+  s_format_cb = NULL;
+  s_format_ctx = NULL;
+  s_format_drive = SD_INVALID_DRIVE;
+  vfs_sdcard_release();
+  return ret;
+}
+
 esp_err_t vfs_sdcard_format(void) {
-  return sdcard_format(false);
+  return vfs_sdcard_format_with_progress(false, NULL, NULL);
 }
 
 esp_err_t vfs_sdcard_format_exfat(void) {
-  return sdcard_format(true);
+  return vfs_sdcard_format_with_progress(true, NULL, NULL);
 }
 
 const char *vfs_sdcard_fs_type(void) {
@@ -504,68 +573,88 @@ esp_err_t vfs_sdcard_benchmark(float *out_read_mbs, float *out_write_mbs) {
   return ret;
 }
 
-esp_err_t vfs_sdcard_detach_for_msc(void **out_card) {
-  if (out_card == NULL) {
+static esp_err_t detach_card(void **out_card) {
+  if (out_card == NULL)
     return ESP_ERR_INVALID_ARG;
-  }
   *out_card = NULL;
-
-  if (s_sdcard.mounted) {
-    esp_err_t r = vfs_sdcard_deinit();
-    if (r != ESP_OK) {
-      ESP_LOGE(TAG, "detach: unmount failed: %s", esp_err_to_name(r));
-      return r;
-    }
+  if (!s_sdcard.mounted || s_sdcard.card == NULL)
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = esp_vfs_fat_suspend("/sdcard");
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "SD busy or suspend failed: %s", esp_err_to_name(err));
+    return err;
   }
-
-  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-  host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
-
-  sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-  slot_config.width = 4;
-  slot_config.clk = GPIO_SDMMC_CLK_PIN;
-  slot_config.cmd = GPIO_SDMMC_CMD_PIN;
-  slot_config.d0 = GPIO_SDMMC_D0_PIN;
-  slot_config.d1 = GPIO_SDMMC_D1_PIN;
-  slot_config.d2 = GPIO_SDMMC_D2_PIN;
-  slot_config.d3 = GPIO_SDMMC_D3_PIN;
-  slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-
-  esp_err_t r = sdmmc_host_init();
-  if (r != ESP_OK) {
-    ESP_LOGE(TAG, "detach: host init: %s", esp_err_to_name(r));
-    return r;
-  }
-  r = sdmmc_host_init_slot(host.slot, &slot_config);
-  if (r != ESP_OK) {
-    ESP_LOGE(TAG, "detach: slot init: %s", esp_err_to_name(r));
-    sdmmc_host_deinit();
-    return r;
-  }
-  sdmmc_card_t *card = calloc(1, sizeof(sdmmc_card_t));
-  if (card == NULL) {
-    sdmmc_host_deinit();
-    return ESP_ERR_NO_MEM;
-  }
-  r = sdmmc_card_init(&host, card);
-  if (r != ESP_OK) {
-    ESP_LOGE(TAG, "detach: card init: %s", esp_err_to_name(r));
-    free(card);
-    sdmmc_host_deinit();
-    return r;
-  }
-
-  *out_card = card;
-  ESP_LOGI(TAG, "SD detached from app FAT and handed to USB MSC (raw)");
+  s_sdcard.mounted = false;
+  *out_card = s_sdcard.card;
+  ESP_LOGI(TAG, "SD filesystem suspended; USB owns existing SDMMC card");
   return ESP_OK;
 }
 
-esp_err_t vfs_sdcard_reattach_after_msc(void *card) {
-  (void)sdmmc_host_deinit();
-  if (card != NULL) {
-    free(card);
+static esp_err_t reattach_card(void *card) {
+  if (card == NULL || card != s_sdcard.card || s_sdcard.mounted)
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = esp_vfs_fat_resume("/sdcard");
+  if (err != ESP_OK) {
+    // A failed multi-block transfer can leave the card sending data after host timeout.
+    sdmmc_command_t stop = {
+        .opcode = MMC_STOP_TRANSMISSION,
+        .flags = SCF_CMD_AC | SCF_RSP_R1B | SCF_WAIT_BUSY,
+        .timeout_ms = SD_MSC_STOP_TIMEOUT_MS,
+    };
+    esp_err_t stop_err = s_sdcard.card->host.do_transaction(s_sdcard.card->host.slot, &stop);
+    if (stop_err == ESP_OK)
+      stop_err = stop.error;
+    ESP_LOGW(TAG, "SD recovery CMD12: %s", esp_err_to_name(stop_err));
+    if (stop_err == ESP_OK)
+      err = esp_vfs_fat_resume("/sdcard");
   }
-  return vfs_sdcard_init();
+  s_sdcard.mounted = err == ESP_OK;
+  return err;
+}
+
+bool vfs_sdcard_try_acquire(void) {
+  return !atomic_flag_test_and_set_explicit(&s_access, memory_order_acquire);
+}
+
+void vfs_sdcard_release(void) {
+  atomic_flag_clear_explicit(&s_access, memory_order_release);
+}
+
+esp_err_t vfs_sdcard_init(void) {
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t ret = init_card();
+  vfs_sdcard_release();
+  return ret;
+}
+
+esp_err_t vfs_sdcard_deinit(void) {
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t ret = ESP_ERR_INVALID_STATE;
+  if (s_sdcard.mounted) {
+    ret = esp_vfs_fat_suspend(VFS_MOUNT_POINT);
+    if (ret == ESP_OK)
+      ret = deinit_card();
+  }
+  vfs_sdcard_release();
+  return ret;
+}
+
+esp_err_t vfs_sdcard_detach_for_msc(void **out_card) {
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t ret = detach_card(out_card);
+  vfs_sdcard_release();
+  return ret;
+}
+
+esp_err_t vfs_sdcard_reattach_after_msc(void *card) {
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t ret = reattach_card(card);
+  vfs_sdcard_release();
+  return ret;
 }
 
 #endif

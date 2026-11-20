@@ -179,6 +179,16 @@ typedef enum {
   SCREEN_MUSE,
   SCREEN_GROK_IDLE,
   SCREEN_WIFI_ESP_SCAN,
+  SCREEN_PC_MONITOR,
+  SCREEN_NFC_PLUS,
+  SCREEN_NFC_ST25TB,
+  SCREEN_NFC_SLIX,
+  SCREEN_NFC_NTAG4XX,
+  SCREEN_NFC_TEXKOM,
+  SCREEN_NFC_TEXKOM_EMULATE,
+  SCREEN_NFC_V_EMULATE,
+  SCREEN_NFC_ARCHIVE,
+  SCREEN_WARDRIVE,
   SCREEN_COUNT
 } screen_id_t;
 
@@ -315,6 +325,9 @@ bool ui_sd_ready(void);
  * also navigate. Extends (never shortens) any lock already in effect.
  */
 void ui_input_lock(uint32_t ms);
+
+/** UI thread: discard queued input and consume held buttons through their release. */
+void ui_input_consume_gesture(void);
 
 #ifdef __cplusplus
 }

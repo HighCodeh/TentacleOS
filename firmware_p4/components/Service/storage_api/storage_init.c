@@ -19,6 +19,7 @@
 
 #include "vfs_config.h"
 #include "vfs_core.h"
+#include "vfs_sdcard.h"
 
 static const char *TAG = "STORAGE_INIT";
 
@@ -93,7 +94,7 @@ esp_err_t storage_remount(void) {
   return storage_init();
 }
 
-esp_err_t storage_check_health(void) {
+static esp_err_t check_health(void) {
   if (!storage_is_mounted()) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -120,6 +121,18 @@ esp_err_t storage_check_health(void) {
   ESP_LOGI(TAG, "Health check passed");
 
   return ESP_OK;
+}
+
+esp_err_t storage_check_health(void) {
+#ifdef VFS_USE_SD_CARD
+  if (!vfs_sdcard_try_acquire())
+    return ESP_ERR_INVALID_STATE;
+#endif
+  esp_err_t ret = check_health();
+#ifdef VFS_USE_SD_CARD
+  vfs_sdcard_release();
+#endif
+  return ret;
 }
 
 const char *storage_get_mount_point(void) {

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_flood_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -93,13 +94,15 @@ static esp_err_t flood_mode_start(void) {
                                 : ble_connect_flood_start(s_target_addr, s_target_type);
 }
 
-static void stop_all(void) {
+void ui_ble_flood_stop(void) {
   if (s_flood_timer != NULL) {
     lv_timer_delete(s_flood_timer);
     s_flood_timer = NULL;
   }
   if (s_phase == PHASE_FLOOD)
     flood_mode_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static lv_obj_t *lit_card(lv_obj_t *parent, int w, int h) {
@@ -137,12 +140,7 @@ void ui_ble_flood_open(void) {
   s_flood_timer = NULL;
   s_target[0] = '\0';
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "BLE FLOOD", FLOOD_ICON);
   ui_chrome_footer(s_screen, "L/R Mode   BACK Stop");
@@ -188,8 +186,8 @@ void ui_ble_flood_open(void) {
   lv_obj_set_style_text_font(s_rate_label, &lv_font_montserrat_12, 0);
   lv_obj_align(s_rate_label, LV_ALIGN_TOP_MID, 0, 178);
 
-  fade_in(s_status_label, 200);
-  fade_in(s_mode_label, 280);
+  fade_in(s_status_label, UI_CONTENT_FADE_MS);
+  fade_in(s_mode_label, UI_CONTENT_FADE_MS);
   fade_in(card, 320);
 
   if (!ble_scanner_start()) {
@@ -244,7 +242,7 @@ static void begin_flood(void) {
 
 static void flood_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_all();
+    ui_ble_flood_stop();
     return;
   }
 
@@ -282,7 +280,7 @@ static void ble_flood_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_all();
+        ui_ble_flood_stop();
         ui_switch_screen(SCREEN_BLE_MENU);
       }
       break;

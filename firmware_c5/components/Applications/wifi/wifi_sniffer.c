@@ -16,6 +16,7 @@
 #include "wifi_sniffer.h"
 
 #include <arpa/inet.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -37,6 +38,7 @@
 #include "tos_flash_paths.h"
 #include "wifi_80211.h"
 #include "wifi_service.h"
+#include "wifi_deauther.h"
 
 static const char *TAG = "WIFI_SNIFFER";
 
@@ -63,6 +65,13 @@ _Static_assert(sizeof(spi_sniffer_stats_t) <= SPI_MAX_PAYLOAD,
 #define PROBE_RESP_SUBTYPE        5
 #define PROBE_REQ_SUBTYPE         4
 #define DEAUTH_SUBTYPE            0xC
+#define ASSOC_RESP_SUBTYPE        1
+#define REASSOC_RESP_SUBTYPE      3
+#define AUTH_SUBTYPE              11
+#define ASSOC_FIXED_LEN           4
+#define REASSOC_FIXED_LEN         10
+#define AUTH_FIXED_LEN            6
+#define BEACON_FIXED_LEN          12
 #define MGMT_FRAME_TYPE           0
 #define DATA_FRAME_TYPE           2
 #define CTRL_FRAME_TYPE           1
@@ -75,19 +84,58 @@ _Static_assert(sizeof(spi_sniffer_stats_t) <= SPI_MAX_PAYLOAD,
 #define EAPOL_MIN_LEN             99
 #define RSN_TAG_ID                0x30
 #define RSN_MIN_HEADER_LEN        6
-#define PROBE_TX_COUNT            3
-#define PROBE_TX_DELAY_MS         2
+#define EAPOL_HEADER_LEN          4
+#define EAPOL_BODY_LEN_OFFSET     2
+#define EAPOL_REPLAY_OFFSET       9
+#define EAPOL_REPLAY_LEN          8
+#define EAPOL_NONCE_OFFSET        17
+#define EAPOL_NONCE_LEN           32
+#define EAPOL_PAIRWISE            0x0008
+#define EAPOL_INSTALL             0x0040
+#define EAPOL_ACK                 0x0080
+#define EAPOL_MIC                 0x0100
+#define EAPOL_SECURE              0x0200
+#define EAPOL_ERROR_REQUEST       0x0C00
+#define EAPOL_ENCRYPTED           0x1000
+#define EAPOL_VERSION_MASK        0x0007
+#define EAPOL_RSN_DESCRIPTOR      2
+#define EAPOL_WPA_DESCRIPTOR      254
+#define HANDSHAKE_M1              0
+#define HANDSHAKE_M2              1
+#define HANDSHAKE_M3              2
+#define HANDSHAKE_M4              3
+#define HANDSHAKE_MESSAGE_COUNT   4
+#define EAPOL_SMK                 0x2000
+#define HANDSHAKE_TIMEOUT_MS      10000
+#define LLC_HEADER_LEN            8
+#define FRAME_FCS_LEN             4
+#define FRAME_CONTROL_LEN         2
+#define QOS_SUBTYPE               0x08
+#define HT_CONTROL_LEN            4
+#define FRAME_ORDER_MASK          0x80
+#define PMKID_LEN                 16
+#define PMKID_KDE_TAG             221
+#define PMKID_KDE_SELECTOR_LEN    4
+#define METADATA_INTERVAL_MS      5000
+#define ASSOC_REQ_SUBTYPE         0
+#define REASSOC_REQ_SUBTYPE       2
 
 typedef struct {
   uint8_t bssid[BSSID_LEN];
   uint8_t station[BSSID_LEN];
-  uint32_t m1_timestamp;
-  bool has_m1;
+  uint32_t touched_ms;
+  uint32_t message_ms[HANDSHAKE_MESSAGE_COUNT];
+  uint8_t replay[HANDSHAKE_MESSAGE_COUNT][EAPOL_REPLAY_LEN];
+  uint16_t key_version;
+  uint8_t descriptor;
+  uint8_t seen_mask;
 } sniffer_handshake_session_t;
 
 typedef struct {
   uint8_t bssid[BSSID_LEN];
   bool has_ssid;
+  uint32_t beacon_timestamp;
+  uint32_t probe_timestamp;
 } sniffer_ap_info_t;
 
 static uint8_t *s_pcap_buffer = NULL;
@@ -123,8 +171,8 @@ static uint8_t s_pmkid_bssid[BSSID_LEN];
 static bool s_is_handshake_captured = false;
 static uint8_t s_handshake_bssid[BSSID_LEN];
 
-static sniffer_handshake_session_t s_sessions[MAX_TRACKED_SESSIONS];
-static sniffer_ap_info_t s_known_aps[MAX_KNOWN_APS];
+static sniffer_handshake_session_t *s_sessions;
+static sniffer_ap_info_t *s_known_aps;
 
 static bool s_is_streaming_sd = false;
 static char s_stream_filename[128];
@@ -134,10 +182,8 @@ static StaticTask_t *s_stream_task_tcb = NULL;
 static volatile uint32_t s_rb_read_offset = 0;
 
 static bool write_pcap_global_header(void);
-static void inject_unicast_probe_req(const uint8_t *target_bssid);
 static void register_known_ap(const uint8_t *bssid);
-static bool is_ap_ssid_known(const uint8_t *bssid);
-static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16_t key_info);
+static void track_handshake(const uint8_t *bssid, const uint8_t *station, const uint8_t *eapol);
 static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t *bssid);
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type);
 static void stream_task(void *arg);
@@ -153,6 +199,35 @@ static int spectrum_bin_for_channel(uint8_t channel) {
   if (channel >= 149 && channel <= 165 && ((channel - 149) % 4) == 0)
     return 34 + (channel - 149) / 4;
   return -1;
+}
+
+static esp_err_t prepare_tracking(void) {
+  if (s_sessions != NULL)
+    return ESP_OK;
+
+  sniffer_handshake_session_t *sessions = NULL;
+  sniffer_ap_info_t *known_aps = NULL;
+  sessions = heap_caps_calloc(
+      MAX_TRACKED_SESSIONS, sizeof(*sessions), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (sessions == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate handshake sessions in PSRAM");
+    goto cleanup;
+  }
+  known_aps =
+      heap_caps_calloc(MAX_KNOWN_APS, sizeof(*known_aps), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (known_aps == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate AP metadata in PSRAM");
+    goto cleanup;
+  }
+  // Retain bounded tables across sessions so late RX callbacks cannot use freed memory.
+  s_sessions = sessions;
+  s_known_aps = known_aps;
+  return ESP_OK;
+
+cleanup:
+  free(known_aps);
+  free(sessions);
+  return ESP_ERR_NO_MEM;
 }
 
 static void reset_monitor_counters(void) {
@@ -185,18 +260,25 @@ bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
     return false;
   }
 
-  if (!s_is_monitor_mode && s_pcap_buffer == NULL) {
+  if (prepare_tracking() != ESP_OK)
+    return false;
+  if (channel == 0 && wifi_service_set_capture_hopping(type == WIFI_SNIFFER_TYPE_EAPOL ||
+                                                       type == WIFI_SNIFFER_TYPE_PMKID) != ESP_OK)
+    return false;
+
+  const bool is_stream_only = spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER);
+  if (!s_is_monitor_mode && !is_stream_only && s_pcap_buffer == NULL) {
     s_pcap_buffer = (uint8_t *)heap_caps_malloc(SNIFFER_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
   }
 
-  const bool is_stream_only = spi_bridge_stream_is_enabled(SPI_ID_WIFI_APP_SNIFFER);
-  s_is_pcap_enabled = (s_pcap_buffer != NULL);
+  s_is_pcap_enabled = !s_is_monitor_mode && !is_stream_only && s_pcap_buffer != NULL;
   if (!s_is_pcap_enabled) {
-    if (!is_stream_only) {
+    if (!is_stream_only && !s_is_monitor_mode) {
       ESP_LOGE(TAG, "Failed to allocate PSRAM buffer.");
       return false;
     }
-    ESP_LOGW(TAG, "PSRAM unavailable; running in streaming-only mode.");
+    s_buffer_offset = 0;
+    ESP_LOGD(TAG, "Counter/stream capture without duplicate PCAP buffer");
   }
 
   if (s_is_pcap_enabled) {
@@ -209,12 +291,13 @@ bool wifi_sniffer_start(wifi_sniffer_type_t type, uint8_t channel) {
   s_current_type = type;
   reset_monitor_counters();
 
-  memset(s_sessions, 0, sizeof(s_sessions));
-  memset(s_known_aps, 0, sizeof(s_known_aps));
+  memset(s_sessions, 0, MAX_TRACKED_SESSIONS * sizeof(*s_sessions));
+  memset(s_known_aps, 0, MAX_KNOWN_APS * sizeof(*s_known_aps));
 
   if (channel > 0) {
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   } else {
+    wifi_service_set_capture_action(wifi_deauther_send_capture_frame);
     wifi_service_start_channel_hopping();
   }
 
@@ -233,6 +316,12 @@ bool wifi_sniffer_start_stream_sd(wifi_sniffer_type_t type, uint8_t channel, con
     ESP_LOGW(TAG, "Sniffer already running.");
     return false;
   }
+
+  if (prepare_tracking() != ESP_OK)
+    return false;
+  if (channel == 0 && wifi_service_set_capture_hopping(type == WIFI_SNIFFER_TYPE_EAPOL ||
+                                                       type == WIFI_SNIFFER_TYPE_PMKID) != ESP_OK)
+    return false;
 
   if (!sd_is_mounted()) {
     ESP_LOGE(TAG, "SD Card not mounted.");
@@ -272,9 +361,10 @@ bool wifi_sniffer_start_stream_sd(wifi_sniffer_type_t type, uint8_t channel, con
   s_current_type = type;
   reset_monitor_counters();
 
-  memset(s_sessions, 0, sizeof(s_sessions));
-  memset(s_known_aps, 0, sizeof(s_known_aps));
+  memset(s_sessions, 0, MAX_TRACKED_SESSIONS * sizeof(*s_sessions));
+  memset(s_known_aps, 0, MAX_KNOWN_APS * sizeof(*s_known_aps));
 
+  s_is_pcap_enabled = true;
   s_is_streaming_sd = true;
   s_is_sniffing = true;
 
@@ -312,6 +402,7 @@ bool wifi_sniffer_start_stream_sd(wifi_sniffer_type_t type, uint8_t channel, con
   if (channel > 0) {
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   } else {
+    wifi_service_set_capture_action(wifi_deauther_send_capture_frame);
     wifi_service_start_channel_hopping();
   }
 
@@ -347,8 +438,8 @@ void wifi_sniffer_stop(void) {
   if (!s_is_sniffing)
     return;
 
-  wifi_service_promiscuous_stop();
   wifi_service_stop_channel_hopping();
+  wifi_service_promiscuous_stop();
   wifi_service_set_analysis_band(SPI_WIFI_BAND_DUAL);
   s_is_sniffing = false;
   s_is_streaming_sd = false;
@@ -422,6 +513,12 @@ void wifi_sniffer_fill_ext_stats(spi_sniffer_stats_t *out) {
   out->last_rssi = s_last_rssi;
   memcpy(out->channel_packets, s_channel_packets, sizeof(out->channel_packets));
   memcpy(out->channel_peak_rssi, s_channel_peak_rssi, sizeof(out->channel_peak_rssi));
+  wifi_service_capture_status_t capture;
+  wifi_service_get_capture_status(&capture);
+  out->capture_attempts = capture.attempts;
+  out->capture_failures = capture.failures;
+  out->capture_hold_seconds = capture.hold_seconds;
+  out->capture_ap_attempt = capture.ap_attempt;
 }
 
 bool wifi_sniffer_pmkid_captured(void) {
@@ -472,44 +569,6 @@ static bool write_pcap_global_header(void) {
   return true;
 }
 
-static void inject_unicast_probe_req(const uint8_t *target_bssid) {
-  uint8_t packet[128];
-  uint8_t mac[MAC_LEN];
-  esp_fill_random(mac, MAC_LEN);
-  mac[0] &= 0xFC;
-
-  int idx = 0;
-  packet[idx++] = 0x40;
-  packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
-
-  memcpy(&packet[idx], target_bssid, BSSID_LEN);
-  idx += BSSID_LEN;
-  memcpy(&packet[idx], mac, MAC_LEN);
-  idx += MAC_LEN;
-  memcpy(&packet[idx], target_bssid, BSSID_LEN);
-  idx += BSSID_LEN;
-
-  packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
-
-  packet[idx++] = 0x00;
-  packet[idx++] = 0x00;
-
-  uint8_t rates[] = {0x82, 0x84, 0x8b, 0x96};
-  packet[idx++] = 0x01;
-  packet[idx++] = sizeof(rates);
-  memcpy(&packet[idx], rates, sizeof(rates));
-  idx += sizeof(rates);
-
-  for (int i = 0; i < PROBE_TX_COUNT; i++) {
-    esp_wifi_80211_tx(WIFI_IF_AP, packet, idx, false);
-    vTaskDelay(pdMS_TO_TICKS(PROBE_TX_DELAY_MS));
-  }
-  ESP_LOGI(TAG, "Injected Probe Request burst (3x) for SSID reveal");
-}
-
 static void register_known_ap(const uint8_t *bssid) {
   static const uint8_t empty_bssid[BSSID_LEN] = {0};
   int free_idx = -1;
@@ -528,48 +587,107 @@ static void register_known_ap(const uint8_t *bssid) {
   s_unique_aps++;
 }
 
-static bool is_ap_ssid_known(const uint8_t *bssid) {
-  for (int i = 0; i < MAX_KNOWN_APS; i++) {
-    if (memcmp(s_known_aps[i].bssid, bssid, BSSID_LEN) == 0) {
-      return s_known_aps[i].has_ssid;
-    }
+static bool replay_follows(const uint8_t *previous, const uint8_t *next) {
+  uint8_t expected[EAPOL_REPLAY_LEN];
+  memcpy(expected, previous, sizeof(expected));
+  for (size_t i = sizeof(expected); i > 0; i--) {
+    expected[i - 1]++;
+    if (expected[i - 1] != 0)
+      return memcmp(expected, next, sizeof(expected)) == 0;
   }
   return false;
 }
 
-static void track_handshake(const uint8_t *bssid, const uint8_t *station, uint16_t key_info) {
-  bool is_m1 = (key_info & 0x0080) && !(key_info & 0x0100);
-  bool is_m2 = !(key_info & 0x0080) && (key_info & 0x0100);
+// Handshake pair recognition adapted from pwnagotchi-esp32 capture_model.cpp (hs_complete).
+// https://github.com/Gutem/pwnagotchi-esp32
+// Reference revision: 976a8afab0745693e0d9693dd1e72bf9e9a7f700
+// Copyright (C) 2026 Gutem and contributors.
+// The upstream-derived recognition logic is licensed under GPL-3.0-only.
+//
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, version 3 of the License. It is distributed WITHOUT ANY WARRANTY;
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+// PURPOSE. See LICENSE for the full text.
+//
+// Modified by HIGH CODE LLC, 2026-11-14: C integration with per-AP/client sessions,
+// replay correlation, descriptor/key-version checks and message expiration.
+static void track_handshake(const uint8_t *bssid, const uint8_t *station, const uint8_t *eapol) {
+  uint16_t key_info =
+      ((uint16_t)eapol[EAPOL_KEY_INFO_OFFSET] << 8) | eapol[EAPOL_KEY_INFO_OFFSET + 1];
+  if (!(key_info & EAPOL_PAIRWISE) || (key_info & (EAPOL_ERROR_REQUEST | EAPOL_SMK)))
+    return;
+  static const uint8_t ZERO_NONCE[EAPOL_NONCE_LEN] = {0};
+  bool has_nonce = memcmp(eapol + EAPOL_NONCE_OFFSET, ZERO_NONCE, EAPOL_NONCE_LEN) != 0;
+  uint8_t descriptor = eapol[EAPOL_KEY_DESC_OFFSET];
+  uint8_t message = HANDSHAKE_MESSAGE_COUNT;
+  if ((key_info & EAPOL_ACK) && !(key_info & (EAPOL_MIC | EAPOL_INSTALL | EAPOL_SECURE)) &&
+      has_nonce)
+    message = HANDSHAKE_M1;
+  else if ((key_info & EAPOL_MIC) && !(key_info & (EAPOL_ACK | EAPOL_INSTALL | EAPOL_SECURE)) &&
+           has_nonce)
+    message = HANDSHAKE_M2;
+  else if ((key_info & (EAPOL_ACK | EAPOL_MIC | EAPOL_INSTALL)) ==
+               (EAPOL_ACK | EAPOL_MIC | EAPOL_INSTALL) &&
+           has_nonce)
+    message = HANDSHAKE_M3;
+  else if ((key_info & EAPOL_MIC) && !(key_info & (EAPOL_ACK | EAPOL_INSTALL)) && !has_nonce &&
+           ((key_info & EAPOL_SECURE) || descriptor == EAPOL_WPA_DESCRIPTOR) &&
+           eapol[EAPOL_KEY_DESC_OFFSET + EAPOL_KEY_DATA_LEN_OFFSET] == 0 &&
+           eapol[EAPOL_KEY_DESC_OFFSET + EAPOL_KEY_DATA_LEN_OFFSET + 1] == 0)
+    message = HANDSHAKE_M4;
+  if (message == HANDSHAKE_MESSAGE_COUNT)
+    return;
 
-  if (is_m1) {
-    for (int i = 0; i < MAX_TRACKED_SESSIONS; i++) {
-      if (memcmp(s_sessions[i].bssid, bssid, BSSID_LEN) == 0 &&
-          memcmp(s_sessions[i].station, station, BSSID_LEN) == 0) {
-        s_sessions[i].has_m1 = true;
-        s_sessions[i].m1_timestamp = esp_timer_get_time() / US_PER_MS;
-        return;
-      }
+  uint32_t now = (uint32_t)(esp_timer_get_time() / US_PER_MS);
+  sniffer_handshake_session_t *session = NULL;
+  sniffer_handshake_session_t *oldest = &s_sessions[0];
+  for (size_t i = 0; i < MAX_TRACKED_SESSIONS; i++) {
+    sniffer_handshake_session_t *candidate = &s_sessions[i];
+    for (size_t j = 0; j < HANDSHAKE_MESSAGE_COUNT; j++) {
+      if ((uint32_t)(now - candidate->message_ms[j]) > HANDSHAKE_TIMEOUT_MS)
+        candidate->seen_mask &= (uint8_t)~(1U << j);
     }
-    int idx = s_packet_count % MAX_TRACKED_SESSIONS;
-    memcpy(s_sessions[idx].bssid, bssid, BSSID_LEN);
-    memcpy(s_sessions[idx].station, station, BSSID_LEN);
-    s_sessions[idx].has_m1 = true;
-    s_sessions[idx].m1_timestamp = esp_timer_get_time() / US_PER_MS;
-    ESP_LOGI(TAG, "Captured EAPOL M1 (Potential Handshake)");
-  } else if (is_m2) {
-    for (int i = 0; i < MAX_TRACKED_SESSIONS; i++) {
-      if (s_sessions[i].has_m1 && memcmp(s_sessions[i].bssid, bssid, BSSID_LEN) == 0 &&
-          memcmp(s_sessions[i].station, station, BSSID_LEN) == 0) {
-        ESP_LOGW(TAG, "VALID HANDSHAKE CAPTURED! (M1 + M2)");
-        if (!s_is_handshake_captured) {
-          memcpy(s_handshake_bssid, bssid, BSSID_LEN);
-          s_is_handshake_captured = true;
-        }
-        s_sessions[i].has_m1 = false;
-        return;
-      }
+    if (memcmp(candidate->bssid, bssid, BSSID_LEN) == 0 &&
+        memcmp(candidate->station, station, BSSID_LEN) == 0)
+      session = candidate;
+    if (candidate->seen_mask == 0 ||
+        (uint32_t)(now - candidate->touched_ms) > (uint32_t)(now - oldest->touched_ms))
+      oldest = candidate;
+  }
+  uint16_t key_version = key_info & EAPOL_VERSION_MASK;
+  if (session == NULL) {
+    session = oldest;
+    memset(session, 0, sizeof(*session));
+    memcpy(session->bssid, bssid, BSSID_LEN);
+    memcpy(session->station, station, BSSID_LEN);
+  }
+  if (session->key_version != key_version || session->descriptor != descriptor)
+    session->seen_mask = 0;
+  session->key_version = key_version;
+  session->descriptor = descriptor;
+  session->touched_ms = now;
+  session->message_ms[message] = now;
+  memcpy(session->replay[message], eapol + EAPOL_REPLAY_OFFSET, EAPOL_REPLAY_LEN);
+  session->seen_mask |= (uint8_t)(1U << message);
+
+  for (size_t first = HANDSHAKE_M1; first < HANDSHAKE_M4; first++) {
+    uint8_t mask = (uint8_t)((1U << first) | (1U << (first + 1)));
+    if ((session->seen_mask & mask) != mask)
+      continue;
+    bool is_match =
+        first == HANDSHAKE_M2
+            ? replay_follows(session->replay[first], session->replay[first + 1])
+            : memcmp(session->replay[first], session->replay[first + 1], EAPOL_REPLAY_LEN) == 0;
+    if (!is_match)
+      continue;
+    if (!s_is_handshake_captured) {
+      memcpy(s_handshake_bssid, bssid, BSSID_LEN);
+      s_is_handshake_captured = true;
     }
-    ESP_LOGI(TAG, "Captured EAPOL M2 (Orphaned - Missed M1)");
+    wifi_service_mark_captured(bssid);
+    session->seen_mask = 0;
+    break;
   }
 }
 
@@ -609,6 +727,16 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
     if (offset + 2 + tag_len > key_data_len)
       break;
 
+    static const uint8_t PMKID_SELECTOR[PMKID_KDE_SELECTOR_LEN] = {0x00, 0x0F, 0xAC, 0x04};
+    if (tag == PMKID_KDE_TAG && tag_len == PMKID_KDE_SELECTOR_LEN + PMKID_LEN &&
+        memcmp(key_data + offset + 2, PMKID_SELECTOR, PMKID_KDE_SELECTOR_LEN) == 0) {
+      if (!s_is_pmkid_captured) {
+        memcpy(s_pmkid_bssid, bssid, BSSID_LEN);
+        s_is_pmkid_captured = true;
+      }
+      wifi_service_mark_captured(bssid);
+      return true;
+    }
     if (tag == RSN_TAG_ID) {
       int rsn_cursor = 0;
       const uint8_t *rsn_body = key_data + offset + 2;
@@ -634,14 +762,12 @@ static bool check_pmkid_presence(const uint8_t *payload, int len, const uint8_t 
 
       if (rsn_cursor + 2 <= rsn_len) {
         uint16_t pmkid_count = rsn_body[rsn_cursor] | (rsn_body[rsn_cursor + 1] << 8);
-        if (pmkid_count > 0) {
+        if (pmkid_count > 0 && pmkid_count <= (rsn_len - rsn_cursor - 2) / PMKID_LEN) {
           if (!s_is_pmkid_captured) {
             memcpy(s_pmkid_bssid, bssid, BSSID_LEN);
             s_is_pmkid_captured = true;
           }
-          if (!is_ap_ssid_known(bssid)) {
-            inject_unicast_probe_req(bssid);
-          }
+          wifi_service_mark_captured(bssid);
           return true;
         }
       }
@@ -697,11 +823,30 @@ static void stream_task(void *arg) {
   vTaskDelete(NULL);
 }
 
+static bool should_save_metadata(const uint8_t *bssid, uint8_t subtype) {
+  if (subtype == ASSOC_REQ_SUBTYPE || subtype == REASSOC_REQ_SUBTYPE)
+    return true;
+  if (subtype != BEACON_SUBTYPE && subtype != PROBE_RESP_SUBTYPE)
+    return false;
+  uint32_t now = (uint32_t)(esp_timer_get_time() / US_PER_MS);
+  for (size_t i = 0; i < MAX_KNOWN_APS; i++) {
+    if (memcmp(s_known_aps[i].bssid, bssid, BSSID_LEN) != 0)
+      continue;
+    uint32_t *last = subtype == BEACON_SUBTYPE ? &s_known_aps[i].beacon_timestamp
+                                               : &s_known_aps[i].probe_timestamp;
+    if (*last != 0 && (uint32_t)(now - *last) < METADATA_INTERVAL_MS)
+      return false;
+    *last = now;
+    return true;
+  }
+  return false;
+}
+
 static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
-  if (!s_is_sniffing)
+  if (!s_is_sniffing || buf == NULL || type == WIFI_PKT_MISC)
     return;
 
-  const bool is_pcap_ok = (s_pcap_buffer != NULL);
+  const bool is_pcap_ok = s_is_pcap_enabled && s_pcap_buffer != NULL;
   bool pcap_full = is_pcap_ok && !s_is_streaming_sd &&
                    s_buffer_offset >= SNIFFER_BUFFER_SIZE - SNIFFER_BUFFER_MARGIN;
   if (pcap_full && s_is_monitor_mode) {
@@ -711,14 +856,21 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   }
 
   const wifi_promiscuous_pkt_t *ppkt = (const wifi_promiscuous_pkt_t *)buf;
+  if (ppkt->rx_ctrl.sig_len < FRAME_CONTROL_LEN + FRAME_FCS_LEN)
+    return;
   const wifi_mac_header_t *mac_header = (const wifi_mac_header_t *)ppkt->payload;
   const wifi_frame_control_t *fc = (const wifi_frame_control_t *)&mac_header->frame_control;
 
   int header_len = MAC_HEADER_BASE_LEN;
   if (fc->to_ds && fc->from_ds)
     header_len = MAC_HEADER_4ADDR_LEN;
-  if (fc->subtype & 0x8)
+  if (fc->type == DATA_FRAME_TYPE && (fc->subtype & QOS_SUBTYPE)) {
     header_len += QOS_HEADER_EXTRA;
+    if (ppkt->payload[1] & FRAME_ORDER_MASK)
+      header_len += HT_CONTROL_LEN;
+  }
+  if (fc->type != CTRL_FRAME_TYPE && ppkt->rx_ctrl.sig_len < header_len + FRAME_FCS_LEN)
+    return;
 
   if (fc->type == MGMT_FRAME_TYPE &&
       (fc->subtype == BEACON_SUBTYPE || fc->subtype == PROBE_RESP_SUBTYPE)) {
@@ -757,19 +909,13 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   else
     s_pkts_2ghz++;
 
-  if (s_is_verbose) {
-    if (fc->type == MGMT_FRAME_TYPE && fc->subtype == BEACON_SUBTYPE)
-      printf("B");
-    else if (fc->type == MGMT_FRAME_TYPE && fc->subtype == PROBE_REQ_SUBTYPE)
-      printf("P");
-    else if (fc->type == DATA_FRAME_TYPE && fc->subtype == 0)
-      printf("D");
-    else if (fc->type == CTRL_FRAME_TYPE)
-      printf("C");
-    else
-      printf(".");
-    fflush(stdout);
-  }
+  if (s_is_verbose)
+    ESP_LOGD(TAG,
+             "RX type=%u subtype=%u channel=%u rssi=%d",
+             (unsigned)fc->type,
+             (unsigned)fc->subtype,
+             (unsigned)ppkt->rx_ctrl.channel,
+             (int)ppkt->rx_ctrl.rssi);
 
   bool is_save = false;
 
@@ -784,34 +930,60 @@ static void sniffer_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
       break;
     case WIFI_SNIFFER_TYPE_EAPOL:
     case WIFI_SNIFFER_TYPE_PMKID:
-      if (fc->type == DATA_FRAME_TYPE) {
-        if (ppkt->rx_ctrl.sig_len > header_len + sizeof(wifi_llc_snap_t)) {
-          const wifi_llc_snap_t *llc = (const wifi_llc_snap_t *)(ppkt->payload + header_len);
-          if (ntohs(llc->type) == WIFI_ETHERTYPE_EAPOL) {
-            int eapol_offset = header_len + sizeof(wifi_llc_snap_t);
-            if (ppkt->rx_ctrl.sig_len >= eapol_offset + 7) {
-              uint8_t *key_info_ptr =
-                  (uint8_t *)(ppkt->payload + eapol_offset + EAPOL_KEY_INFO_OFFSET);
-              uint16_t key_info = (key_info_ptr[0] << 8) | key_info_ptr[1];
-
-              const uint8_t *bssid = (fc->from_ds) ? mac_header->addr2 : mac_header->addr1;
-              const uint8_t *station = (fc->from_ds) ? mac_header->addr1 : mac_header->addr2;
-
-              track_handshake(bssid, station, key_info);
-            }
-
-            if (s_current_type == WIFI_SNIFFER_TYPE_EAPOL) {
-              is_save = true;
-            } else {
-              const uint8_t *bssid = (fc->from_ds) ? mac_header->addr2 : mac_header->addr1;
-              if (check_pmkid_presence(
-                      ppkt->payload + header_len, ppkt->rx_ctrl.sig_len - header_len, bssid)) {
-                is_save = true;
-                ESP_LOGI(TAG, "PMKID Found!");
-              }
-            }
-          }
-        }
+      if (fc->type == MGMT_FRAME_TYPE) {
+        size_t body_len = ppkt->rx_ctrl.sig_len - header_len - FRAME_FCS_LEN;
+        if ((fc->subtype == BEACON_SUBTYPE || fc->subtype == PROBE_RESP_SUBTYPE) &&
+            body_len >= BEACON_FIXED_LEN && !fc->to_ds && !fc->from_ds &&
+            memcmp(mac_header->addr2, mac_header->addr3, BSSID_LEN) == 0) {
+          wifi_service_observe_capture(
+              ppkt->rx_ctrl.channel, WIFI_SERVICE_CAPTURE_AP, mac_header->addr3);
+          wifi_service_observe_capture_ap(ppkt->rx_ctrl.channel,
+                                          mac_header->addr3,
+                                          ppkt->payload + header_len + BEACON_FIXED_LEN,
+                                          body_len - BEACON_FIXED_LEN);
+        } else if ((fc->subtype == ASSOC_REQ_SUBTYPE && body_len >= ASSOC_FIXED_LEN) ||
+                   (fc->subtype == REASSOC_REQ_SUBTYPE && body_len >= REASSOC_FIXED_LEN) ||
+                   ((fc->subtype == AUTH_SUBTYPE || fc->subtype == ASSOC_RESP_SUBTYPE ||
+                     fc->subtype == REASSOC_RESP_SUBTYPE) &&
+                    body_len >= AUTH_FIXED_LEN))
+          wifi_service_observe_capture(
+              ppkt->rx_ctrl.channel, WIFI_SERVICE_CAPTURE_ASSOC, mac_header->addr3);
+        is_save = should_save_metadata(mac_header->addr3, fc->subtype);
+        break;
+      }
+      if (fc->type == DATA_FRAME_TYPE && !fc->protected_frame && fc->to_ds != fc->from_ds &&
+          ppkt->rx_ctrl.sig_len >= header_len + LLC_HEADER_LEN + EAPOL_HEADER_LEN + FRAME_FCS_LEN) {
+        static const uint8_t EAPOL_SNAP[LLC_HEADER_LEN] = {
+            0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0x8E};
+        const uint8_t *llc = ppkt->payload + header_len;
+        const uint8_t *eapol = llc + LLC_HEADER_LEN;
+        uint16_t body_len =
+            ((uint16_t)eapol[EAPOL_BODY_LEN_OFFSET] << 8) | eapol[EAPOL_BODY_LEN_OFFSET + 1];
+        size_t available = ppkt->rx_ctrl.sig_len - header_len - LLC_HEADER_LEN - FRAME_FCS_LEN;
+        if (memcmp(llc, EAPOL_SNAP, LLC_HEADER_LEN) != 0 || body_len > available - EAPOL_HEADER_LEN)
+          break;
+        is_save = s_current_type == WIFI_SNIFFER_TYPE_EAPOL;
+        if (body_len < EAPOL_MIN_LEN - EAPOL_HEADER_LEN || eapol[1] != EAPOL_DESCRIPTOR_TYPE ||
+            (eapol[EAPOL_KEY_DESC_OFFSET] != EAPOL_RSN_DESCRIPTOR &&
+             eapol[EAPOL_KEY_DESC_OFFSET] != EAPOL_WPA_DESCRIPTOR))
+          break;
+        size_t key_data_offset = EAPOL_KEY_DESC_OFFSET + EAPOL_KEY_DATA_LEN_OFFSET;
+        uint16_t key_data_len =
+            ((uint16_t)eapol[key_data_offset] << 8) | eapol[key_data_offset + 1];
+        if (key_data_len != body_len - (EAPOL_MIN_LEN - EAPOL_HEADER_LEN))
+          break;
+        const uint8_t *bssid = fc->from_ds ? mac_header->addr2 : mac_header->addr1;
+        wifi_service_observe_capture(ppkt->rx_ctrl.channel, WIFI_SERVICE_CAPTURE_EAPOL, bssid);
+        const uint8_t *station = fc->from_ds ? mac_header->addr1 : mac_header->addr2;
+        uint16_t key_info =
+            ((uint16_t)eapol[EAPOL_KEY_INFO_OFFSET] << 8) | eapol[EAPOL_KEY_INFO_OFFSET + 1];
+        bool is_from_ap = (key_info & EAPOL_ACK) != 0;
+        if (is_from_ap == (bool)fc->from_ds)
+          track_handshake(bssid, station, eapol);
+        bool has_pmkid =
+            !(key_info & EAPOL_ENCRYPTED) &&
+            check_pmkid_presence(llc, LLC_HEADER_LEN + EAPOL_HEADER_LEN + body_len, bssid);
+        is_save = s_current_type == WIFI_SNIFFER_TYPE_EAPOL || has_pmkid;
       }
       break;
     case WIFI_SNIFFER_TYPE_RAW:

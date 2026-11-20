@@ -177,6 +177,8 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
 
     case SPI_ID_BT_DEINIT:
     case SPI_ID_BT_STOP: {
+      if (spi_bridge_async_scan_busy() || session_manager_is_active())
+        return SPI_STATUS_BUSY;
       esp_err_t err = bluetooth_service_deinit();
       if (err == ESP_OK)
         ble_hid_stack_reset();
@@ -360,7 +362,11 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
       return (ble_hid_init() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_HID_DEINIT:
-      return (ble_hid_deinit() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+      if (!bluetooth_service_is_initialized())
+        return SPI_STATUS_OK;
+      if (ble_hid_deinit() != ESP_OK)
+        return SPI_STATUS_ERROR;
+      return bt_release_service_for_gatt();
 
     case SPI_ID_BT_HID_IS_CONNECTED:
       out_resp_payload[0] = ble_hid_is_connected() ? 1 : 0;

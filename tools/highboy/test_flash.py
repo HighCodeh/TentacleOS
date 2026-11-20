@@ -82,7 +82,28 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         self.data[0xF000:0x11000] = ota_entry(3) + ota_entry(4)
         with patch.object(flash, 'image_valid'):
             slot = flash.validate_device(self.data, self.table, self.gen)
-        self.assertEqual(slot.offset, 0x2F0000)
+        self.assertEqual(slot.offset, 0x320000)
+
+    def test_previous_p4_layout_is_rejected(self):
+        from fixtures.recovery_tables import TABLES
+        self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + flash.TABLE_SIZE] = TABLES['P4']
+        with patch.object(flash, 'image_valid') as verify:
+            with self.assertRaisesRegex(ValueError, 'No migration or write performed'):
+                flash.validate_device(self.data, self.table, self.gen)
+            verify.assert_not_called()
+
+    def test_previous_nfc_layout_is_rejected(self):
+        old_csv = (flash.ROOT / 'firmware_p4/partitions.csv').read_text()
+        for current, previous in [('0x300000', '0x2F0000'), ('0x320000', '0x310000'),
+                                  ('0x620000', '0x600000'), ('0x630000', '0x610000'),
+                                  ('0x1D0000', '0x1F0000')]:
+            old_csv = old_csv.replace(current, previous)
+        old_table = self.gen.PartitionTable.from_csv(old_csv).to_binary()
+        self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + len(old_table)] = old_table
+        with patch.object(flash, 'image_valid') as verify:
+            with self.assertRaisesRegex(ValueError, 'No migration or write performed'):
+                flash.validate_device(self.data, self.table, self.gen)
+            verify.assert_not_called()
 
     def test_layout_mismatch_precedes_image_checks(self):
         self.data[flash.TABLE_OFFSET] ^= 1
@@ -92,7 +113,7 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         verify.assert_not_called()
 
     def test_erased_assets_rejected(self):
-        self.data[0x5D0000:0x5D0004] = b'\xff' * 4
+        self.data[0x630000:0x630004] = b'\xff' * 4
         with patch.object(flash, 'image_valid'):
             with self.assertRaisesRegex(ValueError, 'Assets partition is empty'):
                 flash.validate_device(self.data, self.table, self.gen)
@@ -161,7 +182,7 @@ class FlowTests(LayoutFixture, unittest.TestCase):
         self.assertEqual([command[0] for command, _ in commands],
                          ['get_security_info', 'flash_id'] + ['read_flash'] * chunks +
                          ['verify_flash', 'write_flash', 'verify_flash', 'read_mac'])
-        self.assertEqual(commands[-3][0][1], '0x2f0000')
+        self.assertEqual(commands[-3][0][1], '0x320000')
         self.assertFalse(commands[-3][1])
         self.assertTrue(commands[-1][1])
         self.assertEqual(report['status'], 'written_and_verified')
@@ -198,8 +219,8 @@ class C5Tests(LayoutFixture, unittest.TestCase):
         self.data[0xF000:0x11000] = ota_entry(3) + ota_entry(4)
         commands, report = self.exercise()
         self.assertEqual(report['chip'], 'esp32c5')
-        self.assertEqual(report['offset'], 0x220000)
-        self.assertEqual(commands[-3][0][1], '0x220000')
+        self.assertEqual(report['offset'], 0x320000)
+        self.assertEqual(commands[-3][0][1], '0x320000')
         self.assertFalse(report['other_chip_updated'])
 
     def test_c5_check_never_writes(self):
@@ -208,9 +229,13 @@ class C5Tests(LayoutFixture, unittest.TestCase):
         self.assertEqual(report['chip'], 'esp32c5')
         self.assertEqual(report['status'], 'checked')
 
-    def test_c5_rejects_p4_slot_profile(self):
-        with self.assertRaisesRegex(ValueError, 'Unexpected app slot size'):
-            flash.validate_device(self.data, self.table, self.gen, 'p4')
+    def test_previous_c5_layout_is_rejected(self):
+        from fixtures.recovery_tables import TABLES
+        self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + flash.TABLE_SIZE] = TABLES['C5']
+        with patch.object(flash, 'image_valid') as verify:
+            with self.assertRaisesRegex(ValueError, 'No migration or write performed'):
+                flash.validate_device(self.data, self.table, self.gen, 'c5')
+            verify.assert_not_called()
 
 
 class TransportTests(unittest.TestCase):

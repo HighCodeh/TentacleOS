@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_exposure_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
@@ -55,12 +56,14 @@ static lv_obj_t *s_list_label = NULL;
 static void exposure_input(const input_event_t *ev, void *ctx);
 static void feed_tick_cb(lv_timer_t *timer);
 
-static void stop_scanning(void) {
+void ui_ble_exposure_stop(void) {
   if (s_feed_timer != NULL) {
     lv_timer_delete(s_feed_timer);
     s_feed_timer = NULL;
   }
   exposure_notification_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static void render_list(void) {
@@ -106,12 +109,7 @@ void ui_ble_exposure_open(void) {
   s_count_label = NULL;
   s_list_label = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "EXPOSURE", EXPO_ICON);
   ui_chrome_footer(s_screen, "BACK Back");
@@ -170,12 +168,12 @@ void ui_ble_exposure_open(void) {
 
   ui_feedback(UI_FB_SELECT);
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE exposure screen opened");
+  ESP_LOGD(TAG, "BLE exposure screen opened");
 }
 
 static void feed_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_scanning();
+    ui_ble_exposure_stop();
     return;
   }
   render_list();
@@ -188,7 +186,6 @@ static void exposure_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_scanning();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

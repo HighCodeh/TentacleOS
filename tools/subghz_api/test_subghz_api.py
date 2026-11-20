@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+#
+
 """Compile native Sub-GHz ownership, bounded backend and spectrum against explicit fakes."""
 import os
 from pathlib import Path
@@ -50,8 +66,8 @@ typedef int esp_err_t;
                         str(APPS/'subghz_protocol_serializer.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
         source=(DRIVER/'cc1101.c').read_text()
-        start=source.index('static void write_burst_impl(')
-        end=source.index('static long linear_map',start)
+        start=source.index('static esp_err_t write_burst_impl(')
+        end=source.index('static esp_err_t read_register(',start)
         wrappers=source[start:end]
         signatures=list(re.finditer(r'^static (void|uint8_t|bool|esp_err_t) (\w+_impl)\(([^)]*)\);',wrappers,re.M))
         fake_impl=[];foreign_calls=[];native_calls=[]
@@ -63,9 +79,10 @@ typedef int esp_err_t;
             if params!='void':
                 for part in params.split(','):
                     arg=re.search(r'(\w+)\s*$',part).group(1)
-                    args.append('buffer' if arg in ['buf','data'] else '3')
+                    args.append('buffer' if arg in ['buf','data','out_value'] else '3')
             call='cc1101_'+name[:-5]+'('+','.join(args)+')'
-            foreign_calls.append(call+';' if ret=='void' else 'assert('+call+'=='+('false' if ret=='bool' else 'ESP_ERR_INVALID_STATE' if ret=='esp_err_t' else '0')+');')
+            public_ret=re.search(r'^(void|uint8_t|bool|esp_err_t) cc1101_'+name[:-5]+r'\(',wrappers,re.M).group(1)
+            foreign_calls.append(call+';' if public_ret=='void' else 'assert('+call+'=='+('false' if public_ret=='bool' else 'ESP_ERR_INVALID_STATE' if public_ret=='esp_err_t' else '0')+');')
             native_calls.append(call+';')
         driver_test=(HERE/'test_lease.c').read_text().replace('/* WRAPPERS */',wrappers+'\n'+'\n'.join(fake_impl))
         driver_test=driver_test.replace('/* FOREIGN_CALLS */','\n'.join(foreign_calls)).replace('/* NATIVE_CALLS */','\n'.join(native_calls))
@@ -83,6 +100,26 @@ typedef int esp_err_t;
         subprocess.run([str(binary)],check=True,timeout=30)
         subprocess.run([*command,str(HERE/'test_spectrum.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
+        ui = ROOT/'firmware_p4/components/Applications/ui/screens/subghz'
+        for filename, callback, flags in [
+                ('subghz_send_ui.c', 'send_done_cb', ['-DTEST_SEND_SCREEN']),
+                ('subghz_menu_ui.c', 'send_lock_cb', [])]:
+            source = (ui/filename).read_text()
+            # Select the implementation after any forward declaration.
+            signature = f'static void {callback}(lv_timer_t *t) {{'
+            harness = (HERE/'test_ui.c').read_text().replace('/* CALLBACK */', function(signature))
+            (temp/'ui_test.c').write_text(harness)
+            subprocess.run([*command, *flags, '-Wno-unused-variable',
+                            str(temp/'ui_test.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=30)
+        (temp/'driver/gpio.h').write_text('#include "radio_platform.h"\n')
+        (temp/'spi.h').write_text('#include "radio_platform.h"\n')
+        (temp/'esp_check.h').write_text('#include "radio_platform.h"\n')
+        for board_flags in ([], ['-DCONFIG_HIGHBOY_BOARD_V203=1']):
+            subprocess.run([*command, *board_flags, str(HERE/'test_radio.c'), '-lm',
+                            '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=30)
+
 
 
 if __name__=='__main__':main()

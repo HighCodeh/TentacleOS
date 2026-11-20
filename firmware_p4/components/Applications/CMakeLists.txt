@@ -70,6 +70,7 @@ idf_component_register(SRCS
   "nfc/protocols/mifare/include"
   "nfc/protocols/t1t/include"
   "nfc/protocols/t2t/include"
+  "nfc/protocols/texkom/include"
   "bad_usb/include"
   "bluetooth/include"
   "SubGhz/include"
@@ -97,6 +98,7 @@ idf_component_register(SRCS
   "ui/screens/dev/include"
   "ui/screens/files/include"
   "ui/screens/games/include"
+  "ui/screens/imu/include"
   "ui/screens/gpio/include"
   "ui/screens/haptic/include"
   "ui/screens/home/include"
@@ -200,3 +202,9 @@ target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
 set_source_files_properties("ui/screens/wifi/ui_wifi_esp_scan.c"
                            "wifi/wifi_scan_view.c" "wifi/wifi_quick_scan.c"
                            PROPERTIES COMPILE_OPTIONS "-Oz")
+
+# Bound presentation code growth within the existing OTA slot. Keep peripheral,
+# codec and game compilation unchanged; UI transitions are validated on-device.
+file(GLOB_RECURSE HIGHBOY_COMPACT_UI "${CMAKE_CURRENT_SOURCE_DIR}/ui/*.c")
+set_source_files_properties(${HIGHBOY_COMPACT_UI}
+  PROPERTIES COMPILE_OPTIONS "-Oz")

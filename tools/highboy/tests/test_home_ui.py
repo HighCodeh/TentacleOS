@@ -1,0 +1,147 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+"""Run the production Home screen with native LVGL after test_keyboard_ui.py."""
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[3]
+UI = ROOT / "firmware_p4/components/Applications/ui"
+base = Path(sys.argv[1]).resolve()
+stubs = base / "home-stubs"
+stubs.mkdir(parents=True, exist_ok=True)
+notice = (UI / "screens/home/home_ui.c").read_text().split("#include", 1)[0]
+
+def write(name, code):
+    (stubs / name).write_text(notice + "#pragma once\n" + code)
+
+write("esp_log.h", '#define ESP_LOGW(tag, ...) ((void)(tag))\n')
+write("assets_manager.h", "")
+write("sys_time.h", "")
+write("ui_chrome.h", "")
+write("ui_manager.h", "")
+write("ui_metrics.h", "")
+write("ui_theme.h", "")
+code = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#include "lvgl.h"
+#define UI_CHROME_HEADER_H 42
+#define UI_CHROME_FOOTER_H 22
+#define SCREEN_MENU 1
+#define INPUT_ACTION_PRESS 1
+#define INPUT_ACTION_REPEAT 2
+#define INPUT_ACTION_RELEASE 3
+#define INPUT_BTN_OK 1
+#define INPUT_BTN_DOWN 2
+#define INPUT_BTN_UP 3
+#define INPUT_BTN_LEFT 4
+#define INPUT_BTN_RIGHT 5
+#define INPUT_BTN_BACK 6
+typedef struct {int action, button;} input_event_t;
+static struct {lv_color_t screen_base, bg_primary, bg_secondary, border_accent,
+  border_inactive, text_main, text_secondary;} current_theme;
+static void (*handler)(const input_event_t *, void *);
+static unsigned opens;
+static bool has_art;
+static const uint8_t pixels[8] = {0};
+static const lv_image_dsc_t art = {.header = {.magic=LV_IMAGE_HEADER_MAGIC,
+  .cf=LV_COLOR_FORMAT_RGB565, .w=2, .h=2, .stride=4}, .data_size=8, .data=pixels};
+static const lv_image_dsc_t *assets_get(const char *path) {
+  assert(!strcmp(path,"/assets/img/image.bin")); return has_art ? &art : NULL;
+}
+static bool sys_time_format(char *out, size_t size, const char *format) {
+  (void)format; snprintf(out,size,"Thu, 19 Nov 2026"); return true;
+}
+static int ui_screen_w(void) {return lv_display_get_horizontal_resolution(NULL);}
+static int ui_screen_h(void) {return lv_display_get_vertical_resolution(NULL);}
+static void ui_chrome_header(lv_obj_t *root, const char *title, const char *icon) {
+  assert(title[0]=='\0' && icon==NULL);
+  lv_obj_t *o=lv_label_create(root);lv_label_set_text(o,"12:34");
+}
+static void ui_chrome_footer(lv_obj_t *root, const char *text) {
+  assert(!strcmp(text,"OK  Apps"));
+  lv_obj_t *o=lv_label_create(root);lv_label_set_text(o,text);lv_obj_align(o,LV_ALIGN_BOTTOM_MID,0,0);
+}
+static void ui_chrome_gradient(lv_obj_t *o, lv_color_t a, lv_color_t b, int h) {
+  (void)b;(void)h;lv_obj_set_style_bg_color(o,a,0);
+}
+static void ui_input_set_screen_handler(void (*cb)(const input_event_t *,void *),void *ctx) {
+  assert(ctx==NULL);handler=cb;
+}
+static void clear_slot(lv_event_t *e) {
+  lv_obj_t **slot=lv_event_get_user_data(e);if(*slot==lv_event_get_target(e))*slot=NULL;
+}
+static void ui_screen_load_owned(lv_obj_t **slot,lv_obj_t *root) {
+  *slot=root;lv_obj_add_event_cb(root,clear_slot,LV_EVENT_DELETE,slot);lv_screen_load(root);
+}
+static void ui_switch_screen(int screen) {assert(screen==SCREEN_MENU);opens++;}
+""" + f'#include "{UI}/screens/home/home_ui.c"\n' + r"""
+static void flush(lv_display_t *d,const lv_area_t *a,uint8_t *b) {
+  (void)a;(void)b;lv_display_flush_ready(d);
+}
+static void press(int button, int action) {
+  input_event_t event={.button=button,.action=action};handler(&event,NULL);
+}
+int main(void) {
+  lv_init();lv_display_t *display=lv_display_create(240,320);
+  _Alignas(LV_DRAW_BUF_ALIGN) static uint8_t buffer[320*20*2];
+  lv_display_set_buffers(display,buffer,NULL,sizeof(buffer),LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(display,flush);
+  for(int wide=0;wide<2;wide++) {
+    lv_display_set_resolution(display,wide?320:240,wide?240:320);
+    for(int mode=0;mode<2;mode++) {
+      has_art=mode;
+      for(int pass=0;pass<3;pass++) {
+        ui_home_open();lv_obj_update_layout(s_screen_home);
+        assert(s_clock!=NULL && handler==home_input);
+        assert(!strcmp(lv_label_get_text(s_date),"Thu, 19 Nov 2026"));
+        lv_obj_t *body=lv_obj_get_parent(s_date);
+        assert(lv_obj_get_child_count(body)==2);
+        lv_area_t area;lv_obj_get_coords(body,&area);
+        assert(area.x1>=0 && area.x2<ui_screen_w());
+        assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
+        lv_obj_t *card=lv_obj_get_child(body,1);lv_obj_get_coords(card,&area);
+        assert(area.x1>=0 && area.x2<ui_screen_w());
+        assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
+        unsigned before=opens;
+        press(INPUT_BTN_UP,INPUT_ACTION_PRESS);press(INPUT_BTN_LEFT,INPUT_ACTION_PRESS);
+        press(INPUT_BTN_RIGHT,INPUT_ACTION_PRESS);press(INPUT_BTN_OK,INPUT_ACTION_REPEAT);
+        press(INPUT_BTN_OK,INPUT_ACTION_RELEASE);assert(opens==before);
+        press(INPUT_BTN_OK,INPUT_ACTION_PRESS);press(INPUT_BTN_DOWN,INPUT_ACTION_PRESS);
+        assert(opens==before+2);
+        ui_home_close();ui_home_close();assert(s_clock==NULL && s_date==NULL);
+      }
+      ui_home_open();lv_obj_t *old=s_screen_home;
+      lv_screen_load(lv_obj_create(NULL));lv_obj_delete(old);
+      assert(s_screen_home==NULL && s_clock==NULL && s_date==NULL);
+      lv_tick_inc(30001);lv_timer_handler();
+    }
+  }
+  puts("PASS: production Home portrait/landscape layout, asset fallback, menu input and timer teardown");
+}
+"""
+test = base / "home_test.c"
+test.write_text(notice + code)
+subprocess.run(["cc", "-std=gnu11", "-g", "-fsanitize=undefined", "-DLV_CONF_INCLUDE_SIMPLE", "-DLV_KCONFIG_IGNORE", str(test),
+                "-I" + str(stubs), "-I" + str(base),
+                "-I" + str(UI / "screens/home/include"),
+                "-I" + str(ROOT / "firmware_p4/managed_components/lvgl__lvgl"),
+                str(base / "build/lvgl-build/lib/liblvgl.a"), "-lm", "-o",
+                str(base / "home_test")], check=True)
+subprocess.run([str(base / "home_test")], check=True, timeout=15)

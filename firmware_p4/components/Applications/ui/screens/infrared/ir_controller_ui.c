@@ -20,6 +20,8 @@
 #include <strings.h>
 
 #include "esp_log.h"
+#include "esp_attr.h"
+#include "menu_component_ui.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -37,9 +39,11 @@ static const char *TAG = "IR_CTRL_UI";
 
 #define MAX_BTNS 16
 
-#define KEYPAD_W 232
-#define KEYPAD_Y 44
-#define KEYPAD_H LV_MIN(250, ui_screen_h() - KEYPAD_Y - UI_CHROME_FOOTER_H)
+#define KEYPAD_MARGIN 4
+#define KEYPAD_GUTTER 20
+#define KEYPAD_W      (ui_screen_w() - KEYPAD_GUTTER)
+#define KEYPAD_Y      44
+#define KEYPAD_H      LV_MIN(250, ui_screen_h() - KEYPAD_Y - UI_CHROME_FOOTER_H)
 
 #define FLASH_MS 150
 
@@ -142,6 +146,7 @@ static const rc_layout_t *s_lay = &LAYOUTS[IR_DEV_TV];
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_keypad = NULL;
+EXT_RAM_BSS_ATTR static menu_component_t s_keypad_scroll;
 static lv_obj_t *s_btn_objs[MAX_BTNS];
 static lv_timer_t *s_flash_timer = NULL;
 static int s_focus = 0;
@@ -283,6 +288,7 @@ static void set_focus(int idx) {
   apply_focus_style(s_btn_objs[s_focus], false);
   s_focus = idx;
   apply_focus_style(s_btn_objs[s_focus], true);
+  menu_component_scroll_to_item(&s_keypad_scroll, s_btn_objs[s_focus]);
   ui_feedback(UI_FB_NAV);
 }
 
@@ -425,6 +431,7 @@ static void ac_set_sel(int idx) {
   ac_apply_row_style(s_ac_rows[s_ac_sel], false);
   s_ac_sel = idx;
   ac_apply_row_style(s_ac_rows[s_ac_sel], true);
+  menu_component_scroll_to_item(&s_keypad_scroll, s_ac_rows[s_ac_sel]);
   ui_feedback(UI_FB_NAV);
 }
 
@@ -605,19 +612,14 @@ void ui_ir_controller_open(void) {
   s_lay = &LAYOUTS[s_device];
   load_universal(s_device);
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, s_lay->title, "/assets/icons/settings_remote.bin");
 
   s_keypad = lv_obj_create(s_screen);
-  lv_obj_remove_flag(s_keypad, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(s_keypad, LV_DIR_VER);
   lv_obj_set_size(s_keypad, KEYPAD_W, KEYPAD_H);
-  lv_obj_align(s_keypad, LV_ALIGN_TOP_MID, 0, KEYPAD_Y);
+  lv_obj_align(s_keypad, LV_ALIGN_TOP_LEFT, KEYPAD_MARGIN, KEYPAD_Y);
   lv_obj_set_style_bg_opa(s_keypad, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_keypad, 0, 0);
   lv_obj_set_style_radius(s_keypad, 0, 0);
@@ -639,6 +641,10 @@ void ui_ir_controller_open(void) {
     s_focus = (s_lay->start >= 0 && s_lay->start < s_lay->count) ? s_lay->start : 0;
     apply_focus_style(s_btn_objs[s_focus], true);
   }
+
+  menu_component_attach_scroll(&s_keypad_scroll, s_screen, s_keypad);
+  menu_component_scroll_to_item(&s_keypad_scroll,
+                                s_is_ac ? s_ac_rows[s_ac_sel] : s_btn_objs[s_focus]);
 
   ui_input_set_screen_handler(ir_controller_input, NULL);
 

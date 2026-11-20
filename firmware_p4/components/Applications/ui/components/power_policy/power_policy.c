@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "power_policy.h"
+#include "spi_bridge.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -36,15 +37,15 @@
 
 // Battery discharge policy, manual shutdown handling, and display inactivity.
 
-#define POWER_POLL_MS          100
-#define BATT_CHECK_MS          2000
-#define BACK_POWEROFF_HOLD_MS  5000
-#define COMBO_POWEROFF_HOLD_MS 3000
-#define DISPLAY_OFF_DELAY_MS   1600
-#define DISPLAY_DIM_LEAD_MS    5000
-#define DISPLAY_MIN_DIM_PCT    5
-#define DISPLAY_DIM_DIVISOR    5
+#define POWER_POLL_MS        100
+#define BATT_CHECK_MS        2000
+#define DISPLAY_OFF_DELAY_MS 1600
+#define DISPLAY_DIM_LEAD_MS  5000
+#define DISPLAY_MIN_DIM_PCT  5
+#define DISPLAY_DIM_DIVISOR  5
 
+#define BATT_CRIT_MV          3200
+#define BATT_SHUTDOWN_MV      3000
 #define BATT_CRIT_PCT         5
 #define BATT_SHUTDOWN_PCT     2
 #define BATT_SHUTDOWN_SAMPLES 3
@@ -60,8 +61,6 @@ static uint32_t s_batt_accum_ms = 0;
 static bool s_back_tracking = false;
 static bool s_back_fired = false;
 static uint32_t s_back_pressed_at = 0;
-static uint32_t s_combo_held_ms = 0;
-static bool s_combo_fired = false;
 static bool s_shutdown_started = false;
 static bool s_display_dimmed = false;
 static bool s_display_asleep = false;
@@ -181,7 +180,7 @@ static void check_display_inactivity(void) {
     return;
   }
 
-  if (g_config_screen.auto_dim && !s_display_dimmed) {
+  if (!s_display_asleep && g_config_screen.auto_dim && !s_display_dimmed) {
     uint32_t dim_at_ms =
         timeout_ms > DISPLAY_DIM_LEAD_MS ? timeout_ms - DISPLAY_DIM_LEAD_MS : timeout_ms / 2U;
     if (idle_ms >= dim_at_ms)
@@ -250,14 +249,24 @@ static void begin_shutdown(const char *reason) {
   if (s_shutdown_started)
     return;
 
+  if (spi_bridge_maintenance_begin() != ESP_OK) {
+    ESP_LOGW(TAG, "Shutdown deferred: bridge recovery in progress");
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "C5 em recuperação; tente novamente");
+    return;
+  }
   bool usb_present = external_power_present();
 
   // Arm the delayed BATFET cut before unmounting. If the I2C command fails,
   // leave the running system and its storage untouched.
   esp_err_t power_err = bq25896_power_off();
   if (power_err != ESP_OK) {
+    spi_bridge_maintenance_end();
     ESP_LOGE(TAG, "ship-mode request failed: %s", esp_err_to_name(power_err));
-    notify(NOTIFY_WARNING, "Falha ao desligar");
+    led_signal_error();
+    notify(NOTIFY_WARNING,
+           power_err == ESP_ERR_TIMEOUT ? "Carregador ocupado; tente novamente"
+                                        : "Falha ao desligar");
     return;
   }
 
@@ -321,12 +330,18 @@ static void check_battery(void) {
   }
   s_low_last = snapshot.low;
 
-  bool critical = on_battery && snapshot.soc <= BATT_CRIT_PCT;
+  bool has_soc = snapshot.soc >= 0;
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  has_soc = has_soc && !snapshot.is_soc_estimated;
+#endif
+  bool critical =
+      on_battery && (has_soc ? snapshot.soc <= BATT_CRIT_PCT : snapshot.vbat_mv <= BATT_CRIT_MV);
   if (critical && !s_crit_last)
     notify(NOTIFY_WARNING, "Battery critical - charge now");
   s_crit_last = critical;
 
-  if (on_battery && snapshot.soc <= BATT_SHUTDOWN_PCT) {
+  if (on_battery &&
+      (has_soc ? snapshot.soc <= BATT_SHUTDOWN_PCT : snapshot.vbat_mv <= BATT_SHUTDOWN_MV)) {
     if (++s_shutdown_count >= BATT_SHUTDOWN_SAMPLES) {
       s_shutdown_count = 0;
       begin_shutdown("Bateria esgotada");
@@ -338,7 +353,8 @@ static void check_battery(void) {
 
 static void check_manual_shutdown_gestures(void) {
   const uint32_t now = lv_tick_get();
-  const bool back_down = input_is_down(INPUT_BTN_BACK);
+  const bool back_down = input_is_down(INPUT_BTN_BACK) && !input_is_down(INPUT_BTN_OK) &&
+                         !input_is_down(INPUT_BTN_DOWN);
 
   if (!back_down) {
     s_back_tracking = false;
@@ -346,25 +362,13 @@ static void check_manual_shutdown_gestures(void) {
   } else if (!s_back_tracking) {
     s_back_tracking = true;
     s_back_pressed_at = now;
-  } else if (!s_back_fired && (uint32_t)(now - s_back_pressed_at) >= BACK_POWEROFF_HOLD_MS &&
+  } else if (!s_back_fired && (uint32_t)(now - s_back_pressed_at) >= POWER_POLICY_BACK_HOLD_MS &&
              !msgbox_is_open()) {
     s_back_fired = true;
     power_policy_show_shutdown_dialog();
   }
 
-  // Preserve the old OK+LEFT recovery shortcut, but route it through the same
-  // safe confirmation instead of cutting power immediately.
-  if (input_is_down(INPUT_BTN_OK) && input_is_down(INPUT_BTN_LEFT)) {
-    if (!s_combo_fired)
-      s_combo_held_ms += POWER_POLL_MS;
-    if (!s_combo_fired && s_combo_held_ms >= COMBO_POWEROFF_HOLD_MS && !msgbox_is_open()) {
-      s_combo_fired = true;
-      power_policy_show_shutdown_dialog();
-    }
-  } else {
-    s_combo_held_ms = 0;
-    s_combo_fired = false;
-  }
+  // OK+DOWN belongs to TPS3421; no software shutdown chord shares these keys.
 }
 
 static void tick_cb(lv_timer_t *timer) {

@@ -19,6 +19,7 @@
 #include "esp_system.h"
 
 #include "storage_init.h"
+#include "spi_bridge.h"
 
 static const char *TAG = "SYS_SHUTDOWN";
 
@@ -36,5 +37,6 @@ esp_err_t sys_shutdown_init(void) {
 }
 
 static void flush_state(void) {
+  spi_bridge_recovery_disable();
   (void)storage_deinit();
 }

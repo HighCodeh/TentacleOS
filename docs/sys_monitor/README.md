@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # System Monitor (`sys_monitor`)
 
 Background health task for `firmware_p4`. It samples every running task's stack
@@ -128,3 +145,10 @@ required stages succeed. SD/I2C remain optional diagnostics.
 injection with ASan/UBSan, fake scheduler/WDT/HAL and both chip monitors. This
 verifies error handling, identity reuse and escalation selection; it does not
 measure physical watchdog timing or certify a captured flash core dump.
+
+### Heap diagnostic scope
+
+On P4, the low-heap warning's current free, largest block and historical minimum
+all use `MALLOC_CAP_INTERNAL`. The historical minimum must not include PSRAM:
+a large external heap does not satisfy internal/DMA allocations. The warning
+thresholds remain unchanged.

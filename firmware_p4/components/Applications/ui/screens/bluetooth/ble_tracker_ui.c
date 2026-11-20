@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_tracker_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
@@ -65,12 +66,14 @@ static void poll_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
 
-static void stop_detector(void) {
+void ui_ble_tracker_stop(void) {
   if (s_poll_timer != NULL) {
     lv_timer_delete(s_poll_timer);
     s_poll_timer = NULL;
   }
   tracker_detector_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static void clear_screen_children(void) {
@@ -202,10 +205,10 @@ static void build_results_view(void) {
 
   if (shown > 0) {
     lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_fade_in(s_banner, 200, 0);
+    lv_obj_fade_in(s_banner, UI_CONTENT_FADE_MS, 0);
   }
 
-  lv_obj_fade_in(body, 220, 0);
+  lv_obj_fade_in(body, UI_CONTENT_FADE_MS, 0);
 }
 
 void ui_ble_tracker_open(void) {
@@ -217,12 +220,7 @@ void ui_ble_tracker_open(void) {
   s_banner = NULL;
   s_is_showing_results = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   build_scanning_view();
 
@@ -236,12 +234,12 @@ void ui_ble_tracker_open(void) {
   }
 
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE tracker screen opened");
+  ESP_LOGD(TAG, "BLE tracker screen opened");
 }
 
 static void poll_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_detector();
+    ui_ble_tracker_stop();
     return;
   }
 
@@ -268,7 +266,6 @@ static void ble_tracker_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_detector();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

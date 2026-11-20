@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #ifndef SUBGHZ_RX_FAKES_H
 #define SUBGHZ_RX_FAKES_H
 #include <assert.h>
@@ -25,6 +40,8 @@ typedef int esp_err_t;
 #define SYS_CORE_RADIO 0
 #define MALLOC_CAP_DMA 1
 #define MALLOC_CAP_INTERNAL 2
+#define MALLOC_CAP_SPIRAM 4
+#define MALLOC_CAP_8BIT 8
 #define RMT_CLK_SRC_DEFAULT 0
 #define GPIO_CC1101_GDO0_PIN 8
 #define CC1101_SIDLE 0x36
@@ -43,6 +60,8 @@ typedef struct { bool (*on_recv_done)(rmt_channel_handle_t, const rmt_rx_done_ev
 typedef struct { uint32_t signal_range_min_ns, signal_range_max_ns; } rmt_receive_config_t;
 typedef int cc1101_preset_t;
 #define CC1101_PRESET_OOK_800KHZ 3
+#define CC1101_PRESET_IDLE 0
+#define CC1101_PRESET_COUNT 7
 typedef uint32_t res_handle_t;
 #define RES_HANDLE_NONE 0
 #define RES_SUBGHZ 2
@@ -67,14 +86,18 @@ esp_err_t rmt_disable(rmt_channel_handle_t);
 esp_err_t rmt_del_channel(rmt_channel_handle_t);
 esp_err_t rmt_receive(rmt_channel_handle_t, void *, size_t, const rmt_receive_config_t *);
 void *heap_caps_aligned_alloc(size_t, size_t, unsigned int);
-void cc1101_strobe(uint8_t);
-void cc1101_set_frequency(uint32_t);
-void cc1101_set_preset(cc1101_preset_t, uint32_t);
+esp_err_t cc1101_strobe(uint8_t);
+esp_err_t cc1101_set_frequency(uint32_t);
+esp_err_t cc1101_set_preset(cc1101_preset_t, uint32_t);
+esp_err_t cc1101_init(void);
+esp_err_t cc1101_enter_rx_mode(void);
+void *heap_caps_malloc(size_t, unsigned int);
 void subghz_tx_stop(void);
 esp_err_t resource_acquire(const res_request_t *, res_handle_t *);
 esp_err_t resource_release(res_handle_t);
 void led_signal_info(void);
 void led_signal_warning(void);
+void led_signal_error(void);
 #include "subghz_types.h"
 bool subghz_protocol_registry_decode_all(const int32_t *, size_t, subghz_data_t *);
 esp_err_t subghz_storage_save_raw(const char *, const int32_t *, size_t, uint32_t);

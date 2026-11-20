@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,19 +47,31 @@ static struct {unsigned info_color,warning_color,error_color,brightness;} g_conf
 static struct {unsigned rotation;} g_config_screen;
 static struct {unsigned volume;bool ui_sound_fx;} g_config_system={50,true};
 static struct {bool enabled;} g_config_wifi,g_config_ble;
-static int nvs_flash_init(void) {return s_nvs_result;}
+static bool s_board_ready;
+static unsigned s_i2c_calls,s_charger_calls,s_typec_calls;
+static int s_i2c_result,s_charger_result,s_typec_result;
+static int init_i2c(void) {assert(s_board_ready);assert(++s_i2c_calls==1);return s_i2c_result;}
+static int bq25896_init(void) {assert(s_i2c_calls==1 && s_i2c_result==ESP_OK);assert(++s_charger_calls==1);return s_charger_result;}
+static int husb320_init(void) {assert(s_charger_calls==1);assert(++s_typec_calls==1);return s_typec_result;}
+static void assert_power_attempted(void) {
+  assert(s_i2c_calls==1);
+  assert(s_charger_calls==(s_i2c_result==ESP_OK));
+  assert(s_typec_calls==(s_i2c_result==ESP_OK));
+}
+static int board_pins_init(void) {s_board_ready=true;return ESP_OK;}
+static int nvs_flash_init(void) {assert(s_board_ready);assert_power_attempted();return s_nvs_result;}
 static void boot_report_reset(void) {s_required_ok=true;}
 static void boot_report_record(const char *name,bool required,int result) {(void)name;if(required && result!=0)s_required_ok=false;}
 static bool boot_report_all_required_ok(void) {return s_required_ok;}
 static bool boot_report_in_bootloop(void) {return s_loop;}
 static void boot_report_complete(void) {++s_complete;}
-static int storage_init(void) {++s_sd;return ESP_OK;}
-static int storage_assets_init(void) {return s_assets_result;}
+static int storage_init(void) {assert_power_attempted();++s_sd;return ESP_OK;}
+static int storage_assets_init(void) {assert_power_attempted();return s_assets_result;}
 static bool storage_is_mounted(void) {return false;}
 static int storage_check_health(void) {return ESP_OK;}
 static int storage_remount(void) {return ESP_OK;}
 static bool input_is_down(int button) {(void)button;return s_combo;}
-static int st7789_init(void) {++s_panel;return s_panel_result;}
+static int st7789_init(void) {assert_power_attempted();++s_panel;return s_panel_result;}
 static int lvgl_glue_init(void) {assert(s_panel_result==ESP_OK);++s_lvgl;return s_lvgl_result;}
 static void lv_port_indev_init(void) {assert(s_lvgl_result==ESP_OK && s_panel_result==ESP_OK);++s_indev;}
 static void ui_init(void) {assert(s_indev);++s_normal_ui;}
@@ -65,6 +92,9 @@ static int xTaskCreatePinnedToCore(void (*task)(void *),const char *name,unsigne
 static void heap_caps_register_failed_alloc_callback(void (*callback)(size_t,uint32_t,const char *)) {(void)callback;}
 static void led_set_signal_config(unsigned a,unsigned b,unsigned c,unsigned d) {(void)a;(void)b;(void)c;(void)d;}
 static int gpio_install_isr_service(unsigned flags) {(void)flags;return ESP_OK;}
+static const void *board_service_controls(void) {return (void *)1;}
+static void audio_i2s_bind_controls(const void *ops) {(void)ops;}
+static void usb_mux_bind_controls(const void *ops) {(void)ops;}
 static void audio_i2s_set_volume(uint8_t volume) {(void)volume;}
 static bool lvgl_glue_is_ready(void) {return s_panel_result==ESP_OK && s_lvgl_result==ESP_OK;}
 static bool lvgl_glue_is_landscape(void) {return false;}
@@ -74,16 +104,18 @@ static bool ui_acquire(void) {return false;}
 static void ui_release(void) {}
 static void msgbox_open(const char *icon,const char *message,const char *button,void *cb,void *ctx) {(void)icon;(void)message;(void)button;(void)cb;(void)ctx;}
 #define FAKE(name) static int name(void) {return ESP_OK;}
-FAKE(led_rgb_init) FAKE(led_signal_error) FAKE(bq25896_init) FAKE(console_service_init)
+FAKE(led_rgb_init) FAKE(led_signal_error) FAKE(console_service_init)
 FAKE(sys_time_init) FAKE(boot_report_capture_crash) FAKE(sys_shutdown_init) FAKE(power_manager_init)
-FAKE(lf_rfid_init) FAKE(spi_init) FAKE(init_i2c) FAKE(input_manager_init) FAKE(storage_assets_print_info)
+FAKE(lf_rfid_init) FAKE(spi_init) FAKE(input_manager_init) FAKE(storage_assets_print_info)
 FAKE(battery_service_init) FAKE(config_sync_start) FAKE(buttons_init) FAKE(audio_i2s_init)
 FAKE(wifi_service_init) FAKE(wifi_service_start) FAKE(wifi_service_stop)
 FAKE(bluetooth_service_init) FAKE(bluetooth_service_start) FAKE(bluetooth_service_stop)
 FAKE(usb_mux_init) FAKE(host_link_state_init) FAKE(host_link_stream_init) FAKE(host_link_init)
 FAKE(host_link_cdc_init) FAKE(host_link_log_init) FAKE(led_signal_warning) FAKE(led_signal_info)
 /* MODULE */
-static void reset(void) {
+static void reset(void) {s_board_ready=false;
+  s_i2c_calls=s_charger_calls=s_typec_calls=0;
+  s_i2c_result=s_charger_result=s_typec_result=ESP_OK;
   s_sd=s_config=s_theme=s_radios=s_normal_ui=s_safe_ui=s_indev=s_lvgl=s_panel=s_monitor=s_complete=s_sound=0;
   s_nvs_result=s_assets_result=s_panel_result=s_lvgl_result=ESP_OK;s_loop=s_combo=false;s_expect_ui=true;
 }
@@ -97,5 +129,9 @@ int main(void) {
   reset();s_loop=true;s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);minimal();assert(!s_expect_ui && s_indev==0 && s_safe_ui==0);
   reset();s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);assert(s_radios==0 && s_normal_ui==0 && s_monitor==1 && !s_expect_ui);
   reset();assert(kernel_init()==ESP_OK);assert(s_config==2 && s_theme==1 && s_radios==2 && s_normal_ui==1 && s_sound==1 && s_monitor==1 && s_complete==1);
+  reset();s_i2c_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
+  reset();s_charger_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
+  reset();s_typec_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
+  puts("PASS: early power initialization precedes NVS/storage/display, runs once and tolerates bus/charger/Type-C failures");
   puts("PASS: real kernel recovery preserves NVS, skips config/SD/radios, gates UI on display/LVGL and completes healthy boot");
 }

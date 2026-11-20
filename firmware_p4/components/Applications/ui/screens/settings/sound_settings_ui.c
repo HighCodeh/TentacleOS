@@ -23,12 +23,14 @@
 #include "notify_ui.h"
 #include "tos_config.h"
 #include "tos_storage_paths.h"
+#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "SOUND_SETTINGS_UI";
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_VOLUME    0
 #define ROW_UI_SOUNDS 1
@@ -91,8 +93,10 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
             menu_component_intensity_dec(&s_menu, sel);
             s_changed = true;
             if (sel == ROW_VOLUME) {
-              audio_i2s_set_volume(
-                  (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
+              g_config_system.volume =
+                  vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME));
+              audio_i2s_set_volume((uint8_t)g_config_system.volume);
+              ui_feedback(UI_FB_NAV);
               s_vol_changed = true;
             }
           }
@@ -107,8 +111,10 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
             menu_component_intensity_inc(&s_menu, sel);
             s_changed = true;
             if (sel == ROW_VOLUME) {
-              audio_i2s_set_volume(
-                  (uint8_t)vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME)));
+              g_config_system.volume =
+                  vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME));
+              audio_i2s_set_volume((uint8_t)g_config_system.volume);
+              ui_feedback(UI_FB_NAV);
               s_vol_changed = true;
             }
           }
@@ -117,9 +123,6 @@ static void sound_settings_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_BACK:
       if (press) {
-        if (s_vol_changed)
-          g_config_system.volume =
-              vol_pct_from_level(menu_component_get_intensity(&s_menu, ROW_VOLUME));
         if (s_changed || s_vol_changed) {
           if (tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system") == ESP_OK)
             notify(NOTIFY_SAVED, "Sound settings saved");

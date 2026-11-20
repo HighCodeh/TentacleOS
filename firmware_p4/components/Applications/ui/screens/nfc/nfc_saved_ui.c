@@ -16,8 +16,12 @@
 #include "nfc_saved_ui.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include "nfc_protocol_service.h"
 
 #include "lvgl.h"
+#include "esp_log.h"
 
 #include "st7789.h"
 
@@ -25,8 +29,10 @@
 #include "capture_result_ui.h"
 #include "msgbox_ui.h"
 #include "nfc_sim.h"
+#include "nfc_emulate_ui.h"
 #include "nfc_ui_common.h"
 #include "notify_ui.h"
+#include "led_control.h"
 #include "page_dots_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -34,20 +40,19 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define TICK_MS        50
-#define CARD_H         122
-#define PEEK           60
-#define SAVED_ICON     "/assets/icons/bookmarks.bin"
-#define CARD_ICON      "/assets/icons/nfc.bin"
-#define CARD_REVEAL_MS 1100
-#define UID_VAL_LEN    40
+static const char *TAG = "NFC_SAVED_UI";
+
+#define CARD_H            122
+#define PEEK              60
+#define SAVED_ICON        "/assets/icons/bookmarks.bin"
+#define CARD_ICON         "/assets/icons/nfc.bin"
+#define UID_VAL_LEN       40
+#define DELETE_REFRESH_MS 100
 
 enum { DT_NONE, DT_VIEW };
-enum { DV_CARD, DV_CHOICES };
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_cont = NULL;
-static lv_timer_t *s_tick_timer = NULL;
 static lv_obj_t *s_cards[NFC_SIM_MAX_SAVED];
 static page_dots_t s_dots;
 static bool s_has_dots = false;
@@ -56,14 +61,16 @@ static int s_sel = 0;
 static bool s_empty = false;
 
 static lv_obj_t *s_ov = NULL;
-static lv_obj_t *s_ov_card = NULL;
 static lv_obj_t *s_ov_footer = NULL;
 static capture_result_t s_cr = {0};
 static nfc_sim_card_t s_view_card;
 static int s_detail = DT_NONE;
-static int s_phase = DV_CARD;
 static int s_sel_idx = -1;
-static uint32_t s_reveal_start = 0;
+static lv_timer_t *s_delete_timer;
+static bool s_is_deleting;
+static bool s_exit_after_delete;
+
+static void present_choices(void);
 
 static void rebuild_async(void *p) {
   (void)p;
@@ -149,10 +156,8 @@ static void overlay_close(void) {
     s_ov = NULL;
   }
   s_cr = (capture_result_t){0};
-  s_ov_card = NULL;
   s_ov_footer = NULL;
   s_detail = DT_NONE;
-  s_phase = DV_CARD;
 }
 
 static void overlay_open(const nfc_sim_card_t *c, int idx) {
@@ -172,34 +177,14 @@ static void overlay_open(const nfc_sim_card_t *c, int idx) {
   ui_chrome_header_overlay(s_ov, "CARD", SAVED_ICON);
   s_ov_footer = ui_chrome_footer(s_ov, "OK  Options    BACK  Back");
 
-  s_ov_card = nfc_ui_card_panel(s_ov, &s_view_card);
-  lv_obj_align(s_ov_card, LV_ALIGN_CENTER, 0, -6);
-  lv_obj_fade_in(s_ov_card, 220, 0);
-
   s_detail = DT_VIEW;
-  s_phase = DV_CARD;
   s_sel_idx = idx;
-  s_reveal_start = lv_tick_get();
+  present_choices();
   ui_feedback(UI_FB_SELECT);
 }
 
-static void choices_step(bool forward) {
-  do {
-    if (forward)
-      capture_result_next(&s_cr);
-    else
-      capture_result_prev(&s_cr);
-  } while (capture_result_selected(&s_cr) != CAP_ACT_PRIMARY &&
-           capture_result_selected(&s_cr) != CAP_ACT_DISCARD);
-}
-
 static void present_choices(void) {
-  if (s_ov_card) {
-    lv_obj_del(s_ov_card);
-    s_ov_card = NULL;
-  }
-
-  char uid[24];
+  char uid[UID_VAL_LEN - sizeof("UID ")];
   static char valbuf[UID_VAL_LEN];
   nfc_sim_format_uid(&s_view_card, uid, sizeof(uid));
   snprintf(valbuf, sizeof(valbuf), "UID %s", uid);
@@ -212,34 +197,66 @@ static void present_choices(void) {
       .card_value = valbuf,
       .primary_label = "Emulate",
   };
-  s_cr = capture_result_create(s_ov, &cfg);
-  lv_obj_add_flag(s_cr.rows[CAP_ACT_SAVE], LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(s_cr.rows[CAP_ACT_AGAIN], LV_OBJ_FLAG_HIDDEN);
+  const capture_result_action_cfg_t actions[] = {
+      {.id = CAP_ACT_PRIMARY, .symbol = LV_SYMBOL_UPLOAD, .label = "Emulate"},
+      {.id = CAP_ACT_DISCARD, .symbol = LV_SYMBOL_TRASH, .label = "Delete card + data"},
+  };
+  s_cr = capture_result_create_custom(s_ov, &cfg, actions, sizeof(actions) / sizeof(actions[0]));
 
   ui_chrome_footer_set_text(s_ov_footer, LV_SYMBOL_UP LV_SYMBOL_DOWN " Choose   OK Do   BACK Back");
-  s_phase = DV_CHOICES;
+}
+
+static void delete_tick(lv_timer_t *timer) {
+  nfc_protocol_status_t status;
+  nfc_protocol_service_get_status(&status);
+  if (status.running)
+    return;
+  lv_timer_delete(timer);
+  s_delete_timer = NULL;
+  s_is_deleting = false;
+  if (status.state == NFC_PROTOCOL_STATE_DONE) {
+    ESP_LOGI(TAG, "Deleted card and linked SD data");
+    led_signal_info();
+    ui_feedback(UI_FB_WRITE);
+    notify(NOTIFY_INFO, "Card and dumps deleted");
+    overlay_close();
+    if (!s_exit_after_delete)
+      ui_async_call(rebuild_async, NULL);
+  } else {
+    ESP_LOGW(TAG, "Card deletion incomplete: 0x%x", status.error);
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "Not completed; check SD and retry");
+    ui_chrome_footer_set_text(s_ov_footer, "Check SD, then retry delete   BACK");
+  }
+  if (s_exit_after_delete)
+    ui_switch_screen(SCREEN_NFC_MENU);
 }
 
 static void on_del_confirm(bool confirm) {
-  if (!confirm)
+  if (!confirm || s_is_deleting)
     return;
-  nfc_sim_remove(s_sel_idx);
-  ui_feedback(UI_FB_WRITE);
-  notify(NOTIFY_INFO, "Card deleted");
-  overlay_close();
-  ui_async_call(rebuild_async, NULL);
-}
-
-static void nfc_saved_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_tick_timer = NULL;
+  s_delete_timer = lv_timer_create(delete_tick, DELETE_REFRESH_MS, NULL);
+  if (s_delete_timer == NULL) {
+    ESP_LOGE(TAG, "Cannot create deletion status timer");
+    led_signal_error();
+    notify(NOTIFY_WARNING, "Cannot start deletion; try again");
     return;
   }
-  if (s_detail == DT_VIEW && s_phase == DV_CARD && !(msgbox_is_open() || ui_input_is_locked()) &&
-      lv_tick_get() - s_reveal_start >= CARD_REVEAL_MS) {
-    present_choices();
+  esp_err_t error =
+      nfc_protocol_service_delete_saved(s_sel_idx, s_view_card.uid, s_view_card.uid_len);
+  if (error == ESP_OK)
+    error = nfc_protocol_service_start(NFC_PROTOCOL_OP_CARD_DELETE);
+  if (error != ESP_OK) {
+    lv_timer_delete(s_delete_timer);
+    s_delete_timer = NULL;
+    ESP_LOGW(TAG, "Cannot start card deletion: 0x%x", error);
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "Card changed or NFC busy; reopen");
+    return;
   }
+  s_is_deleting = true;
+  s_exit_after_delete = false;
+  ui_chrome_footer_set_text(s_ov_footer, "Deleting card and linked data...");
 }
 
 static void nfc_saved_input(const input_event_t *ev, void *ctx) {
@@ -247,27 +264,31 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
+  if (s_is_deleting) {
+    if (press && ev->button == INPUT_BTN_BACK) {
+      s_exit_after_delete = true;
+      nfc_protocol_service_cancel();
+      ui_chrome_footer_set_text(s_ov_footer, "Finishing storage operation...");
+    }
+    return;
+  }
+
   if (s_detail == DT_VIEW) {
     if (ev->button == INPUT_BTN_BACK) {
       if (press)
         overlay_close();
       return;
     }
-    if (s_phase == DV_CARD) {
-      if (ev->button == INPUT_BTN_OK && press)
-        present_choices();
-      return;
-    }
     switch (ev->button) {
       case INPUT_BTN_DOWN:
         if (nav) {
-          choices_step(true);
+          capture_result_next(&s_cr);
           ui_feedback(UI_FB_NAV);
         }
         break;
       case INPUT_BTN_UP:
         if (nav) {
-          choices_step(false);
+          capture_result_prev(&s_cr);
           ui_feedback(UI_FB_NAV);
         }
         break;
@@ -275,9 +296,29 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
         if (press) {
           if (capture_result_selected(&s_cr) == CAP_ACT_PRIMARY) {
             ui_feedback(UI_FB_EMULATE);
-            ui_switch_screen(SCREEN_NFC_EMULATE);
+            if (strcmp(s_view_card.type, "Texkom") == 0) {
+              if (nfc_protocol_service_select_texkom(s_sel_idx) == HB_NFC_OK)
+                ui_switch_screen(SCREEN_NFC_TEXKOM_EMULATE);
+              else
+                msgbox_open(LV_SYMBOL_WARNING, "Cannot load Texkom card", "OK", NULL, NULL);
+            } else if (strcmp(s_view_card.type, "SLIX / NFC-V") == 0 ||
+                       strcmp(s_view_card.type, "ISO15693 / NFC-V") == 0) {
+              if (nfc_protocol_service_select_v(s_sel_idx) == HB_NFC_OK)
+                ui_switch_screen(SCREEN_NFC_V_EMULATE);
+              else
+                msgbox_open(LV_SYMBOL_WARNING, "Cannot load NFC-V card", "OK", NULL, NULL);
+            } else if (strcmp(s_view_card.type, "ST25TB") == 0) {
+              msgbox_open(LV_SYMBOL_WARNING, "Saved dump emulation unavailable", "OK", NULL, NULL);
+            } else {
+              ui_nfc_emulate_select_card(&s_view_card, SCREEN_NFC_SAVED);
+              ui_switch_screen(SCREEN_NFC_EMULATE);
+            }
           } else {
-            msgbox_open(LV_SYMBOL_TRASH, "Delete this card?", "Delete", "Cancel", on_del_confirm);
+            msgbox_open(LV_SYMBOL_TRASH,
+                        "Delete card and all its dumps?",
+                        "Delete",
+                        "Cancel",
+                        on_del_confirm);
           }
         }
         break;
@@ -320,27 +361,28 @@ static void nfc_saved_input(const input_event_t *ev, void *ctx) {
   }
 }
 
+static void screen_deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_nfc_saved_stop();
+}
+
 void ui_nfc_saved_open(void) {
+  ui_nfc_saved_stop();
+  s_exit_after_delete = false;
   nfc_sim_init();
-  if (s_tick_timer != NULL) {
-    lv_timer_delete(s_tick_timer);
-    s_tick_timer = NULL;
-  }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
   s_ov = NULL;
-  s_ov_card = NULL;
   s_ov_footer = NULL;
   s_cr = (capture_result_t){0};
   s_has_dots = false;
   s_detail = DT_NONE;
-  s_phase = DV_CARD;
   s_sel_idx = -1;
-  s_sel = 0;
 
   s_screen = lv_obj_create(NULL);
+  lv_obj_add_event_cb(s_screen, screen_deleted, LV_EVENT_DELETE, NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -351,6 +393,8 @@ void ui_nfc_saved_open(void) {
   if (s_count > NFC_SIM_MAX_SAVED)
     s_count = NFC_SIM_MAX_SAVED;
   s_empty = (s_count == 0);
+  if (s_sel >= s_count)
+    s_sel = s_count > 0 ? s_count - 1 : 0;
 
   if (s_empty) {
     build_empty();
@@ -379,6 +423,15 @@ void ui_nfc_saved_open(void) {
   }
 
   ui_input_set_screen_handler(nfc_saved_input, NULL);
-  s_tick_timer = lv_timer_create(nfc_saved_tick_cb, TICK_MS, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
+}
+
+void ui_nfc_saved_stop(void) {
+  if (s_delete_timer != NULL) {
+    lv_timer_delete(s_delete_timer);
+    s_delete_timer = NULL;
+  }
+  if (s_is_deleting)
+    nfc_protocol_service_stop();
+  s_is_deleting = false;
 }

@@ -141,7 +141,7 @@ static void shutdown_handler(void) {
     vTaskDelay(pdMS_TO_TICKS(10));
   if (LOAD(s_usb_owned))
     tud_disconnect();
-  gpio_set_level(GPIO_AUDIO_EN_PIN, 0);
+  // Amplifier control belongs to C5 on V2.03.
 }
 
 static void voice_worker(void *unused) {

@@ -37,6 +37,8 @@
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
+#include "esp_attr.h"
+#include "menu_component_ui.h"
 
 #define MX           8
 #define CONTENT_W    (ui_screen_w() - 2 * MX)
@@ -82,6 +84,7 @@ static const action_def_t ACTIONS[ACT_COUNT] = {
 };
 
 static lv_obj_t *s_screen = NULL;
+static EXT_RAM_BSS_ATTR menu_component_t s_actions;
 static lv_obj_t *s_act_row[ACT_COUNT];
 static lv_obj_t *s_act_icon[ACT_COUNT];
 static lv_obj_t *s_act_name[ACT_COUNT];
@@ -147,13 +150,8 @@ static lv_obj_t *make_action_row(lv_obj_t *parent, int i) {
   lv_obj_t *row = lv_obj_create(parent);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(row, CONTENT_W, ROW_H);
-  lv_obj_align(
-      row,
-      LV_ALIGN_TOP_MID,
-      0,
-      LV_MIN(ACT_Y, ui_screen_h() - UI_CHROME_FOOTER_H - ((ACT_COUNT - 1) * ROW_STEP + ROW_H)) +
-          i * ROW_STEP);
+  lv_obj_set_size(row, CONTENT_W - 14, ROW_H);
+  lv_obj_align(row, LV_ALIGN_TOP_LEFT, 0, i * ROW_STEP);
   lv_obj_set_style_radius(row, 9, 0);
   lv_obj_set_style_bg_color(row, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -175,6 +173,8 @@ static lv_obj_t *make_action_row(lv_obj_t *parent, int i) {
   lv_label_set_text(name, ACTIONS[i].name);
   lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
   lv_obj_set_style_pad_left(name, 10, 0);
+  lv_obj_set_width(name, 0);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_flex_grow(name, 1);
 
   s_act_icon[i] = ic;
@@ -200,6 +200,7 @@ static void refresh_selection(void) {
     lv_obj_set_style_text_color(s_act_icon[i], sel ? accent : dim, 0);
     lv_obj_set_style_text_color(s_act_name[i], sel ? current_theme.text_main : dim, 0);
   }
+  menu_component_scroll_to_item(&s_actions, s_act_row[s_sel]);
 }
 
 static void c5_op_done(void *data) {
@@ -310,7 +311,7 @@ static void c5_status_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press)
-        ui_switch_screen(SCREEN_SETTINGS_DEV);
+        ui_switch_screen(SCREEN_SETTINGS);
       break;
     case INPUT_BTN_DOWN:
       if (nav) {
@@ -369,11 +370,18 @@ void ui_c5_status_open(void) {
   ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
 
   build_info_card();
+  lv_obj_t *list = lv_obj_create(s_screen);
+  lv_obj_remove_style_all(list);
+  lv_obj_set_size(list, CONTENT_W - 14, ui_screen_h() - ACT_Y - UI_CHROME_FOOTER_H - 4);
+  lv_obj_align(list, LV_ALIGN_TOP_LEFT, MX, ACT_Y);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+  menu_component_attach_scroll(&s_actions, s_screen, list);
   for (int i = 0; i < ACT_COUNT; i++)
-    s_act_row[i] = make_action_row(s_screen, i);
+    s_act_row[i] = make_action_row(list, i);
   refresh_selection();
 
-  ui_chrome_footer(s_screen, "UP/DOWN select   OK run   BACK exit");
+  ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Select  OK Run  BACK");
 
   ui_input_set_screen_handler(c5_status_input, NULL);
 

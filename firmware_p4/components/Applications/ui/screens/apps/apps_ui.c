@@ -62,7 +62,7 @@ static void apps_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press)
-        ui_switch_screen(SCREEN_MENU);
+        ui_switch_screen(SCREEN_DEV_MENU);
       break;
     case INPUT_BTN_OK:
       if (press)

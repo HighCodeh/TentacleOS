@@ -23,6 +23,8 @@ extern "C" {
 /** @brief Open the BLE advertisement sniffer and display captured payloads. */
 void ui_ble_sniffer_open(void);
 
+void ui_ble_sniffer_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

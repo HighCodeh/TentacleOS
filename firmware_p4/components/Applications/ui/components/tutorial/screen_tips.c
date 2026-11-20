@@ -247,9 +247,9 @@ static const tip_entry_t TIPS[] = {
      "The GPIO bus shows IO1-IO8, 5V and UART as green LEDs. Select a pin and press OK to toggle "
      "it."},
     {SCREEN_HAPTIC,
-     "HAPTIC BENCH",
-     "The vibration bench drives the real DRV2605L motor: pick effects, fire patterns and "
-     "calibrate the ERM."},
+     "MENU VIBRATION",
+     "Enable vibration and adjust its intensity for the main coverflow menu. "
+     "Other screens do not trigger the motor."},
     {SCREEN_SPEAKER,
      "SPEAKER",
      "On the speaker I synth chiptunes note by note over I2S: Mario, Tetris and a live 10-band "

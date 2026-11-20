@@ -99,6 +99,14 @@ jobs:
         run: bash tools/build.sh "${{ matrix.target }}"
         shell: bash
 
+      - name: Test real LVGL keyboard, navigation and NFC guidance
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          python3 -m pip install -r tools/highboy/tests/requirements-ui.txt
+          bash tools/highboy/test_ui.command /tmp/highboy-ui-host
+
       - name: Check internal RAM budget and critical compiler policies
         shell: bash
         run: |

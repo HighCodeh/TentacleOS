@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # ST7789 Display Driver
 
 This component initializes and manages the ST7789 LCD controller using the ESP-IDF `esp_lcd` component. It handles the SPI interface configuration and the display initialization sequence.
@@ -6,7 +23,7 @@ This component initializes and manages the ST7789 LCD controller using the ESP-I
 
 - **Location:** `components/Drivers/st7789/`
 - **Header:** `include/st7789.h`
-- **Dependencies:** `esp_lcd`, `driver/gpio`, `driver/ledc`, `spi`
+- **Dependencies:** `esp_lcd`, `driver/gpio`, `driver/ledc`, `spi`, `led_control`
 
 ## Hardware Configuration
 - **Resolution:** 240x320 (`LCD_H_RES` 240 / `LCD_V_RES` 320; `LCD_PANEL_W`/`LCD_PANEL_H` match).
@@ -49,6 +66,12 @@ void lcd_apply_brightness(uint8_t percent);
 Applies a backlight duty (0-100%) **without persisting**. Use for transient
 changes such as the auto-dim fade in `power_policy`, and for the live preview
 while the user drags the brightness bar. Uses LEDC Timer 0, Channel 0, 13-bit.
+Both PWM calls must succeed before the driver publishes lit/dark status to
+`led_set_display_active()`. A nonzero level (including dimmed) suppresses recurring
+charge LED pulses; zero permits the screen-off charge cadence. A failed PWM
+update leaves the last published state intact and reports an error. The LED
+worker owns RGB I2C writes; this path creates no LED timer or extra SPI polling.
+See [LED](../led/README.md).
 
 ### `lcd_set_brightness`
 ```c
@@ -98,3 +121,16 @@ settings screen writes via `tos_config_save(FLASH_CONFIG_SCREEN, "screen")`.
 ## Global Handles
 - `panel_handle`: Handle to the abstract LCD panel.
 - `io_handle`: Handle to the underlying IO interface.
+
+## LCD transfer memory
+
+`psram_dma_direct` is explicitly disabled. LVGL uses internal 40-line DMA double
+buffers again after the full-frame PSRAM path caused a navigation regression
+on hardware (panic during heap inspection). The exact corrupting operation has
+not been isolated. The existing 20 MHz clock, drive strength and SPI transaction
+limit are unchanged. Large off-screen/image allocations may still use PSRAM;
+they are not the LCD DMA buffers.
+
+LVGL waits for color-transfer completion through a blocking semaphore rather
+than polling its flush flag. Completion and direct-draw ownership are managed
+by the [LVGL service](../lvgl/README.md#spi-completion-and-scheduling).

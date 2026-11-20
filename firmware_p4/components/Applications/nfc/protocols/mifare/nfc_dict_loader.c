@@ -257,24 +257,21 @@ bool nfc_dict_contains(const uint8_t *keys, size_t count, size_t key_size, const
 }
 
 esp_err_t nfc_dict_append_key(const char *sd_path, const uint8_t *key, size_t key_size) {
-  if (sd_path == NULL || key == NULL || key_size == 0) {
+  if (sd_path == NULL || key == NULL || key_size == 0 || key_size > MAX_KEY_SIZE)
     return ESP_ERR_INVALID_ARG;
-  }
-
-  FILE *f = fopen(sd_path, "a");
-  if (f == NULL) {
+  FILE *file = fopen(sd_path, "a");
+  if (file == NULL) {
     ESP_LOGE(TAG, "Cannot open %s for append", sd_path);
     return ESP_FAIL;
   }
-
-  for (size_t i = 0; i < key_size; i++) {
-    if (fprintf(f, "%02X", key[i]) < 0) {
-      fclose(f);
-      return ESP_FAIL;
-    }
-  }
-  fputc('\n', f);
-  fclose(f);
-
-  return ESP_OK;
+  /* Isolate a previous interrupted line before appending a complete record. */
+  bool failed = fputc('\n', file) == EOF;
+  for (size_t i = 0; i < key_size && !failed; i++)
+    failed = fprintf(file, "%02X", key[i]) < 0;
+  if (!failed)
+    failed = fputc('\n', file) == EOF;
+  failed = failed || ferror(file) != 0;
+  if (fclose(file) != 0)
+    failed = true;
+  return failed ? ESP_FAIL : ESP_OK;
 }

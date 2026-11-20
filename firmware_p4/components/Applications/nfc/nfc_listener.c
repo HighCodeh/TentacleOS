@@ -25,12 +25,14 @@
 #include "nfc_device.h"
 #include "mf_classic.h"
 #include "power_manager.h"
+#include "led_control.h"
 #include "rf_frontend.h"
 #include "sys_prio.h"
 
 #define NFC_LISTENER_STACK_BYTES 4096
 #define NFC_LISTENER_RETRY_MS    10
 #define NFC_LISTENER_WAIT_MS     3000
+#define NFC_LISTENER_YIELD_MS    10
 
 static const char *TAG = "NFC_LISTENER";
 
@@ -49,6 +51,16 @@ EXT_RAM_BSS_ATTR static mfc_emu_card_data_t s_card;
 static bool s_has_power;
 static bool s_has_reservation;
 static bool s_has_emulator;
+static mfc_emu_capture_cb_t s_capture_cb;
+static void *s_capture_context;
+static bool s_is_plus;
+static bool s_is_t2t;
+static bool s_t2t_read_only;
+static bool s_t2t_loaded;
+static bool s_t2t_snapshot_valid;
+static nfc_t2t_file_t s_t2t_card;
+static t4t_emu_identity_t s_plus_identity;
+static mfp_listener_t s_plus_listener;
 
 static void listener_task(void *arg);
 static hb_nfc_err_t start_card(void);
@@ -61,7 +73,11 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card) {
   hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
   if (atomic_load(&s_phase) != NFC_LISTENER_IDLE)
     goto cleanup;
-  if (card != NULL && card->protocol == HB_PROTO_MF_CLASSIC) {
+  if (card != NULL && card->protocol != HB_PROTO_MF_CLASSIC) {
+    error = ESP_ERR_NOT_SUPPORTED;
+    goto cleanup;
+  }
+  if (card != NULL) {
     mfc_emu_card_data_init(&s_card, &card->iso14443a, mf_classic_get_type(card->iso14443a.sak));
   } else {
     int index = nfc_device_get_active();
@@ -73,6 +89,9 @@ hb_nfc_err_t nfc_listener_start(const hb_nfc_card_data_t *card) {
     if (error != HB_NFC_OK)
       goto cleanup;
   }
+  s_capture_cb = NULL;
+  s_is_t2t = false;
+  s_is_plus = false;
   error = start_card();
 cleanup:
   atomic_flag_clear(&s_is_starting);
@@ -86,8 +105,94 @@ hb_nfc_err_t nfc_listener_start_emu(const mfc_emu_card_data_t *emu) {
     return HB_NFC_ERR_INTERNAL;
   hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
   if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    s_capture_cb = NULL;
+    s_is_t2t = false;
+    s_is_plus = false;
     memcpy(&s_card, emu, sizeof(s_card));
     error = start_card();
+  }
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+hb_nfc_err_t nfc_listener_start_capture(const nfc_iso14443a_data_t *identity,
+                                        mfc_emu_capture_cb_t callback,
+                                        void *context) {
+  if (identity == NULL || callback == NULL || (identity->uid_len != 4 && identity->uid_len != 7) ||
+      (identity->sak != 0x08 && identity->sak != 0x09 && identity->sak != 0x18))
+    return HB_NFC_ERR_PARAM;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  hb_nfc_err_t error = ESP_ERR_INVALID_STATE;
+  if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    s_is_t2t = false;
+    s_is_plus = false;
+    s_capture_cb = callback;
+    s_capture_context = context;
+    mfc_emu_card_data_init(&s_card, identity, mf_classic_get_type(identity->sak));
+    error = start_card();
+  }
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+hb_nfc_err_t nfc_listener_start_plus(const t4t_emu_identity_t *identity,
+                                     const mfp_listener_config_t *config) {
+  if (identity == NULL || config == NULL)
+    return HB_NFC_ERR_PARAM;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return HB_NFC_ERR_INTERNAL;
+  hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
+  if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    error = mfp_listener_init(&s_plus_listener, config);
+    if (error == HB_NFC_OK) {
+      s_plus_identity = *identity;
+      s_capture_cb = NULL;
+      s_is_t2t = false;
+      s_is_plus = true;
+      error = start_card();
+    }
+  }
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+static hb_nfc_err_t start_t2t(const nfc_t2t_file_t *card, bool is_read_only) {
+  if (card == NULL)
+    return HB_NFC_ERR_PARAM;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return HB_NFC_ERR_INTERNAL;
+  hb_nfc_err_t error = HB_NFC_ERR_INTERNAL;
+  if (atomic_load(&s_phase) == NFC_LISTENER_IDLE) {
+    s_t2t_loaded = false;
+    s_t2t_snapshot_valid = false;
+    s_t2t_card = *card;
+    s_t2t_read_only = is_read_only;
+    s_is_t2t = true;
+    s_is_plus = false;
+    error = start_card();
+  }
+  atomic_flag_clear(&s_is_starting);
+  return error;
+}
+
+hb_nfc_err_t nfc_listener_start_t2t(const nfc_t2t_file_t *card) {
+  return start_t2t(card, true);
+}
+
+hb_nfc_err_t nfc_listener_start_t2t_mutable(const nfc_t2t_file_t *card) {
+  return start_t2t(card, false);
+}
+
+esp_err_t nfc_listener_get_t2t_result(nfc_t2t_file_t *out_card) {
+  if (out_card == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (atomic_flag_test_and_set(&s_is_starting))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = ESP_ERR_INVALID_STATE;
+  if (atomic_load(&s_phase) == NFC_LISTENER_IDLE && s_is_t2t && s_t2t_snapshot_valid) {
+    *out_card = s_t2t_card;
+    error = ESP_OK;
   }
   atomic_flag_clear(&s_is_starting);
   return error;
@@ -147,13 +252,38 @@ static hb_nfc_err_t configure_hardware(void) {
   if (power_manager_no_sleep_acquire() != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
   s_has_power = true;
+  // Reader stream/analog state must not leak into the next target session.
+  highboy_nfc_deinit();
+  if (highboy_nfc_is_initialized())
+    return HB_NFC_ERR_INTERNAL;
   highboy_nfc_config_t config = HIGHBOY_NFC_CONFIG_DEFAULT();
   if (highboy_nfc_init(&config) != ESP_OK)
     return HB_NFC_ERR_INTERNAL;
+  if (s_is_t2t) {
+    hb_nfc_err_t error = t2t_emu_init(&s_t2t_card.config);
+    if (error != HB_NFC_OK)
+      return error;
+    s_has_emulator = true;
+    error = t2t_emu_load_memory(s_t2t_card.memory, s_t2t_card.length, s_t2t_read_only);
+    if (error != HB_NFC_OK)
+      return error;
+    s_t2t_loaded = true;
+    error = t2t_emu_configure_target();
+    return error == HB_NFC_OK ? t2t_emu_start() : error;
+  }
+  if (s_is_plus) {
+    hb_nfc_err_t error = t4t_emu_init_plus(&s_plus_identity, &s_plus_listener);
+    if (error != HB_NFC_OK)
+      return error;
+    s_has_emulator = true;
+    error = t4t_emu_configure_target();
+    return error == HB_NFC_OK ? t4t_emu_start() : error;
+  }
   hb_nfc_err_t error = mfc_emu_init(&s_card);
   if (error != HB_NFC_OK)
     return error;
   s_has_emulator = true;
+  mfc_emu_set_capture(s_capture_cb, s_capture_context);
   error = mfc_emu_configure_target();
   return error == HB_NFC_OK ? mfc_emu_start() : error;
 }
@@ -161,7 +291,17 @@ static hb_nfc_err_t configure_hardware(void) {
 static esp_err_t cleanup_hardware(void) {
   if (s_has_reservation) {
     if (s_has_emulator) {
-      mfc_emu_stop();
+      if (s_is_t2t) {
+        if (s_t2t_loaded)
+          s_t2t_snapshot_valid =
+              t2t_emu_snapshot(&s_t2t_card.config, s_t2t_card.memory, s_t2t_card.length) ==
+              HB_NFC_OK;
+        s_t2t_loaded = false;
+        t2t_emu_stop();
+      } else if (s_is_plus)
+        t4t_emu_stop();
+      else
+        mfc_emu_stop();
       s_has_emulator = false;
     }
     if (highboy_nfc_is_initialized()) {
@@ -196,13 +336,29 @@ static void listener_task(void *arg) {
       atomic_compare_exchange_strong(
           &s_phase, &expected, error == HB_NFC_OK ? NFC_LISTENER_RUNNING : NFC_LISTENER_STOPPING);
     }
+    led_set_activity(LED_ACTIVITY_NFC, atomic_load(&s_phase) == NFC_LISTENER_RUNNING);
+    TickType_t last_yield = xTaskGetTickCount();
     while (atomic_load(&s_phase) == NFC_LISTENER_RUNNING) {
-      if (mfc_emu_run_step() == MFC_EMU_STATE_ERROR)
+      if (s_is_t2t) {
+        t2t_emu_run_step();
+        if (t2t_emu_has_error())
+          atomic_store(&s_phase, NFC_LISTENER_STOPPING);
+      } else if (s_is_plus) {
+        t4t_emu_run_step();
+        if (t4t_emu_has_error())
+          atomic_store(&s_phase, NFC_LISTENER_STOPPING);
+      } else if (mfc_emu_run_step() == MFC_EMU_STATE_ERROR)
         atomic_store(&s_phase, NFC_LISTENER_STOPPING);
-      taskYIELD();
+      /* taskYIELD alone cannot schedule the lower-priority system monitor. */
+      if (xTaskGetTickCount() - last_yield >= pdMS_TO_TICKS(NFC_LISTENER_YIELD_MS)) {
+        vTaskDelay(1);
+        last_yield = xTaskGetTickCount();
+      } else
+        taskYIELD();
     }
     while (cleanup_hardware() != ESP_OK)
       vTaskDelay(pdMS_TO_TICKS(NFC_LISTENER_RETRY_MS));
+    led_set_activity(LED_ACTIVITY_NFC, false);
     atomic_store(&s_phase, NFC_LISTENER_IDLE);
   }
 }

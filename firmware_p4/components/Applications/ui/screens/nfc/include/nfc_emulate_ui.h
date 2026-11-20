@@ -16,12 +16,18 @@
 #ifndef NFC_EMULATE_UI_H
 #define NFC_EMULATE_UI_H
 
+#include "nfc_sim.h"
+#include "ui_manager.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Open the real NFC emulation screen backed by saved MIFARE dumps. */
 void ui_nfc_emulate_open(void);
+
+/** Copy a card selection before navigating to emulation; NULL opens all dumps. */
+void ui_nfc_emulate_select_card(const nfc_sim_card_t *card, screen_id_t return_screen);
 
 /** @brief Stop any active RF emulation owned by the screen. */
 void ui_nfc_emulate_stop(void);

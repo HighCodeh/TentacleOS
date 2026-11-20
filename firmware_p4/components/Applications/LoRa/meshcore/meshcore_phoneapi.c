@@ -191,7 +191,7 @@ static void autoadd_persist(void);
 
 esp_err_t meshcore_phoneapi_init(void) {
   if (s_is_initialized) {
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
   }
   s_ble_pin = load_or_generate_ble_pin();
   autoadd_load();

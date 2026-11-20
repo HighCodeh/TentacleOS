@@ -17,194 +17,295 @@
 
 #include <string.h>
 
-#include "core/lv_group.h"
-#include "st7789.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 
-#include "lv_port_indev.h"
+#include "led_control.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define BORDER_COLOR  current_theme.border_interface
-#define ITEM_BORDER   current_theme.border_accent
-#define KB_BG_TOP     current_theme.bg_secondary
-#define KB_BG_BOT     current_theme.bg_item_bot
-#define KB_BTN_BG     current_theme.bg_item_bot
-#define KB_BTN_GRAD   current_theme.border_inactive
-#define KB_BTN_BORDER current_theme.border_interface
-#define KB_BTN_FOCUS  current_theme.border_accent
-#define KB_TA_BG      current_theme.screen_base
+#define DEFAULT_LIMIT 64
+#define KEY_COUNT     32
+#define MAP_SIZE      45
+#define HEX_COUNT     16
+#define FIELD_Y       34
+#define FIELD_H       36
+#define KEYS_Y        96
+#define FOOTER_H      24
 
-#define OUTER_BORDER     4
-#define TOP_BORDER_H     46
-#define KB_H             184
-#define KB_TEXT_BUF_SIZE 65
-
-static lv_obj_t *kb_screen = NULL;
-static lv_obj_t *kb_obj = NULL;
-static lv_obj_t *kb_ta = NULL;
-
-static keyboard_submit_cb_t kb_submit_cb = NULL;
-static void *kb_submit_user_data = NULL;
+static const char *TAG = "KEYBOARD_UI";
+static lv_obj_t *s_screen, *s_keys, *s_text, *s_count, *s_title;
+static keyboard_submit_cb_t s_submit;
+static void *s_context;
+static keyboard_config_t s_config;
+static unsigned s_page;
+static char s_chars[KEY_COUNT][2];
+static const char *s_map[MAP_SIZE];
+static lv_buttonmatrix_ctrl_t s_controls[KEY_COUNT + 7];
+static const char *const s_pages[] = {"abcdefghijklmnopqrstuvwxyz.,@_-/",
+                                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,@_-/",
+                                      "0123456789.,+-*/=:_@#%&?!()$'\"\\|",
+                                      "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"};
 
 extern lv_group_t *main_group;
 
-static void kb_event_cb(lv_event_t *e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t *target_kb = lv_event_get_target(e);
+static uint32_t character_count(const char *text) {
+  uint32_t count = 0;
+  for (const unsigned char *p = (const unsigned char *)text; *p; ++p)
+    if ((*p & 0xC0) != 0x80)
+      ++count;
+  return count;
+}
 
-  if (code == LV_EVENT_VALUE_CHANGED) {
-    uint16_t btn_id = lv_keyboard_get_selected_btn(target_kb);
-    const char *txt = lv_keyboard_get_btn_text(target_kb, btn_id);
+static void refresh_count(void) {
+  const uint32_t count = character_count(lv_textarea_get_text(s_text));
+  lv_label_set_text_fmt(s_count,
+                        "%lu / %lu%s",
+                        (unsigned long)count,
+                        (unsigned long)s_config.max_chars,
+                        count == s_config.max_chars ? "  - limit reached" : "");
+}
 
-    if (txt && (strcmp(txt, LV_SYMBOL_OK) == 0 || strcmp(txt, "Enter") == 0)) {
-      char text_buf[KB_TEXT_BUF_SIZE];
-      const char *input = lv_textarea_get_text(kb_ta);
-      if (input) {
-        strncpy(text_buf, input, sizeof(text_buf) - 1);
-        text_buf[sizeof(text_buf) - 1] = '\0';
-      } else {
-        text_buf[0] = '\0';
-      }
-      if (kb_submit_cb)
-        kb_submit_cb(text_buf, kb_submit_user_data);
-      keyboard_close();
-    }
-  } else if (code == LV_EVENT_CANCEL) {
-    keyboard_close();
+static void set_map(void) {
+  const bool is_hex = s_config.mode == KEYBOARD_HEX;
+  const unsigned count = is_hex ? HEX_COUNT : KEY_COUNT;
+  const unsigned columns = is_hex ? 4 : 8;
+  const char *chars = is_hex ? "0123456789ABCDEF" : s_pages[s_page];
+  unsigned pos = 0;
+  for (unsigned i = 0; i < count; ++i) {
+    s_chars[i][0] = chars[i];
+    s_map[pos++] = s_chars[i];
+    s_controls[i] = 1;
+    if ((i + 1) % columns == 0)
+      s_map[pos++] = "\n";
+  }
+  unsigned action = count;
+  if (!is_hex) {
+    s_map[pos++] = s_page == 0 ? "ABC" : "abc";
+    s_controls[action++] = 2 | LV_BUTTONMATRIX_CTRL_NO_REPEAT;
+    s_map[pos++] = s_page == 2 ? "#+" : "123";
+    s_controls[action++] = 2 | LV_BUTTONMATRIX_CTRL_NO_REPEAT;
+  }
+  s_map[pos++] = LV_SYMBOL_LEFT;
+  s_controls[action++] = 1;
+  if (!is_hex) {
+    s_map[pos++] = "space";
+    s_controls[action++] = 3;
+  }
+  s_map[pos++] = LV_SYMBOL_RIGHT;
+  s_controls[action++] = 1;
+  s_map[pos++] = LV_SYMBOL_BACKSPACE;
+  s_controls[action++] = 2;
+  s_map[pos++] = LV_SYMBOL_OK;
+  s_controls[action++] = 2 | LV_BUTTONMATRIX_CTRL_NO_REPEAT;
+  s_map[pos] = "";
+  lv_buttonmatrix_set_map(s_keys, s_map);
+  lv_buttonmatrix_set_ctrl_map(s_keys, s_controls);
+  lv_buttonmatrix_set_selected_button(s_keys, 0);
+}
+
+static void deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  s_screen = s_keys = s_text = s_count = s_title = NULL;
+  s_submit = NULL;
+  s_context = NULL;
+}
+
+static void submit(void) {
+  const char *text = lv_textarea_get_text(s_text);
+  const uint32_t length = character_count(text);
+  if (length < s_config.min_chars || (s_config.mode == KEYBOARD_HEX && length % 2 != 0)) {
+    if (length < s_config.min_chars)
+      lv_label_set_text_fmt(
+          s_count, "Enter at least %lu characters", (unsigned long)s_config.min_chars);
+    else
+      lv_label_set_text(s_count, "Enter complete hex bytes");
+    ESP_LOGW(TAG, "Input length rejected");
+    led_signal_warning();
+    return;
+  }
+  if (s_config.mode == KEYBOARD_FILENAME &&
+      (strlen(text) > s_config.max_chars || strpbrk(text, "/\\:*?\"<>|") != NULL ||
+       text[0] == '.' || text[0] == ' ' || length == 0 || text[strlen(text) - 1] == '.' ||
+       text[strlen(text) - 1] == ' ')) {
+    lv_label_set_text(s_count, "Invalid file name");
+    led_signal_warning();
+    return;
+  }
+  char *copy = heap_caps_malloc(strlen(text) + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (copy == NULL) {
+    ESP_LOGE(TAG, "Submit copy allocation failed");
+    lv_label_set_text(s_count, "Memory busy - try again");
+    led_signal_error();
+    return;
+  }
+  strcpy(copy, text);
+  keyboard_submit_cb_t callback = s_submit;
+  void *context = s_context;
+  // Detach before callbacks can navigate, destroy the parent, or open another editor.
+  keyboard_close();
+  if (callback != NULL)
+    callback(copy, context);
+  heap_caps_free(copy);
+}
+
+static void key_event(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_keys)
+    return;
+  uint32_t selected = lv_buttonmatrix_get_selected_button(s_keys);
+  const char *key = lv_buttonmatrix_get_button_text(s_keys, selected);
+  if (key == NULL)
+    return;
+  if (strcmp(key, LV_SYMBOL_OK) == 0) {
+    submit();
+    return;
+  }
+  if (strcmp(key, "ABC") == 0 || strcmp(key, "abc") == 0 || strcmp(key, "123") == 0 ||
+      strcmp(key, "#+") == 0) {
+    s_page = strcmp(key, "ABC") == 0   ? 1
+             : strcmp(key, "abc") == 0 ? 0
+             : strcmp(key, "123") == 0 ? 2
+                                       : 3;
+    set_map();
+    return;
+  }
+  if (strcmp(key, LV_SYMBOL_LEFT) == 0)
+    lv_textarea_cursor_left(s_text);
+  else if (strcmp(key, LV_SYMBOL_RIGHT) == 0)
+    lv_textarea_cursor_right(s_text);
+  else if (strcmp(key, LV_SYMBOL_BACKSPACE) == 0)
+    lv_textarea_delete_char(s_text);
+  else
+    lv_textarea_add_text(s_text, strcmp(key, "space") == 0 ? " " : key);
+  refresh_count();
+}
+
+static lv_obj_t *label(const char *text, int y) {
+  lv_obj_t *object = lv_label_create(s_screen);
+  lv_label_set_text(object, text);
+  lv_obj_set_width(object, ui_screen_w() - 16);
+  lv_obj_set_style_text_color(object, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(object, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_align(object, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(object, LV_LABEL_LONG_DOT);
+  lv_obj_align(object, LV_ALIGN_TOP_MID, 0, y);
+  return object;
+}
+
+void keyboard_open_config(const keyboard_config_t *config,
+                          keyboard_submit_cb_t callback,
+                          void *context) {
+  keyboard_close();
+  ui_input_consume_gesture();
+  s_config = *config;
+  if (s_config.max_chars == 0)
+    s_config.max_chars = DEFAULT_LIMIT;
+  s_submit = callback;
+  s_context = context;
+  s_page = s_config.mode == KEYBOARD_NUMBER ? 2 : 0;
+  s_screen = lv_obj_create(lv_screen_active());
+  lv_obj_remove_style_all(s_screen);
+  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
+  lv_obj_set_size(s_screen, ui_screen_w(), ui_screen_h());
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+  lv_obj_move_foreground(s_screen);
+  s_title = label(s_config.title ? s_config.title : "Edit text", 8);
+  lv_obj_set_style_text_color(s_title, current_theme.border_accent, 0);
+
+  s_text = lv_textarea_create(s_screen);
+  lv_obj_set_size(s_text, ui_screen_w() - 12, FIELD_H);
+  lv_obj_align(s_text, LV_ALIGN_TOP_MID, 0, FIELD_Y);
+  lv_textarea_set_one_line(s_text, true);
+  lv_textarea_set_max_length(s_text, s_config.max_chars);
+  lv_textarea_set_password_mode(s_text, s_config.mode == KEYBOARD_PASSWORD);
+  if (s_config.mode == KEYBOARD_HEX)
+    lv_textarea_set_accepted_chars(s_text, "0123456789ABCDEFabcdef");
+  lv_textarea_set_placeholder_text(s_text,
+                                   s_config.mode == KEYBOARD_HEX ? "0-9, A-F" : "Enter text");
+  lv_textarea_set_text(s_text, s_config.initial ? s_config.initial : "");
+  lv_obj_remove_flag(s_text, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_color(s_text, current_theme.bg_secondary, 0);
+  lv_obj_set_style_border_color(s_text, current_theme.border_accent, 0);
+  lv_obj_set_style_text_color(s_text, current_theme.text_main, 0);
+  lv_obj_set_style_text_font(s_text, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_pad_all(s_text, 8, 0);
+  s_count = label("", FIELD_Y + FIELD_H + 5);
+  refresh_count();
+
+  s_keys = lv_buttonmatrix_create(s_screen);
+  lv_obj_set_size(s_keys, ui_screen_w() - 12, ui_screen_h() - KEYS_Y - FOOTER_H);
+  lv_obj_align(s_keys, LV_ALIGN_TOP_MID, 0, KEYS_Y);
+  lv_obj_set_style_bg_opa(s_keys, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_keys, 0, 0);
+  lv_obj_set_style_pad_all(s_keys, 0, 0);
+  lv_obj_set_style_pad_gap(s_keys, 3, 0);
+  lv_obj_set_style_text_font(s_keys, &lv_font_montserrat_12, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(s_keys, current_theme.bg_secondary, LV_PART_ITEMS);
+  lv_obj_set_style_bg_opa(s_keys, LV_OPA_COVER, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(s_keys, current_theme.text_main, LV_PART_ITEMS);
+  lv_obj_set_style_border_color(s_keys, current_theme.border_interface, LV_PART_ITEMS);
+  lv_obj_set_style_border_width(s_keys, 1, LV_PART_ITEMS);
+  lv_obj_set_style_radius(s_keys, 4, LV_PART_ITEMS);
+  const lv_style_selector_t selected = LV_PART_ITEMS | LV_STATE_FOCUS_KEY;
+  lv_obj_set_style_bg_color(s_keys, current_theme.border_accent, selected);
+  lv_obj_set_style_text_color(s_keys, current_theme.screen_base, selected);
+  lv_obj_set_style_bg_color(s_keys, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_PRESSED);
+  lv_obj_set_style_text_color(s_keys, current_theme.screen_base, LV_PART_ITEMS | LV_STATE_PRESSED);
+  set_map();
+  lv_obj_add_event_cb(s_keys, key_event, LV_EVENT_VALUE_CHANGED, NULL);
+  label("OK type   " LV_SYMBOL_OK " confirm   BACK cancel", ui_screen_h() - FOOTER_H + 5);
+  if (main_group != NULL) {
+    lv_group_remove_all_objs(main_group);
+    lv_group_add_obj(main_group, s_keys);
+    lv_group_set_editing(main_group, true);
+    lv_group_focus_obj(s_keys);
   }
 }
 
-void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *user_data) {
-  (void)target_textarea;
+void keyboard_open(lv_obj_t *target, keyboard_submit_cb_t callback, void *context) {
+  const keyboard_config_t config = {.initial = target ? lv_textarea_get_text(target) : NULL};
+  keyboard_open_config(&config, callback, context);
+}
 
-  kb_submit_cb = cb;
-  kb_submit_user_data = user_data;
-  lv_port_indev_set_keyboard_mode(true);
-
-  if (kb_screen)
-    keyboard_close();
-
-  kb_screen = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(kb_screen, LCD_H_RES, LCD_V_RES);
-  lv_obj_align(kb_screen, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_remove_flag(kb_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(kb_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(kb_screen, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(kb_screen, 0, 0);
-  lv_obj_set_style_border_width(kb_screen, OUTER_BORDER, 0);
-  lv_obj_set_style_border_color(kb_screen, BORDER_COLOR, 0);
-  lv_obj_set_style_radius(kb_screen, 0, 0);
-  lv_obj_move_foreground(kb_screen);
-
-  lv_obj_t *top_area = lv_obj_create(kb_screen);
-  lv_obj_set_size(top_area, LCD_H_RES - OUTER_BORDER * 2, TOP_BORDER_H);
-  lv_obj_align(top_area, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_remove_flag(top_area, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(top_area, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(top_area, 3, 0);
-  lv_obj_set_style_border_color(top_area, BORDER_COLOR, 0);
-  lv_obj_set_style_border_side(top_area, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_radius(top_area, 0, 0);
-  lv_obj_set_style_pad_all(top_area, 0, 0);
-
-  lv_obj_t *title_bar = lv_obj_create(top_area);
-  lv_obj_set_size(title_bar, 170, 30);
-  lv_obj_align(title_bar, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_remove_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(title_bar, 12, 0);
-  lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(title_bar, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_dir(title_bar, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_border_width(title_bar, 2, 0);
-  lv_obj_set_style_border_color(title_bar, ITEM_BORDER, 0);
-
-  lv_obj_t *title_lbl = lv_label_create(title_bar);
-  lv_label_set_text(title_lbl, "[ KEYBOARD ]");
-  lv_obj_set_style_text_color(title_lbl, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
-  lv_obj_center(title_lbl);
-
-  int ta_y = TOP_BORDER_H + 10;
-  int ta_h = LCD_V_RES - TOP_BORDER_H - KB_H - OUTER_BORDER - 20;
-
-  kb_ta = lv_textarea_create(kb_screen);
-  lv_obj_set_size(kb_ta, LCD_H_RES - OUTER_BORDER * 2 - 4, ta_h > 60 ? 40 : 30);
-  lv_obj_align(kb_ta, LV_ALIGN_TOP_MID, 0, ta_y + (ta_h - 40) / 2);
-  lv_textarea_set_password_mode(kb_ta, false);
-  lv_textarea_set_placeholder_text(kb_ta, "TYPE HERE...");
-  lv_textarea_set_one_line(kb_ta, true);
-  lv_obj_remove_flag(kb_ta, LV_OBJ_FLAG_CLICKABLE);
-
-  lv_obj_set_style_bg_color(kb_ta, KB_TA_BG, 0);
-  lv_obj_set_style_bg_opa(kb_ta, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(kb_ta, 2, 0);
-  lv_obj_set_style_border_color(kb_ta, ITEM_BORDER, 0);
-  lv_obj_set_style_radius(kb_ta, 10, 0);
-  lv_obj_set_style_text_color(kb_ta, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(kb_ta, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_pad_left(kb_ta, 10, 0);
-
-  kb_obj = lv_keyboard_create(kb_screen);
-  lv_obj_set_size(kb_obj, LCD_H_RES - OUTER_BORDER * 2 - 4, KB_H);
-  lv_obj_align(kb_obj, LV_ALIGN_BOTTOM_MID, 0, -OUTER_BORDER - 2);
-  lv_keyboard_set_mode(kb_obj, LV_KEYBOARD_MODE_TEXT_LOWER);
-
-  lv_obj_set_style_bg_color(kb_obj, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_bg_opa(kb_obj, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(kb_obj, 2, 0);
-  lv_obj_set_style_border_color(kb_obj, BORDER_COLOR, 0);
-  lv_obj_set_style_radius(kb_obj, 12, 0);
-  lv_obj_set_style_pad_all(kb_obj, 5, 0);
-  lv_obj_set_style_pad_gap(kb_obj, 5, 0);
-
-  lv_obj_set_style_bg_color(kb_obj, current_theme.bg_secondary, LV_PART_ITEMS);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(kb_obj, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(kb_obj, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(kb_obj, KB_BTN_BORDER, LV_PART_ITEMS);
-  lv_obj_set_style_radius(kb_obj, 6, LV_PART_ITEMS);
-  lv_obj_set_style_text_color(kb_obj, current_theme.text_main, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(kb_obj, &lv_font_montserrat_16, LV_PART_ITEMS);
-
-  lv_obj_set_style_bg_color(
-      kb_obj, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_bg_grad_dir(kb_obj, LV_GRAD_DIR_NONE, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_border_color(
-      kb_obj, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_border_width(kb_obj, 2, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-  lv_obj_set_style_text_color(kb_obj, current_theme.text_main, LV_PART_ITEMS | LV_STATE_FOCUS_KEY);
-
-  lv_obj_set_style_bg_color(kb_obj, current_theme.border_accent, LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_text_color(kb_obj, current_theme.screen_base, LV_PART_ITEMS | LV_STATE_PRESSED);
-
-  lv_keyboard_set_textarea(kb_obj, kb_ta);
-  lv_obj_add_event_cb(kb_obj, kb_event_cb, LV_EVENT_ALL, NULL);
-
-  if (main_group) {
-    lv_group_remove_all_objs(main_group);
-    lv_group_add_obj(main_group, kb_obj);
-    lv_group_set_editing(main_group, true);
-    lv_group_focus_obj(kb_obj);
-  }
+void keyboard_open_text(const char *initial,
+                        uint32_t max_chars,
+                        keyboard_submit_cb_t callback,
+                        void *context) {
+  const keyboard_config_t config = {.initial = initial, .max_chars = max_chars};
+  keyboard_open_config(&config, callback, context);
 }
 
 bool keyboard_is_open(void) {
-  return kb_screen != NULL;
+  return s_screen != NULL;
 }
 
 void keyboard_close(void) {
-  if (kb_screen) {
-    if (main_group) {
-      lv_group_set_editing(main_group, false);
-      lv_group_remove_all_objs(main_group);
-    }
-    lv_obj_del_async(kb_screen);
-    kb_screen = NULL;
-    kb_obj = NULL;
-    kb_ta = NULL;
-    kb_submit_cb = NULL;
-    kb_submit_user_data = NULL;
-    lv_port_indev_set_keyboard_mode(false);
+  if (s_screen == NULL)
+    return;
+  ui_input_consume_gesture();
+  if (main_group != NULL) {
+    lv_group_set_editing(main_group, false);
+    lv_group_remove_all_objs(main_group);
   }
+  lv_obj_delete_async(s_screen);
+  s_screen = s_keys = s_text = s_count = s_title = NULL;
+  s_submit = NULL;
+  s_context = NULL;
+}
+
+void keyboard_open_filename(const char *title,
+                            const char *initial,
+                            uint32_t max_chars,
+                            keyboard_submit_cb_t callback) {
+  keyboard_open_config(&(keyboard_config_t){.title = title,
+                                            .initial = initial,
+                                            .max_chars = max_chars,
+                                            .min_chars = 1,
+                                            .mode = KEYBOARD_FILENAME},
+                       callback,
+                       NULL);
 }

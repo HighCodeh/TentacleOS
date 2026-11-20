@@ -104,6 +104,9 @@ void nfc_store_init(void);
  */
 int nfc_store_count(void);
 
+/** Read the entry count without treating NVS errors as an empty vault. */
+esp_err_t nfc_store_count_checked(int *out_count);
+
 /**
  * @brief Save an NFC card entry to storage.
  *
@@ -159,6 +162,9 @@ int nfc_store_list(nfc_store_info_t *infos, int max);
  *   - HB_NFC_ERR_NOT_FOUND if entry does not exist
  */
 hb_nfc_err_t nfc_store_delete(int index);
+
+/** Rename a vault entry without changing its identity or payload. */
+esp_err_t nfc_store_rename(int index, const char *name);
 
 /**
  * @brief Find an entry by UID.

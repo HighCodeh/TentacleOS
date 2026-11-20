@@ -88,6 +88,9 @@ static struct dirent *fake_readdir(DIR *dir) {
 #define opendir fake_opendir
 #define closedir fake_closedir
 #define readdir fake_readdir
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_copy
 static size_t test_copy(char *dst, const char *src, size_t cap) {
   size_t n = strlen(src);
@@ -205,6 +208,7 @@ static uint32_t read_sd_accent(const char *name) {(void)name;return 0;}
 static int theme_idx, loads, reads, unloads;
 static void ui_theme_load_idx(int i) { (void)i; loads++; }
 static char *read_file_alloc(const char *path) { reads++; strcpy(last_path,path); return NULL; }
+static void apply_black_background(void) {}
 static void parse_theme_conf(char *s) { (void)s; }
 static void parse_theme_json(char *s) { (void)s; }
 static void assets_unload_sd(void) { unloads++; }
@@ -262,6 +266,7 @@ static void ducky_set_output_mode(int mode) {(void)mode;}
 static esp_err_t ducky_run_from_assets(const char *path) {executions++;strcpy(last_path,path);return ESP_OK;}
 static esp_err_t ducky_run_from_sdcard(const char *path) {return ducky_run_from_assets(path);}
 static void bad_ble_deinit(void) {}
+static void bad_usb_deinit(void) {}
 static const char *esp_err_to_name(esp_err_t err) {(void)err;return "error";}
 static void apply_theme_cb(void *arg) {(void)arg;}
 static void ui_async_call(void (*cb)(void *),void *arg) {(void)cb;(void)arg;schedules++;}

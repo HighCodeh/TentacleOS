@@ -37,6 +37,7 @@ typedef struct {
 
 /** Run one existing AP scan on the radio worker. seconds is a legacy preset, not a duration. */
 esp_err_t wifi_scan_view_start(uint8_t seconds);
+esp_err_t wifi_scan_view_load_live_results(void);
 /** Cooperative cancellation, safe from the UI thread and on screen teardown. */
 void wifi_scan_view_cancel(void);
 void wifi_scan_view_get_status(wifi_scan_view_status_t *out_status);

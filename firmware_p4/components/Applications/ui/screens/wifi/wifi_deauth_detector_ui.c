@@ -27,12 +27,13 @@
 #include "deauther_detector.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "wifi_service.h"
 
 static const char *TAG = "WIFI_DEAUTH_DET_UI";
 
-#define ENTRY_FADE_MS   240
+#define ENTRY_FADE_MS   UI_CONTENT_FADE_MS
 #define BANNER_BLINK_MS 450
 
 #define HEADER_ICON "/assets/icons/monitoring.bin"

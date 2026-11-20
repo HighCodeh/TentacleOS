@@ -16,6 +16,10 @@
 #include "tusb_desc.h"
 
 #include <string.h>
+#include <stdatomic.h>
+#include <stdio.h>
+
+#include "esp_mac.h"
 
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -36,9 +40,12 @@ static const char *TAG = "TUSB_DESC";
 #define HID_REPORT_ID_MOUSE    2
 
 // USB Device Identifiers
-#define USB_VENDOR_ID  0xCAFE
-#define USB_PRODUCT_ID 0x4001
-#define USB_BCD_DEVICE 0x0100
+#define USB_VENDOR_ID            0xCAFE
+#define USB_PRODUCT_ID           0x4001
+#define USB_STORAGE_PRODUCT_ID   0x4005
+#define USB_COMPANION_PRODUCT_ID 0x4004
+#define USB_SERIAL_LENGTH        13
+#define USB_BCD_DEVICE           0x0100
 
 // USB Configuration
 #define USB_MAX_POWER_MA         100
@@ -57,8 +64,11 @@ static const char *TAG = "TUSB_DESC";
 
 // MSC is a runtime-selected variant, exposed only in mass-storage mode: an
 // unbacked MSC LUN crashes the TinyUSB task on the host's first SCSI command.
-#define ITF_NUM_BASE    3 // HID + CDC (comm + data)
-#define CONFIG_LEN_BASE (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
+#define ITF_NUM_BASE         3 // HID + CDC (comm + data)
+#define CONFIG_LEN_BASE      (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
+#define ITF_NUM_COMPANION    2
+#define ITF_NUM_STORAGE      2
+#define CONFIG_LEN_COMPANION (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN)
 
 // CDC data (bulk) endpoint max packet size is speed-dependent: USB requires it
 // to be EXACTLY 512 at High Speed and 8/16/32/64 at Full Speed. The P4 USB is
@@ -70,7 +80,7 @@ static const char *TAG = "TUSB_DESC";
 
 // Device Descriptor — USB 2.0 composite (HID + CDC). The CDC IAD requires the
 // Miscellaneous device class so the host groups the CDC interfaces correctly.
-static const tusb_desc_device_t s_desc_device = {
+static tusb_desc_device_t s_desc_device = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
@@ -118,6 +128,23 @@ static const uint8_t s_desc_configuration_hs[] = {
 static const uint8_t s_desc_configuration_fs[] = {
     HID_CDC_BLOCK(ITF_NUM_BASE, CONFIG_LEN_BASE, CDC_EP_SIZE_FS)};
 
+#define CDC_BLOCK(itf_total, total_len, ep_size)                                             \
+  TUD_CONFIG_DESCRIPTOR(                                                                     \
+      1, (itf_total), 0, (total_len), TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, USB_MAX_POWER_MA), \
+      TUD_CDC_DESCRIPTOR(0,                                                                  \
+                         STR_IDX_CDC,                                                        \
+                         TUSB_DESC_EP_CDC_NOTIF,                                             \
+                         8,                                                                  \
+                         TUSB_DESC_EP_CDC_OUT,                                               \
+                         TUSB_DESC_EP_CDC_IN,                                                \
+                         (ep_size))
+
+static const uint8_t s_desc_companion_hs[] = {
+    CDC_BLOCK(ITF_NUM_COMPANION, CONFIG_LEN_COMPANION, CDC_EP_SIZE_HS)};
+static const uint8_t s_desc_companion_fs[] = {
+    CDC_BLOCK(ITF_NUM_COMPANION, CONFIG_LEN_COMPANION, CDC_EP_SIZE_FS)};
+static atomic_bool s_hid_exposed = false;
+
 #if HB_GROK_USB_AUDIO_ENABLED
 // A separate identity avoids cached HID-only descriptors on the Mac. The
 // normal device, HID/CDC interface numbers, and all existing endpoints stay put.
@@ -147,33 +174,33 @@ _Static_assert(sizeof(s_desc_configuration_voice_hs) == CONFIG_LEN_BASE + GROK_U
                "USB voice descriptor length mismatch");
 _Static_assert(sizeof(s_desc_configuration_voice_fs) == sizeof(s_desc_configuration_voice_hs),
                "USB voice speed layouts differ");
-static volatile bool s_voice_exposed = false;
+static atomic_bool s_voice_exposed = false;
 #endif
 
 #if CFG_TUD_MSC
-#define ITF_NUM_MSC_TOTAL 4
-#define CONFIG_LEN_MSC    (CONFIG_LEN_BASE + TUD_MSC_DESC_LEN)
+#define ITF_NUM_MSC_TOTAL 3
+#define CONFIG_LEN_MSC    (CONFIG_LEN_COMPANION + TUD_MSC_DESC_LEN)
 #define MSC_INTERFACE(ep_size) \
   TUD_MSC_DESCRIPTOR(          \
-      TUSB_DESC_ITF_NUM_MSC, STR_IDX_MSC, TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
+      ITF_NUM_STORAGE, STR_IDX_MSC, TUSB_DESC_EP_MSC_OUT, TUSB_DESC_EP_MSC_IN, (ep_size))
 
 static const uint8_t s_desc_configuration_msc_hs[] = {
-    HID_CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_HS),
-    MSC_INTERFACE(CDC_EP_SIZE_HS)};
+    CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_HS), MSC_INTERFACE(CDC_EP_SIZE_HS)};
 static const uint8_t s_desc_configuration_msc_fs[] = {
-    HID_CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_FS),
-    MSC_INTERFACE(CDC_EP_SIZE_FS)};
+    CDC_BLOCK(ITF_NUM_MSC_TOTAL, CONFIG_LEN_MSC, CDC_EP_SIZE_FS), MSC_INTERFACE(CDC_EP_SIZE_FS)};
 #endif
+
+static char s_serial[USB_SERIAL_LENGTH];
 
 // String Descriptors
 static const char *s_string_desc_arr[] = {
-    (char[]){0x09, 0x04},   // Language ID: English (US)
-    "HighCode",             // Manufacturer
-    "BadUSB Device",        // Product
-    "123456",               // Serial Number
-    "TentacleOS Companion", // CDC interface (host link)
+    (char[]){0x09, 0x04}, // Language ID: English (US)
+    "Highboy",            // Manufacturer
+    "Highboy",            // Product
+    s_serial,             // Serial Number
+    "Highboy Companion",  // CDC interface (host link)
 #if CFG_TUD_MSC
-    "TentacleOS SD",
+    "Highboy Storage",
 #endif
 };
 
@@ -182,8 +209,8 @@ static const char *s_string_desc_arr[] = {
 static uint16_t s_desc_str_buf[32];
 
 // Whether the composite currently advertises the MSC interface (mass-storage
-// mode). Off by default so plain native-USB bring-ups stay HID+CDC only.
-static volatile bool s_msc_exposed = false;
+// mode). Ordinary native USB exposes CDC only.
+static atomic_bool s_msc_exposed = false;
 
 // TinyUSB Descriptor Callbacks
 
@@ -192,14 +219,16 @@ const uint8_t *tud_descriptor_device_cb(void) {
   if (s_voice_exposed && !s_msc_exposed)
     return (const uint8_t *)&s_desc_voice_device;
 #endif
+  s_desc_device.idProduct = s_msc_exposed
+                                ? USB_STORAGE_PRODUCT_ID
+                                : (s_hid_exposed ? USB_PRODUCT_ID : USB_COMPANION_PRODUCT_ID);
   return (const uint8_t *)&s_desc_device;
 }
 
-const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
-  (void)index;
+static const uint8_t *configuration_for_speed(bool high_speed) {
   // Serve the descriptor whose CDC bulk endpoint size matches the negotiated
   // link speed (512 at HS, 64 at FS), so tu_edpt_validate accepts the config.
-  bool high_speed = (tud_speed_get() == TUSB_SPEED_HIGH);
+
 #if CFG_TUD_MSC
   if (s_msc_exposed) {
     return high_speed ? s_desc_configuration_msc_hs : s_desc_configuration_msc_fs;
@@ -209,7 +238,47 @@ const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
   if (s_voice_exposed)
     return high_speed ? s_desc_configuration_voice_hs : s_desc_configuration_voice_fs;
 #endif
-  return high_speed ? s_desc_configuration_hs : s_desc_configuration_fs;
+  if (s_hid_exposed)
+    return high_speed ? s_desc_configuration_hs : s_desc_configuration_fs;
+  return high_speed ? s_desc_companion_hs : s_desc_companion_fs;
+}
+
+const uint8_t *tud_descriptor_configuration_cb(uint8_t index) {
+  return index == 0 ? configuration_for_speed(tud_speed_get() == TUSB_SPEED_HIGH) : NULL;
+}
+
+const uint8_t *tud_descriptor_other_speed_configuration_cb(uint8_t index) {
+#if HB_GROK_USB_AUDIO_ENABLED
+  static uint8_t descriptor[CONFIG_LEN_BASE + GROK_UAC_DESC_LEN];
+#elif CFG_TUD_MSC
+  static uint8_t descriptor[CONFIG_LEN_MSC > CONFIG_LEN_BASE ? CONFIG_LEN_MSC : CONFIG_LEN_BASE];
+#else
+  static uint8_t descriptor[CONFIG_LEN_BASE];
+#endif
+  if (index != 0)
+    return NULL;
+  const uint8_t *source = configuration_for_speed(tud_speed_get() != TUSB_SPEED_HIGH);
+  const tusb_desc_configuration_t *config = (const tusb_desc_configuration_t *)source;
+  if (config->wTotalLength > sizeof(descriptor))
+    return NULL;
+  memcpy(descriptor, source, config->wTotalLength);
+  descriptor[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
+  return descriptor;
+}
+
+static const tusb_desc_device_qualifier_t s_qualifier = {
+    .bLength = sizeof(tusb_desc_device_qualifier_t),
+    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .bNumConfigurations = 1,
+};
+
+const uint8_t *tud_descriptor_device_qualifier_cb(void) {
+  return (const uint8_t *)&s_qualifier;
 }
 
 const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
@@ -226,7 +295,7 @@ const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     const char *str = s_string_desc_arr[index];
 #if HB_GROK_USB_AUDIO_ENABLED
     if (index == STR_IDX_PRODUCT && s_voice_exposed && !s_msc_exposed)
-      str = "High Boy Voice";
+      str = "Highboy";
 #endif
     chr_count = strlen(str);
     for (uint8_t i = 0; i < chr_count; i++) {
@@ -286,8 +355,22 @@ esp_err_t busb_init(void) {
     return ESP_OK;
   }
 
+  uint8_t mac[6];
+  esp_err_t mac_err = esp_efuse_mac_get_default(mac);
+  if (mac_err != ESP_OK)
+    return mac_err;
+  snprintf(s_serial,
+           sizeof(s_serial),
+           "%02X%02X%02X%02X%02X%02X",
+           mac[0],
+           mac[1],
+           mac[2],
+           mac[3],
+           mac[4],
+           mac[5]);
   ESP_LOGI(TAG, "Initializing TinyUSB driver...");
 
+  (void)tud_descriptor_device_cb();
   const tinyusb_config_t tusb_cfg = {
       .port = TINYUSB_PORT_HIGH_SPEED_0,
       .task =
@@ -299,10 +382,11 @@ esp_err_t busb_init(void) {
       .descriptor =
           {
               .device = &s_desc_device,
+              .qualifier = &s_qualifier,
               .string = s_string_desc_arr,
               .string_count = STRING_DESC_COUNT,
-              .full_speed_config = s_desc_configuration_fs,
-              .high_speed_config = s_desc_configuration_hs,
+              .full_speed_config = configuration_for_speed(false),
+              .high_speed_config = configuration_for_speed(true),
           },
       .phy =
           {
@@ -331,6 +415,21 @@ esp_err_t busb_init(void) {
   return ESP_OK;
 }
 
+esp_err_t busb_set_hid_exposed(bool exposed) {
+  if (exposed && (s_msc_exposed || busb_voice_is_exposed()))
+    return ESP_ERR_INVALID_STATE;
+  if (s_hid_exposed == exposed)
+    return ESP_OK;
+  if (s_installed) {
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(BUSB_REENUM_DELAY_MS));
+  }
+  s_hid_exposed = exposed;
+  if (s_installed)
+    tud_connect();
+  return ESP_OK;
+}
+
 void busb_set_msc_exposed(bool exposed) {
 #if CFG_TUD_MSC
 #if HB_GROK_USB_AUDIO_ENABLED
@@ -344,6 +443,8 @@ void busb_set_msc_exposed(bool exposed) {
   // Not up yet: the flag alone decides what the first enumeration advertises.
   if (!s_installed) {
     s_msc_exposed = exposed;
+    if (exposed)
+      s_hid_exposed = false;
     return;
   }
   // Already enumerated with the other layout; drop off the bus, swap the
@@ -351,6 +452,8 @@ void busb_set_msc_exposed(bool exposed) {
   tud_disconnect();
   vTaskDelay(pdMS_TO_TICKS(BUSB_REENUM_DELAY_MS));
   s_msc_exposed = exposed;
+  if (exposed)
+    s_hid_exposed = false;
   tud_connect();
 #else
   (void)exposed;
@@ -393,50 +496,14 @@ esp_err_t busb_set_voice_exposed(bool exposed) {
 #endif
 }
 
-// USB-C data mux (TS3USB221) on GPIO_USB_MUX_SEL_PIN. LOW routes the single
-// Type-C to the CP2105 USB-UART bridge (serial console / flashing); HIGH routes
-// it to the P4 native USB PHY (TinyUSB HID + CDC). The two share one connector,
-// so only one is live at a time. Switching is runtime and needs no reset.
-
-static bool s_mux_native = false;
-static bool s_mux_configured = false;
-
-static void usb_mux_configure_pin(void) {
-  if (s_mux_configured) {
-    return;
-  }
-  gpio_config_t cfg = {
-      .pin_bit_mask = 1ULL << GPIO_USB_MUX_SEL_PIN,
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  gpio_config(&cfg);
-  s_mux_configured = true;
+#if CFG_TUD_MSC
+uint32_t tud_msc_inquiry2_cb(uint8_t lun, scsi_inquiry_resp_t *response, uint32_t bufsize) {
+  (void)lun;
+  if (response == NULL || bufsize < sizeof(*response))
+    return 0;
+  memcpy(response->vendor_id, "Highboy ", sizeof(response->vendor_id));
+  memcpy(response->product_id, "Highboy Storage ", sizeof(response->product_id));
+  memcpy(response->product_rev, "1.0 ", sizeof(response->product_rev));
+  return sizeof(*response);
 }
-
-void usb_mux_init(void) {
-  usb_mux_configure_pin();
-  gpio_set_level(GPIO_USB_MUX_SEL_PIN, 0); // default: USB-UART bridge
-  s_mux_native = false;
-  ESP_LOGI(TAG, "USB mux default: UART bridge");
-}
-
-esp_err_t usb_mux_set_native(bool native) {
-  usb_mux_configure_pin();
-  gpio_set_level(GPIO_USB_MUX_SEL_PIN, native ? 1 : 0);
-  s_mux_native = native;
-  if (native) {
-    esp_err_t err = busb_init();
-    if (err != ESP_OK) {
-      return err;
-    }
-  }
-  ESP_LOGI(TAG, "USB mux -> %s", native ? "native P4 USB" : "UART bridge");
-  return ESP_OK;
-}
-
-bool usb_mux_is_native(void) {
-  return s_mux_native;
-}
+#endif

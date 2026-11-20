@@ -31,6 +31,7 @@
 #include "nfc_rf.h"
 
 #include "esp_log.h"
+#include <string.h>
 
 static const char *TAG = "iso14443a_poller";
 
@@ -40,7 +41,7 @@ static const char *TAG = "iso14443a_poller";
 #define SAK_MORE_CL_MASK      0x04U /* SAK bit indicating more cascade levels */
 #define FIFO_ATQA_LEN         2
 #define ANTICOLL_RESPONSE_LEN 5
-#define SELECT_RESPONSE_LEN   1
+#define SELECT_RESPONSE_LEN   3
 #define CASCADE_LEVELS        3
 #define ANTICOLL_ATTEMPTS     3
 #define ANTICOLL_CMD_LEN      2
@@ -90,15 +91,14 @@ static int req_cmd(uint8_t cmd, uint8_t atqa[FIFO_ATQA_LEN]) {
     return 0;
   hb_nfc_spi_direct_cmd(cmd);
 
-  if (st25r3916_irq_wait_txe() != ESP_OK)
+  st25r3916_irq_status_t irq = {0};
+  esp_err_t waited = st25r3916_irq_wait_exchange(ANTICOLL_DELAY_LONG, &irq);
+  uint16_t count = st25r3916_fifo_get_count();
+  if (waited != ESP_OK || count != FIFO_ATQA_LEN || irq.error != 0 ||
+      (irq.main & ST25R3916_IRQ_MAIN_COL) != 0)
     return 0;
-
-  uint16_t count = 0;
-  if (st25r3916_fifo_wait(FIFO_ATQA_LEN, ANTICOLL_DELAY_LONG, &count) != ESP_OK) {
-    st25r3916_irq_log((cmd == ST25R3916_CMD_TX_REQA) ? "REQA fail" : "WUPA fail", count);
+  if (st25r3916_fifo_read(atqa, FIFO_ATQA_LEN) != ESP_OK)
     return 0;
-  }
-  st25r3916_fifo_read(atqa, FIFO_ATQA_LEN);
   return FIFO_ATQA_LEN;
 }
 
@@ -133,8 +133,11 @@ int iso14443a_poller_anticoll(uint8_t sel, uint8_t uid_cl[ANTICOLL_RESPONSE_LEN]
                                     ANTICOLL_TIMEOUT_MS);
     set_antcl(false);
 
-    if (len == ANTICOLL_RESPONSE_LEN)
+    if (len == ANTICOLL_RESPONSE_LEN &&
+        (uint8_t)(uid_cl[0] ^ uid_cl[1] ^ uid_cl[2] ^ uid_cl[3]) == uid_cl[4])
       return ANTICOLL_RESPONSE_LEN;
+    if (len == ANTICOLL_RESPONSE_LEN)
+      nfc_log_hex("Invalid UID BCC:", uid_cl, ANTICOLL_RESPONSE_LEN);
     hb_nfc_timer_delay_ms(ANTICOLL_DELAY_MS);
   }
   return 0;
@@ -146,8 +149,10 @@ int iso14443a_poller_sel(uint8_t sel, const uint8_t uid_cl[ANTICOLL_RESPONSE_LEN
   uint8_t rx[SELECT_RX_BUF_SIZE] = {0};
   int len = nfc_poller_transceive(
       cmd, SELECT_CMD_LEN, true, rx, sizeof(rx), SELECT_RESPONSE_LEN, SELECT_TIMEOUT_MS);
-  if (len < 1)
+  if (len != SELECT_RESPONSE_LEN || !iso14443a_check_crc(rx, (size_t)len)) {
+    nfc_log_hex("SELECT unanswered:", cmd, sizeof(cmd));
     return 0;
+  }
   *sak = rx[0];
   return 1;
 }
@@ -157,9 +162,9 @@ static hb_nfc_err_t iso14443a_select_from_atqa(const uint8_t atqa[FIFO_ATQA_LEN]
   if (card == NULL || atqa == NULL)
     return HB_NFC_ERR_PARAM;
 
-  card->atqa[0] = atqa[0];
-  card->atqa[1] = atqa[1];
-  card->uid_len = 0;
+  nfc_iso14443a_data_t selected = {0};
+  selected.atqa[0] = atqa[0];
+  selected.atqa[1] = atqa[1];
 
   static const uint8_t sel_cmds[] = {SEL_CL1, SEL_CL2, SEL_CL3};
 
@@ -176,23 +181,29 @@ static hb_nfc_err_t iso14443a_select_from_atqa(const uint8_t atqa[FIFO_ATQA_LEN]
       return HB_NFC_ERR_PROTOCOL;
     }
 
-    if (uid_cl[0] == UID_CASCADE_TAG) {
-      card->uid[card->uid_len++] = uid_cl[1];
-      card->uid[card->uid_len++] = uid_cl[2];
-      card->uid[card->uid_len++] = uid_cl[3];
+    const bool has_more = (sak & SAK_MORE_CL_MASK) != 0;
+    if ((cl < CASCADE_LEVELS - 1 && has_more != (uid_cl[0] == UID_CASCADE_TAG)) ||
+        (has_more && cl == CASCADE_LEVELS - 1))
+      return HB_NFC_ERR_PROTOCOL;
+    if (has_more) {
+      selected.uid[selected.uid_len++] = uid_cl[1];
+      selected.uid[selected.uid_len++] = uid_cl[2];
+      selected.uid[selected.uid_len++] = uid_cl[3];
     } else {
-      card->uid[card->uid_len++] = uid_cl[0];
-      card->uid[card->uid_len++] = uid_cl[1];
-      card->uid[card->uid_len++] = uid_cl[2];
-      card->uid[card->uid_len++] = uid_cl[3];
+      selected.uid[selected.uid_len++] = uid_cl[0];
+      selected.uid[selected.uid_len++] = uid_cl[1];
+      selected.uid[selected.uid_len++] = uid_cl[2];
+      selected.uid[selected.uid_len++] = uid_cl[3];
     }
 
-    card->sak = sak;
-    if (!(sak & SAK_MORE_CL_MASK))
-      break;
+    selected.sak = sak;
+    if (!has_more) {
+      *card = selected;
+      return HB_NFC_OK;
+    }
   }
 
-  return HB_NFC_OK;
+  return HB_NFC_ERR_PROTOCOL;
 }
 
 hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t *card) {
@@ -213,33 +224,18 @@ hb_nfc_err_t iso14443a_poller_select(nfc_iso14443a_data_t *card) {
 }
 
 hb_nfc_err_t iso14443a_poller_reselect(nfc_iso14443a_data_t *card) {
+  if (card == NULL || card->uid_len == 0 || card->uid_len > sizeof(card->uid))
+    return HB_NFC_ERR_PARAM;
   if (st25r3916_core_field_cycle() != ESP_OK)
     return HB_NFC_ERR_FIELD;
-
-  uint8_t atqa[2];
-  hb_nfc_err_t err = iso14443a_poller_activate(atqa);
+  nfc_iso14443a_data_t selected = {0};
+  hb_nfc_err_t err = iso14443a_poller_select(&selected);
   if (err != HB_NFC_OK)
     return err;
-
-  static const uint8_t sel_cmds[] = {SEL_CL1, SEL_CL2, SEL_CL3};
-
-  for (int cl = 0; cl < CASCADE_LEVELS; cl++) {
-    uint8_t uid_cl[ANTICOLL_RESPONSE_LEN] = {0};
-    uint8_t sak = 0;
-
-    if (iso14443a_poller_anticoll(sel_cmds[cl], uid_cl) != ANTICOLL_RESPONSE_LEN) {
-      return HB_NFC_ERR_COLLISION;
-    }
-    if (!iso14443a_poller_sel(sel_cmds[cl], uid_cl, &sak)) {
-      return HB_NFC_ERR_PROTOCOL;
-    }
-
-    card->sak = sak;
-
-    if (!(sak & SAK_MORE_CL_MASK))
-      break;
-  }
-
+  // Do not attribute a replacement tag's data to the original UID.
+  if (selected.uid_len != card->uid_len || memcmp(selected.uid, card->uid, card->uid_len) != 0)
+    return HB_NFC_ERR_PROTOCOL;
+  *card = selected;
   return HB_NFC_OK;
 }
 

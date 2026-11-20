@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_skimmer_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
@@ -64,12 +65,14 @@ static void poll_cb(lv_timer_t *timer);
 static void build_scanning_view(void);
 static void build_results_view(void);
 
-static void stop_detector(void) {
+void ui_ble_skimmer_stop(void) {
   if (s_scan_timer != NULL) {
     lv_timer_delete(s_scan_timer);
     s_scan_timer = NULL;
   }
   skimmer_detector_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static lv_obj_t *body_container(void) {
@@ -193,7 +196,7 @@ static void build_results_view(void) {
     shown++;
   }
 
-  lv_obj_fade_in(body, 220, 0);
+  lv_obj_fade_in(body, UI_CONTENT_FADE_MS, 0);
   ui_feedback(UI_FB_READ);
   notify(NOTIFY_WARNING, "Possible skimmer detected");
 }
@@ -205,12 +208,7 @@ void ui_ble_skimmer_open(void) {
   }
   s_scan_timer = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   s_is_showing_results = false;
   build_scanning_view();
@@ -225,12 +223,12 @@ void ui_ble_skimmer_open(void) {
   }
 
   ui_screen_load_owned(&s_screen, s_screen);
-  ESP_LOGI(TAG, "BLE skimmer screen opened");
+  ESP_LOGD(TAG, "BLE skimmer screen opened");
 }
 
 static void poll_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_screen) {
-    stop_detector();
+    ui_ble_skimmer_stop();
     return;
   }
 
@@ -254,7 +252,6 @@ static void ble_skimmer_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_detector();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

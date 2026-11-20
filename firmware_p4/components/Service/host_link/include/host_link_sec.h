@@ -51,6 +51,8 @@ typedef struct {
 } host_link_pairing_t;
 
 void host_link_sec_pairing_window(bool is_open);
+/* Refresh an open waiting window without resetting a pending code or authenticated session. */
+void host_link_sec_pairing_refresh(void);
 bool host_link_sec_pairing_get(host_link_pairing_t *out);
 esp_err_t host_link_sec_pairing_confirm(uint32_t token, bool is_approved);
 bool host_link_sec_finish(const uint8_t *span, size_t length, const uint8_t *mac, uint32_t counter);

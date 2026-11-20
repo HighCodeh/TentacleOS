@@ -46,8 +46,10 @@ typedef struct {
 typedef struct {
   uint8_t ats[HIGHBOY_NFC_ATS_MAX_LEN];
   uint16_t ats_len;
-  uint8_t fsc;
+  uint16_t fsc; /**< PICC frame size, including prologue and CRC. */
+  uint16_t fsd; /**< PCD frame size selected in RATS. */
   uint8_t fwi;
+  uint8_t cid; /**< Zero omits CID; nonzero requires ATS support. */
 } highboy_nfc_iso_dep_t;
 
 /**
@@ -121,6 +123,7 @@ typedef enum {
   HIGHBOY_NFC_PROTO_MF_DESFIRE,
   HIGHBOY_NFC_PROTO_ST25TB,
   HIGHBOY_NFC_PROTO_SLIX,
+  HIGHBOY_NFC_PROTO_TEXKOM,
   HIGHBOY_NFC_PROTO_COUNT,
   HIGHBOY_NFC_PROTO_UNKNOWN = 0xFF
 } highboy_nfc_protocol_t;

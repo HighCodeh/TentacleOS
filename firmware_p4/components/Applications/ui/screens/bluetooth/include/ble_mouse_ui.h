@@ -26,6 +26,8 @@ void ui_ble_mouse_pairing_open(void);
 /** @brief BLE mouse control screen (IR-remote style, stub). */
 void ui_ble_mouse_open(void);
 
+void ui_ble_mouse_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

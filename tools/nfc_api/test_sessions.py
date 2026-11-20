@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise production NFC app and listener lifecycles with real host threads."""
 import os
 from pathlib import Path
@@ -17,6 +32,7 @@ def main():
         directory = Path(tmp)
         (directory / 'freertos').mkdir()
         headers = {
+            'led_control.h': '#pragma once\n#include <stdbool.h>\n#include <stdint.h>\n#define LED_ACTIVITY_NFC 1U\nvoid led_set_activity(uint32_t,bool);\n',
             'esp_err.h': '''#pragma once
 typedef int esp_err_t;
 #define ESP_OK 0
@@ -84,6 +100,9 @@ typedef int hb_nfc_err_t;
 typedef struct { uint8_t uid[10],uid_len,atqa[2],sak; } nfc_iso14443a_data_t;
 typedef struct { int protocol; nfc_iso14443a_data_t iso14443a; } hb_nfc_card_data_t;
 typedef struct { uint8_t uid[10]; unsigned char data[4096]; } mfc_emu_card_data_t;
+typedef struct { uint32_t cuid,nt,nr,ar; uint8_t sector; int key_type; } mfc_emu_capture_t;
+typedef void (*mfc_emu_capture_cb_t)(const mfc_emu_capture_t *,void *);
+void mfc_emu_set_capture(mfc_emu_capture_cb_t,void *);
 void mfc_emu_card_data_init(mfc_emu_card_data_t *,const nfc_iso14443a_data_t *,int);
 hb_nfc_err_t mfc_emu_init(const mfc_emu_card_data_t *);
 hb_nfc_err_t mfc_emu_configure_target(void);
@@ -91,6 +110,19 @@ hb_nfc_err_t mfc_emu_start(void);
 int mfc_emu_run_step(void);
 void mfc_emu_stop(void);
 ''',
+            't4t_emu.h': """#pragma once
+#include "mf_classic_emu.h"
+typedef struct { unsigned uid_len; } t4t_emu_identity_t;
+typedef struct { int unused; } mfp_listener_config_t;
+typedef struct { int unused; } mfp_listener_t;
+int mfp_listener_init(mfp_listener_t *,const mfp_listener_config_t *);
+int t4t_emu_init_plus(const t4t_emu_identity_t *,mfp_listener_t *);
+int t4t_emu_configure_target(void);
+int t4t_emu_start(void);
+void t4t_emu_stop(void);
+void t4t_emu_run_step(void);
+bool t4t_emu_has_error(void);
+""",
             'mf_classic.h': '#pragma once\nstatic inline int mf_classic_get_type(unsigned sak) { (void)sak; return 1; }\n',
             'nfc_device.h': '''#pragma once
 #include "mf_classic_emu.h"
@@ -113,6 +145,7 @@ esp_err_t power_manager_no_sleep_release(void);
                    '-I', str(SERVICE / 'app_runtime'), '-I', str(SERVICE / 'host_link/include'),
                    '-I', str(SERVICE / 'spi_bridge/include'), '-I', str(NFC / 'include'),
                    '-I', str(DRIVERS / 'rf_frontend/include'),
+                   '-I', str(NFC / 'protocols/t2t/include'),
                    str(SERVICE / 'app_runtime/tos_api_nfc_session.c'), str(NFC / 'nfc_listener.c'),
                    str(DRIVERS / 'rf_frontend/rf_frontend.c'),
                    str(ROOT / 'tools/nfc_api/test_sessions.c'), '-o', str(directory / 'test')]

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ota_service.h"
+#include "spi_bridge.h"
 
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -126,11 +127,16 @@ static esp_err_t cleanup_pending(void) {
 esp_err_t ota_start_update(ota_progress_cb_t progress_cb) {
   if (atomic_flag_test_and_set(&s_is_updating))
     return ESP_ERR_INVALID_STATE;
+  bool recovery_held = false;
   esp_err_t ret = ESP_OK;
   FILE *f = NULL;
   uint8_t *buffer = NULL;
   esp_ota_handle_t ota_handle = 0;
   bool ota_begun = false;
+  ret = spi_bridge_maintenance_begin();
+  if (ret != ESP_OK)
+    goto cleanup;
+  recovery_held = true;
   ret = cleanup_pending();
   if (ret != ESP_OK)
     goto cleanup;
@@ -302,6 +308,7 @@ cleanup:
   }
   esp_err_t cleanup_error = cleanup_pending();
   if (cleanup_error != ESP_OK) {
+    spi_bridge_recovery_disable();
     ESP_LOGE(TAG, "OTA cleanup retained: %s", esp_err_to_name(cleanup_error));
     ret = cleanup_error;
   }
@@ -309,6 +316,8 @@ cleanup:
   if (f != NULL) {
     fclose(f);
   }
+  if (recovery_held)
+    spi_bridge_maintenance_end();
   atomic_flag_clear(&s_is_updating);
   return ret;
 }

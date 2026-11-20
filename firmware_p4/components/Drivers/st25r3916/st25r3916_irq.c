@@ -18,11 +18,18 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "st25r3916_reg.h"
 #include "hb_nfc_spi.h"
 #include "hb_nfc_gpio.h"
 #include "hb_nfc_timer.h"
+
+#define IRQ_US_PER_MS      1000
+#define IRQ_REGISTER_COUNT 4U
+
+static uint8_t s_pending_main;
+static uint8_t s_pending_error;
 
 static const char *TAG = "ST25R3916_IRQ";
 
@@ -31,21 +38,30 @@ esp_err_t st25r3916_irq_read(st25r3916_irq_status_t *out_status) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &out_status->error);
-  hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &out_status->timer);
-  hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &out_status->main);
-  hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &out_status->target);
-  hb_nfc_spi_reg_read(ST25R3916_REG_COLLISION, &out_status->collision);
+  st25r3916_irq_status_t status = {0};
+  uint8_t irq_regs[IRQ_REGISTER_COUNT] = {0};
+  memset(out_status, 0, sizeof(*out_status));
+  if (hb_nfc_spi_reg_read_many(ST25R3916_REG_MAIN_INT, irq_regs, sizeof(irq_regs)) != ESP_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_COLLISION, &status.collision) != ESP_OK)
+    return ESP_FAIL;
+  status.main = irq_regs[0];
+  status.timer = irq_regs[1];
+  status.error = irq_regs[2];
+  status.target = irq_regs[3];
+  status.main |= s_pending_main;
+  status.error |= s_pending_error;
+  s_pending_main = 0;
+  s_pending_error = 0;
+  *out_status = status;
 
   return ESP_OK;
 }
 
 esp_err_t st25r3916_irq_clear(void) {
-  uint8_t ignored = 0;
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &ignored) != ESP_OK ||
-      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ignored) != ESP_OK) {
+  s_pending_main = 0;
+  s_pending_error = 0;
+  uint8_t ignored[IRQ_REGISTER_COUNT] = {0};
+  if (hb_nfc_spi_reg_read_many(ST25R3916_REG_MAIN_INT, ignored, sizeof(ignored)) != ESP_OK) {
     return ESP_FAIL;
   }
   return ESP_OK;
@@ -73,7 +89,9 @@ void st25r3916_irq_log(const char *ctx, uint16_t fifo_count) {
 esp_err_t st25r3916_irq_wait_txe(void) {
   uint8_t seen_main = 0;
   uint8_t seen_error = 0;
-  for (int i = 0; i < ST25R3916_IRQ_TX_POLL_MAX; i++) {
+  const int64_t deadline =
+      esp_timer_get_time() + (int64_t)ST25R3916_IRQ_TX_POLL_MAX * ST25R3916_IRQ_TX_POLL_US;
+  while (esp_timer_get_time() < deadline) {
     uint8_t main = 0;
     uint8_t error = 0;
     if (hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != ESP_OK ||
@@ -83,15 +101,14 @@ esp_err_t st25r3916_irq_wait_txe(void) {
     }
     seen_main |= main;
     seen_error |= error;
+    /* RX can complete in the same read-to-clear snapshot as TXE. */
+    s_pending_main |= main & (uint8_t)~ST25R3916_IRQ_MAIN_TXE;
+    s_pending_error |= error;
 
     if (main & ST25R3916_IRQ_MAIN_TXE) {
       return ESP_OK;
     }
 
-    /* ERROR_INT reports receive CRC/parity/framing and wake-up events, not a
-     * transmitter failure. A delayed receive indication may arrive while we
-     * are waiting for TXE, so retain it for timeout diagnostics but do not
-     * abort a valid transmission. */
     hb_nfc_timer_delay_us(ST25R3916_IRQ_TX_POLL_US);
   }
 
@@ -114,12 +131,9 @@ esp_err_t st25r3916_irq_wait_txe(void) {
 
 esp_err_t st25r3916_irq_wait_rxe(int32_t timeout_ms, st25r3916_irq_status_t *out_status) {
   st25r3916_irq_status_t seen = {0};
-  int32_t iterations = (timeout_ms * 1000) / ST25R3916_FIFO_WAIT_POLL_US;
-  if (iterations == 0 && timeout_ms > 0) {
-    iterations = 1;
-  }
+  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * IRQ_US_PER_MS;
 
-  for (int32_t i = 0; i < iterations; i++) {
+  while (esp_timer_get_time() < deadline) {
     st25r3916_irq_status_t current = {0};
     if (st25r3916_irq_read(&current) != ESP_OK) {
       if (out_status != NULL) {
@@ -145,6 +159,34 @@ esp_err_t st25r3916_irq_wait_rxe(int32_t timeout_ms, st25r3916_irq_status_t *out
 
   if (out_status != NULL) {
     *out_status = seen;
+  }
+  return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t st25r3916_irq_wait_exchange(int32_t timeout_ms, st25r3916_irq_status_t *out_status) {
+  if (out_status == NULL || timeout_ms <= 0 || timeout_ms > 5000)
+    return ESP_ERR_INVALID_ARG;
+  memset(out_status, 0, sizeof(*out_status));
+  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  const uint8_t complete = ST25R3916_IRQ_MAIN_TXE | ST25R3916_IRQ_MAIN_RXE;
+  while (esp_timer_get_time() < deadline) {
+    st25r3916_irq_status_t current = {0};
+    esp_err_t err = st25r3916_irq_read(&current);
+    if (err != ESP_OK)
+      return err;
+    out_status->main |= current.main;
+    out_status->error |= current.error;
+    out_status->timer |= current.timer;
+    out_status->target |= current.target;
+    out_status->collision |= current.collision;
+    if ((out_status->main & complete) == complete) {
+      /* Collect errors that arrived while the IRQ snapshot was being read. */
+      uint8_t late = 0;
+      err = hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &late);
+      out_status->error |= late;
+      return err;
+    }
+    hb_nfc_timer_delay_us(ST25R3916_FIFO_WAIT_POLL_US);
   }
   return ESP_ERR_TIMEOUT;
 }

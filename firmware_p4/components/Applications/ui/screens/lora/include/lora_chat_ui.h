@@ -26,6 +26,8 @@ extern "C" {
  *        exits, UP/DOWN scroll the conversation.
  */
 void ui_lora_chat_open(void);
+/** Stop UI timers; the mesh session keeps running outside this screen. */
+void ui_lora_chat_close(void);
 
 /**
  * @brief Open the LoRa screen directly on the chat conversation view (linked),

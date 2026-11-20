@@ -41,10 +41,13 @@ static const char *TAG = "CMD_BADUSB";
 // link already installed TinyUSB at boot.
 static esp_err_t ensure_badusb_ready(void) {
   esp_err_t err = bad_usb_init();
-  if (err == ESP_ERR_INVALID_STATE) {
-    return ESP_OK; // already initialized
+  if (err != ESP_OK)
+    return err;
+  if (!bad_usb_wait_for_connection_ex(NULL)) {
+    bad_usb_deinit();
+    return ESP_ERR_TIMEOUT;
   }
-  return err;
+  return ESP_OK;
 }
 
 // --- RUN ---
@@ -115,6 +118,8 @@ static int subcmd_run(int argc, char **argv) {
 
   if (use_ble)
     bad_ble_deinit();
+  else
+    bad_usb_deinit();
 
   if (err == ESP_OK) {
     printf("Script finished.\n");
@@ -146,6 +151,7 @@ static int subcmd_type(int sub_argc, char **sub_argv) {
 
   printf("Typing: %s\n", script + strlen("STRING "));
   ducky_parse_and_run(script);
+  bad_usb_deinit();
   printf("Done.\n");
   return 0;
 }

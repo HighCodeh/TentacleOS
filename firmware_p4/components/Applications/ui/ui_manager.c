@@ -37,7 +37,9 @@
 #include "tutorial_ui.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
+#include "tos_config.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 #include "ui_liveness.h"
 #include "vfs_sdcard.h"
 
@@ -48,6 +50,7 @@
 #include "home_ui.h"
 #include "menu_ui.h"
 #include "wifi_ui.h"
+#include "wardrive_ui.h"
 #include "ui_wifi_esp_scan.h"
 #include "wifi_channel_ui.h"
 #include "wifi_client_ui.h"
@@ -130,6 +133,7 @@
 #include "lora_mqtt_ui.h"
 #include "dev_console_ui.h"
 #include "dev_diag_ui.h"
+#include "pc_monitor_ui.h"
 #include "nfc_bankcard_ui.h"
 #include "nfc_desfire_ui.h"
 #include "nfc_iso15693_ui.h"
@@ -171,7 +175,7 @@
 static const char *TAG = "UI_MANAGER";
 
 #define UI_BOOT_TASK_STACK_SIZE (4096 * 4)
-#define INPUT_LOCK_MS           500
+#define INPUT_LOCK_MS           UI_OPEN_GUARD_MS
 #define BOOT_SPLASH_DURATION_MS 5000
 #define RENDER_BEAT_MS          250
 #define UI_INPUT_PUMP_MS        20
@@ -182,6 +186,7 @@ static volatile uint32_t s_render_beat = 0;
 
 static void ui_boot_task(void *pvParameter);
 static void clear_current_screen(void);
+static void screen_slot_clear_cb(lv_event_t *e);
 
 screen_id_t current_screen_id = SCREEN_NONE;
 
@@ -200,8 +205,25 @@ void ui_render_beat_kick(void) {
 
 static ui_input_handler_t s_screen_handler = NULL;
 static void *s_screen_handler_ctx = NULL;
+static uint32_t s_consumed_buttons;
+static bool s_back_pending;
+static uint32_t s_back_pressed_at;
+
+void ui_input_consume_gesture(void) {
+  input_event_t discarded;
+  while (input_get_event(&discarded, 0)) {}
+  s_back_pending = false;
+  s_consumed_buttons = 0;
+  for (input_button_t button = 0; button < INPUT_BTN_COUNT; button++) {
+    if (input_is_down(button))
+      s_consumed_buttons |= UINT32_C(1) << button;
+  }
+  if (indev_keypad != NULL)
+    lv_indev_wait_release(indev_keypad);
+}
 
 void ui_input_set_screen_handler(ui_input_handler_t handler, void *ctx) {
+  ui_input_consume_gesture();
   s_screen_handler = handler;
   s_screen_handler_ctx = ctx;
 }
@@ -214,7 +236,8 @@ bool ui_sd_ready(void) {
 }
 
 static bool input_dispatch_blocked(void) {
-  return ui_input_is_locked() || msgbox_is_open() || keyboard_is_open() || power_policy_is_asleep();
+  return ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open() || keyboard_is_open() ||
+         power_policy_is_asleep();
 }
 
 static input_button_t input_remap_for_rotation(input_button_t b) {
@@ -257,23 +280,67 @@ bool ui_nav_pressed(input_button_t logical) {
   return input_is_down(phys);
 }
 
+static bool keypad_dispatch_blocked(void) {
+  return ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open() ||
+         screen_tips_active() || s_consumed_buttons != 0 ||
+         (s_screen_handler != NULL && !keyboard_is_open() && !tutorial_is_active());
+}
+
 static void ui_input_pump(lv_timer_t *t) {
   (void)t;
   input_event_t ev;
   while (input_get_event(&ev, 0)) {
+    if (ev.action == INPUT_ACTION_RELEASE && screen_tips_active())
+      screen_tips_handle_input(&ev);
+    const uint32_t mask = UINT32_C(1) << ev.button;
+    if ((s_consumed_buttons & mask) != 0) {
+      if (ev.action == INPUT_ACTION_RELEASE)
+        s_consumed_buttons &= ~mask;
+      continue;
+    }
+    if (ui_input_is_locked() || msgbox_is_open() || dropdown_ui_is_open()) {
+      s_back_pending = false;
+      if (ev.action != INPUT_ACTION_RELEASE)
+        s_consumed_buttons |= mask;
+      continue;
+    }
+    if (ev.button == INPUT_BTN_BACK) {
+      if (ev.action == INPUT_ACTION_PRESS) {
+        s_back_pending = true;
+        s_back_pressed_at = ev.timestamp_ms;
+        continue;
+      }
+      if (ev.action != INPUT_ACTION_RELEASE)
+        continue;
+      const bool is_short = s_back_pending && (uint32_t)(ev.timestamp_ms - s_back_pressed_at) <
+                                                  POWER_POLICY_BACK_HOLD_MS;
+      s_back_pending = false;
+      if (!is_short)
+        continue;
+      ev.action = INPUT_ACTION_PRESS;
+      if (keyboard_is_open()) {
+        keyboard_close();
+        break;
+      }
+    }
     ev.button = input_remap_for_rotation(ev.button);
     if (screen_tips_active()) {
       screen_tips_handle_input(&ev);
+      if (!screen_tips_active())
+        ui_input_consume_gesture();
       continue;
     }
-    if (s_screen_handler == NULL || input_dispatch_blocked()) {
+    if (input_dispatch_blocked())
+      continue;
+    if (s_screen_handler == NULL || tutorial_is_active()) {
+      if (ev.button == INPUT_BTN_BACK && ev.action == INPUT_ACTION_PRESS && main_group != NULL)
+        lv_group_send_data(main_group, LV_KEY_ESC);
       continue;
     }
     ui_input_handler_t handler = s_screen_handler;
     handler(&ev, s_screen_handler_ctx);
-    if (s_screen_handler != handler) {
+    if (s_screen_handler != handler)
       break;
-    }
   }
 }
 
@@ -287,6 +354,7 @@ void ui_init(void) {
   ui_feedback_init();
 
   if (ui_acquire()) {
+    lv_port_indev_set_guard(keypad_dispatch_blocked);
     power_policy_init();
     dropdown_ui_global_init();
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
@@ -313,6 +381,7 @@ void ui_init_safe_mode(void) {
   ui_feedback_init();
 
   if (ui_acquire()) {
+    lv_port_indev_set_guard(keypad_dispatch_blocked);
     lv_timer_create(render_beat_cb, RENDER_BEAT_MS, NULL);
     lv_timer_create(ui_input_pump, UI_INPUT_PUMP_MS, NULL);
     ui_safe_mode_open();
@@ -349,17 +418,21 @@ static void ui_boot_task(void *pvParameter) {
 }
 
 static void clear_current_screen(void) {
+  keyboard_close();
   ui_input_set_screen_handler(NULL, NULL);
   if (main_group != NULL) {
+    lv_group_set_editing(main_group, false);
     lv_group_remove_all_objs(main_group);
   }
 }
 
 bool ui_input_is_locked(void) {
-  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep();
+  return (int32_t)(lv_tick_get() - input_lock_until) < 0 || power_policy_is_asleep() ||
+         msgbox_is_open() || s_consumed_buttons != 0;
 }
 
 void ui_input_lock(uint32_t ms) {
+  ui_input_consume_gesture();
   uint32_t until = lv_tick_get() + ms;
   if ((int32_t)(until - input_lock_until) > 0)
     input_lock_until = until;
@@ -370,14 +443,67 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_BATTERY_SETTINGS:
+      return ui_battery_settings_close;
+    case SCREEN_DEV_DIAG:
+      return ui_dev_diag_close;
+    case SCREEN_FILES:
+      return ui_files_close;
+    case SCREEN_HOME:
+      return ui_home_close;
+    case SCREEN_MENU:
+      return ui_menu_close;
+    case SCREEN_GAMES_MENU:
+      return ui_games_menu_close;
+    case SCREEN_GAME_SNAKE:
+      return ui_snake_stop;
+    case SCREEN_GAME_BREAKOUT:
+      return ui_breakout_stop;
+    case SCREEN_WARDRIVE:
+      return wardrive_ui_stop;
+    case SCREEN_LORA_CHAT:
+      return ui_lora_chat_close;
+    case SCREEN_BLE_BEACON_SPAM:
+      return ui_beacon_spam_stop;
+    case SCREEN_BLE_MOUSE_PAIRING:
+    case SCREEN_BLE_MOUSE:
+      return ui_ble_mouse_stop;
+    case SCREEN_BLE_KEYBOARD:
+      return ui_ble_keyboard_stop;
+    case SCREEN_BLE_SNIFFER:
+      return ui_ble_sniffer_stop;
+    case SCREEN_BLE_TRACKER:
+      return ui_ble_tracker_stop;
+    case SCREEN_BLE_SKIMMER:
+      return ui_ble_skimmer_stop;
+    case SCREEN_BLE_EXPOSURE:
+      return ui_ble_exposure_stop;
+    case SCREEN_BLE_TRACK_DEVICE:
+      return ui_ble_track_device_stop;
+    case SCREEN_BLE_SPAM:
+      return ui_ble_spam_stop;
+    case SCREEN_BLE_FLOOD:
+      return ui_ble_flood_stop;
+    case SCREEN_PC_MONITOR:
+      return pc_monitor_ui_stop;
     case SCREEN_WIFI_ESP_SCAN:
       return ui_wifi_esp_scan_stop;
+    case SCREEN_WIFI_HANDSHAKE:
+      return ui_wifi_handshake_stop;
+    case SCREEN_WIFI_HOTSPOT:
+      return ui_wifi_hotspot_stop;
     case SCREEN_SCRIPTS:
       return ui_scripts_stop;
     case SCREEN_SUBGHZ_READ:
-      return subghz_receiver_stop;
+      return ui_subghz_read_stop;
+    case SCREEN_SUBGHZ_SEND:
+      return ui_subghz_send_stop;
+    case SCREEN_SUBGHZ_MENU:
+      return ui_subghz_menu_stop;
     case SCREEN_NFC_READ:
       return ui_nfc_read_stop;
+    case SCREEN_NFC_SAVED:
+      return ui_nfc_saved_stop;
     case SCREEN_NFC_WRITE:
       return ui_nfc_write_stop;
     case SCREEN_NFC_EMULATE:
@@ -391,14 +517,24 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_nfc_apdu_stop;
     case SCREEN_NFC_P2P:
       return ui_nfc_p2p_stop;
+    case SCREEN_NFC_ARCHIVE:
     case SCREEN_NFC_DESFIRE:
     case SCREEN_NFC_ISO15693:
     case SCREEN_NFC_ULTRALIGHT:
     case SCREEN_NFC_NDEF:
     case SCREEN_NFC_FELICA:
+    case SCREEN_NFC_PLUS:
+    case SCREEN_NFC_ST25TB:
+    case SCREEN_NFC_SLIX:
+    case SCREEN_NFC_NTAG4XX:
+    case SCREEN_NFC_TEXKOM_EMULATE:
+    case SCREEN_NFC_V_EMULATE:
+    case SCREEN_NFC_TEXKOM:
       return ui_nfc_protocol_lab_stop;
     case SCREEN_WAV_PLAYER:
       return ui_wav_player_stop;
+    case SCREEN_MP4_PLAYER:
+      return ui_mp4_player_stop;
     case SCREEN_MP3_PLAYER:
       return ui_mp3_player_stop;
     case SCREEN_IMAGE_VIEWER:
@@ -407,6 +543,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_usb_storage_stop;
     case SCREEN_USB_MOUSE:
       return ui_usb_mouse_stop;
+    case SCREEN_IMU_MONITOR:
+      return ui_imu_monitor_stop;
     case SCREEN_RFID_MENU:
       return ui_rfid_menu_stop;
     case SCREEN_MUSE:
@@ -420,6 +558,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 
 static ui_open_fn_t screen_open_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WARDRIVE:
+      return wardrive_ui_open;
     case SCREEN_WIFI_ESP_SCAN:
       return ui_wifi_esp_scan_open;
     case SCREEN_HOME:
@@ -624,6 +764,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_mqtt_open;
     case SCREEN_DEV_CONSOLE:
       return ui_dev_console_open;
+    case SCREEN_PC_MONITOR:
+      return pc_monitor_ui_open;
     case SCREEN_DEV_DIAG:
       return ui_dev_diag_open;
     case SCREEN_BOOT_MAP:
@@ -640,6 +782,22 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_nfc_ultralight_open;
     case SCREEN_NFC_NDEF:
       return ui_nfc_ndef_open;
+    case SCREEN_NFC_PLUS:
+      return ui_nfc_plus_open;
+    case SCREEN_NFC_ST25TB:
+      return ui_nfc_st25tb_open;
+    case SCREEN_NFC_SLIX:
+      return ui_nfc_slix_open;
+    case SCREEN_NFC_TEXKOM_EMULATE:
+      return ui_nfc_texkom_emulate_open;
+    case SCREEN_NFC_V_EMULATE:
+      return ui_nfc_v_emulate_open;
+    case SCREEN_NFC_TEXKOM:
+      return ui_nfc_texkom_open;
+    case SCREEN_NFC_NTAG4XX:
+      return ui_nfc_ntag4xx_open;
+    case SCREEN_NFC_ARCHIVE:
+      return ui_nfc_archive_open;
     case SCREEN_NFC_FELICA:
       return ui_nfc_felica_open;
     case SCREEN_NFC_P2P:
@@ -734,6 +892,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_IMU_MONITOR:
     case SCREEN_DEV_CONSOLE:
     case SCREEN_DEV_DIAG:
+    case SCREEN_PC_MONITOR:
     case SCREEN_BOOT_MAP:
     case SCREEN_CRASH_REPORT:
     case SCREEN_SYSTEM_UPDATE:
@@ -753,8 +912,8 @@ esp_err_t sx1262_receive_continuous(void);
 static bool is_lora_screen(screen_id_t s) {
   switch (s) {
     case SCREEN_LORA_CHAT:
-    case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_RNODE:
+    case SCREEN_LORA_TRACEROUTE:
     case SCREEN_LORA_CHANNELS:
     case SCREEN_LORA_POSITION:
     case SCREEN_LORA_TELEMETRY:
@@ -830,8 +989,22 @@ void ui_switch_screen(screen_id_t new_screen) {
     ui_display_claim_ui();
     screen_id_t from = current_screen_id;
     lv_obj_t *outgoing = lv_screen_active();
+    // A screen builder may delete/rebuild the active screen. Track deletion, not
+    // pointer validity: its address can be reused for a child of the new screen.
+    lv_event_dsc_t *outgoing_watch =
+        outgoing == NULL
+            ? NULL
+            : lv_obj_add_event_cb(outgoing, screen_slot_clear_cb, LV_EVENT_DELETE, &outgoing);
+    if (outgoing != NULL && outgoing_watch == NULL) {
+      ESP_LOGE(TAG, "Cannot track outgoing screen; keeping current view");
+      ui_release();
+      return;
+    }
     ui_close_fn_t close_fn = screen_close_fn(current_screen_id);
-    if (close_fn != NULL) {
+    const bool mouse_transition =
+        (from == SCREEN_BLE_MOUSE || from == SCREEN_BLE_MOUSE_PAIRING) &&
+        (new_screen == SCREEN_BLE_MOUSE || new_screen == SCREEN_BLE_MOUSE_PAIRING);
+    if (close_fn != NULL && !mouse_transition) {
       close_fn();
     }
     clear_current_screen();
@@ -844,8 +1017,11 @@ void ui_switch_screen(screen_id_t new_screen) {
       sx1262_stop_rx();
     else if (!is_lora_screen(from) && is_lora_screen(new_screen))
       (void)sx1262_receive_continuous();
-    if (outgoing != NULL && outgoing != lv_screen_active() && lv_obj_is_valid(outgoing))
-      lv_obj_del_async(outgoing);
+    if (outgoing != NULL) {
+      lv_obj_remove_event_dsc(outgoing, outgoing_watch);
+      if (outgoing != lv_screen_active())
+        lv_obj_del_async(outgoing);
+    }
     screen_tips_hook(new_screen);
     ui_release();
   }
@@ -889,12 +1065,13 @@ void ui_async_call(lv_async_cb_t cb, void *user_data) {
 }
 
 void ui_screen_load(lv_obj_t *scr) {
+  lv_obj_set_style_text_color(scr, current_theme.text_main, 0);
   lv_screen_load(scr);
 }
 
 static void screen_slot_clear_cb(lv_event_t *e) {
   lv_obj_t **slot = lv_event_get_user_data(e);
-  if (slot != NULL)
+  if (slot != NULL && *slot == lv_event_get_target(e))
     *slot = NULL;
 }
 
@@ -902,7 +1079,7 @@ void ui_screen_load_owned(lv_obj_t **slot, lv_obj_t *scr) {
   if (slot != NULL)
     *slot = scr;
   lv_obj_add_event_cb(scr, screen_slot_clear_cb, LV_EVENT_DELETE, slot);
-  lv_screen_load(scr);
+  ui_screen_load(scr);
 }
 
 screen_id_t ui_current_screen(void) {

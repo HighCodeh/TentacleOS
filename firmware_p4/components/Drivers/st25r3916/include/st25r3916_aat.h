@@ -39,7 +39,9 @@ typedef struct {
  * @brief Run a 2-pass antenna tuning sweep and apply best values.
  *
  * @param[out] out_result Receives the best calibration point.
- * @return ESP_OK on success, or ESP_FAIL/ESP_ERR_INVALID_STATE.
+ * V2.03 has a fixed matching network and unconnected AAT outputs: no sweep or
+ * field activation is performed for that board.
+ * @return ESP_OK on success; ESP_ERR_NOT_SUPPORTED for V2.03; an error otherwise.
  */
 esp_err_t st25r3916_aat_calibrate(st25r3916_aat_result_t *out_result);
 

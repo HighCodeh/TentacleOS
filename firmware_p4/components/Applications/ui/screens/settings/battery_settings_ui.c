@@ -15,219 +15,238 @@
 
 #include "battery_settings_ui.h"
 
-#include <stdio.h>
-
+#include "esp_log.h"
 #include "battery_service.h"
+#include "power_profile.h"
+#include "led_control.h"
+#include "tos_config.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
 
+#define BATTERY_REFRESH_MS       1000
+#define BATTERY_SAVE_STATUS_MS   3000
+#define BATTERY_SIDE_PAD         12
+#define BATTERY_HERO_HEIGHT      96
+#define BATTERY_HERO_WIDE_WIDTH  140
+#define BATTERY_GAP              12
+#define BATTERY_CARD_RADIUS      12
+#define BATTERY_CARD_PAD         12
+#define BATTERY_STATUS_Y         10
+#define BATTERY_READING_Y        36
+#define BATTERY_CAPTION_Y        62
+#define BATTERY_METRIC_VALUE_Y   18
+#define BATTERY_METRIC_ROW_GAP   50
+#define BATTERY_META_GAP         54
+#define BATTERY_REASON_GAP       22
+#define BATTERY_MV_PER_V         1000
+#define BATTERY_MV_PER_CENTIVOLT 10
+
 static const char *TAG = "BATTERY_SETTINGS_UI";
+static lv_obj_t *s_screen, *s_pct, *s_source, *s_state, *s_current, *s_reason, *s_note;
+static lv_obj_t *s_caption, *s_footer;
+static lv_timer_t *s_refresh_timer;
+static const char *s_capacity_status;
+static uint32_t s_capacity_status_tick;
 
-#define ARC_SIZE      124
-#define ARC_WIDTH     13
-#define ARC_ROTATION  270
-#define ARC_TOP_Y     46
-#define GAUGE_ANIM_MS 700
-#define ENTRY_FADE_MS 240
-#define STAT_CARD_W   66
-#define STAT_CARD_H   46
-#define LOW_COLOR     0xE53935
-#define MID_COLOR     0xFFB300
-#define TITLE_FONT    "A:assets/fonts/Inter.bin"
-
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_arc = NULL;
-static lv_font_t *s_big_font = NULL;
-
-static lv_color_t level_color(int pct) {
-  if (pct < 25)
-    return lv_color_hex(LOW_COLOR);
-  if (pct < 60)
-    return lv_color_hex(MID_COLOR);
-  return lv_color_hex(UI_COL_SUCCESS);
-}
-
-static void arc_anim_exec_cb(void *obj, int32_t v) {
-  lv_arc_set_value((lv_obj_t *)obj, v);
-}
-
-static void add_stat_card(lv_obj_t *parent, const char *value, const char *unit, lv_color_t color) {
-  lv_obj_t *card = lv_obj_create(parent);
-  lv_obj_set_size(card, STAT_CARD_W, STAT_CARD_H);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(card, 11, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_border_color(card, current_theme.border_inactive, 0);
-  lv_obj_set_style_pad_all(card, 2, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(card, 1, 0);
-
-  lv_obj_t *v = lv_label_create(card);
-  lv_label_set_text(v, value);
-  lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(v, color, 0);
-
-  lv_obj_t *u = lv_label_create(card);
-  lv_label_set_text(u, unit);
-  lv_obj_set_style_text_font(u, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(u, current_theme.text_main, 0);
-  lv_obj_set_style_text_opa(u, LV_OPA_50, 0);
-}
-
-static void battery_settings_input(const input_event_t *ev, void *ctx) {
-  (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-      if (press)
-        ui_switch_screen(SCREEN_SETTINGS);
-      break;
-    default:
-      break;
+static void refresh_cb(lv_timer_t *timer) {
+  (void)timer;
+  battery_snapshot_t battery = {.soc = -1};
+  battery_charge_snapshot_t charge = {0};
+  bool valid = battery_service_get(&battery);
+  bool charge_valid = battery_service_get_charge(&charge);
+  bool present = valid && battery.present;
+  bool known = present && battery.soc >= 0;
+  lv_color_t color = current_theme.text_secondary;
+  const char *state = "Reading battery";
+  if (valid) {
+    if (battery.charging) {
+      state = "Charging";
+      color = lv_color_hex(UI_COL_SUCCESS);
+    } else if (battery.chg == CHARGE_STATUS_CHARGE_DONE) {
+      state = "Fully charged";
+      color = lv_color_hex(UI_COL_SUCCESS);
+    } else if (battery.vbus_present) {
+      state = charge_valid && !charge.requested ? "Charge paused" : "Not charging";
+      color = lv_color_hex(UI_COL_WARNING);
+    } else {
+      state = battery.low ? "Battery low" : "On battery";
+    }
   }
+  if (known)
+    lv_label_set_text_fmt(s_pct, "%s%d%%", battery.is_soc_estimated ? "~" : "", battery.soc);
+  else if (present)
+    lv_label_set_text_fmt(s_pct,
+                          "%u.%02u V",
+                          battery.vbat_mv / BATTERY_MV_PER_V,
+                          battery.vbat_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+  else
+    lv_label_set_text(s_pct, "--");
+  lv_label_set_text(s_caption,
+                    !present                   ? "Battery unavailable"
+                    : !known                   ? "Percentage unavailable"
+                    : battery.is_soc_estimated ? "Estimated from voltage"
+                                               : "State of charge");
+  if (!valid)
+    lv_label_set_text(s_source, "Unavailable");
+  else if (battery.vbus_present && charge_valid)
+    lv_label_set_text_fmt(s_source,
+                          "USB %u.%02u V",
+                          charge.charger.vbus_mv / BATTERY_MV_PER_V,
+                          charge.charger.vbus_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+  else
+    lv_label_set_text(s_source, battery.vbus_present ? "USB" : "Battery");
+  lv_label_set_text(s_state, state);
+  lv_obj_set_style_text_color(s_state, color, 0);
+  if (charge_valid && charge.current_valid)
+    lv_label_set_text_fmt(s_current, "%+d mA", charge.battery_current_ma);
+  else
+    lv_label_set_text(s_current, "Unavailable");
+  const char *reason = charge_valid && charge.status ? charge.status : "Battery data unavailable";
+  if (charge_valid && charge.charger.vbat_mv > 2304 && charge.charger.vbat_mv < 3200 &&
+      charge.charger.power_good)
+    reason = "Battery too low for safe recovery";
+  if (present && (battery.charging || battery.chg == CHARGE_STATUS_CHARGE_DONE ||
+                  !battery.vbus_present || (charge_valid && !charge.requested))) {
+    if (known)
+      lv_label_set_text_fmt(s_reason,
+                            "Battery voltage %u.%02u V",
+                            battery.vbat_mv / BATTERY_MV_PER_V,
+                            battery.vbat_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+    else
+      lv_label_set_text(s_reason, "Percentage needs calibration");
+  } else
+    lv_label_set_text(s_reason, reason);
+  lv_label_set_text_fmt(s_note, "L/R Battery: < %u mAh >", battery_service_capacity_mah());
+  if (s_capacity_status != NULL && lv_tick_elaps(s_capacity_status_tick) < BATTERY_SAVE_STATUS_MS)
+    lv_label_set_text(s_reason, s_capacity_status);
+  ui_chrome_footer_set_text(s_footer,
+                            !charge_valid      ? "BACK Exit"
+                            : charge.requested ? "OK Pause charge   BACK"
+                                               : "OK Resume charge   BACK");
+}
+
+void ui_battery_settings_close(void) {
+  if (s_refresh_timer != NULL) {
+    lv_timer_delete(s_refresh_timer);
+    s_refresh_timer = NULL;
+  }
+}
+
+static void screen_delete_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_battery_settings_close();
+}
+
+static void battery_settings_input(const input_event_t *event, void *context) {
+  (void)context;
+  if (event->action != INPUT_ACTION_PRESS)
+    return;
+  if (event->button == INPUT_BTN_BACK)
+    ui_switch_screen(SCREEN_SETTINGS);
+  else if (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT) {
+    uint16_t capacity_mah = battery_service_capacity_mah() == POWER_PROFILE_CAPACITY_MAH
+                                ? POWER_PROFILE_CAPACITY_SMALL_MAH
+                                : POWER_PROFILE_CAPACITY_MAH;
+    esp_err_t result = tos_config_set_battery_capacity(capacity_mah);
+    if (result == ESP_OK) {
+      s_capacity_status = "Battery selection saved";
+      ESP_LOGI(TAG, "Battery capacity saved: %u mAh", capacity_mah);
+      led_signal_info();
+    } else {
+      s_capacity_status = "Save failed; selection unchanged";
+      ESP_LOGE(TAG, "Battery capacity save failed: %s", esp_err_to_name(result));
+      led_signal_error();
+    }
+    s_capacity_status_tick = lv_tick_get();
+    refresh_cb(NULL);
+  } else if (event->button == INPUT_BTN_OK) {
+    battery_charge_snapshot_t charge;
+    if (battery_service_get_charge(&charge)) {
+      esp_err_t result = battery_service_request_charge(!charge.requested);
+      if (result != ESP_OK) {
+        ESP_LOGW(TAG, "Charge request failed: %s", esp_err_to_name(result));
+        led_signal_warning();
+      }
+    }
+  }
+}
+
+static lv_obj_t *add_label(lv_obj_t *parent, const lv_font_t *font, int width) {
+  lv_obj_t *label = lv_label_create(parent);
+  lv_obj_set_width(label, width);
+  lv_label_set_text(label, "");
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_font(label, font, 0);
+  lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+  return label;
 }
 
 void ui_battery_settings_open(void) {
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-    s_arc = NULL;
-  }
-  (void)TAG;
-
-  if (s_big_font == NULL)
-    s_big_font = lv_binfont_create(TITLE_FONT);
-
-  battery_snapshot_t bs = {0};
-  bool have = battery_service_get(&bs);
-  int soc = have ? bs.soc : 0;
-  bool charging = have && bs.charging;
-  bool on_usb = have && bs.vbus_present;
-
-  lv_color_t accent = level_color(soc);
-
+  s_capacity_status = NULL;
+  if (s_screen != NULL)
+    lv_obj_delete(s_screen);
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-
   ui_chrome_header(s_screen, "BATTERY", "/assets/icons/battery_full.bin");
-  ui_chrome_footer(s_screen, "BACK: Exit");
+  s_footer = ui_chrome_footer(s_screen, "BACK Exit");
+  int width = ui_screen_w();
+  bool wide = width > ui_screen_h();
+  int content_width = width - 2 * BATTERY_SIDE_PAD;
+  int top = UI_CHROME_HEADER_H + BATTERY_GAP;
+  int hero_width = wide ? BATTERY_HERO_WIDE_WIDTH : content_width;
+  lv_obj_t *hero = lv_obj_create(s_screen);
+  lv_obj_remove_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(hero, hero_width, BATTERY_HERO_HEIGHT);
+  lv_obj_set_pos(hero, BATTERY_SIDE_PAD, top);
+  lv_obj_set_style_pad_all(hero, 0, 0);
+  lv_obj_set_style_radius(hero, BATTERY_CARD_RADIUS, 0);
+  lv_obj_set_style_bg_color(hero, current_theme.bg_secondary, 0);
+  lv_obj_set_style_border_color(hero, current_theme.border_accent, 0);
+  lv_obj_set_style_border_width(hero, 1, 0);
+  int text_width = hero_width - 2 * BATTERY_CARD_PAD;
+  s_state = add_label(hero, &lv_font_montserrat_14, text_width);
+  lv_obj_set_pos(s_state, BATTERY_CARD_PAD, BATTERY_STATUS_Y);
+  s_pct = add_label(hero, &lv_font_montserrat_16, text_width);
+  lv_obj_set_pos(s_pct, BATTERY_CARD_PAD, BATTERY_READING_Y);
+  s_caption = add_label(hero, &lv_font_montserrat_12, text_width);
+  lv_obj_set_style_text_color(s_caption, current_theme.text_secondary, 0);
+  lv_obj_set_pos(s_caption, BATTERY_CARD_PAD, BATTERY_CAPTION_Y);
 
-  s_arc = lv_arc_create(s_screen);
-  lv_obj_set_size(s_arc, ARC_SIZE, ARC_SIZE);
-  lv_obj_align(s_arc, LV_ALIGN_TOP_MID, 0, ARC_TOP_Y);
-  lv_arc_set_rotation(s_arc, ARC_ROTATION);
-  lv_arc_set_bg_angles(s_arc, 0, 360);
-  lv_arc_set_range(s_arc, 0, 100);
-  lv_arc_set_value(s_arc, 0);
-  lv_obj_remove_flag(s_arc, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_style(s_arc, NULL, LV_PART_KNOB);
-  lv_obj_set_style_arc_width(s_arc, ARC_WIDTH, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(s_arc, current_theme.bg_secondary, LV_PART_MAIN);
-  lv_obj_set_style_arc_rounded(s_arc, true, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(s_arc, ARC_WIDTH, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(s_arc, accent, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_rounded(s_arc, true, LV_PART_INDICATOR);
-
-  lv_anim_t ga;
-  lv_anim_init(&ga);
-  lv_anim_set_var(&ga, s_arc);
-  lv_anim_set_exec_cb(&ga, arc_anim_exec_cb);
-  lv_anim_set_values(&ga, 0, soc);
-  lv_anim_set_duration(&ga, GAUGE_ANIM_MS);
-  lv_anim_set_path_cb(&ga, lv_anim_path_ease_out);
-  lv_anim_start(&ga);
-
-  lv_obj_t *pct = lv_label_create(s_screen);
-  if (have)
-    lv_label_set_text_fmt(pct, "%d%%", soc);
-  else
-    lv_label_set_text(pct, "--");
-  lv_obj_set_style_text_font(pct, s_big_font ? s_big_font : &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(pct, current_theme.text_main, 0);
-  lv_obj_align_to(pct, s_arc, LV_ALIGN_CENTER, 0, -10);
-
-  lv_obj_t *chg = lv_label_create(s_screen);
-  uint32_t chip_color;
-  if (charging) {
-    lv_label_set_text(chg, LV_SYMBOL_CHARGE " CHARGING");
-    chip_color = UI_COL_SUCCESS;
-  } else if (on_usb) {
-    lv_label_set_text(chg, LV_SYMBOL_CHARGE " ON USB");
-    chip_color = MID_COLOR;
-  } else {
-    lv_label_set_text(chg, LV_SYMBOL_BATTERY_FULL " ON BATTERY");
-    chip_color = (soc < 25) ? LOW_COLOR : 0x8A8594;
-  }
-  lv_obj_set_style_text_font(chg, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(chg, lv_color_hex(chip_color), 0);
-  lv_obj_set_style_bg_color(chg, lv_color_hex(chip_color), 0);
-  lv_obj_set_style_bg_opa(chg, LV_OPA_20, 0);
-  lv_obj_set_style_radius(chg, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_pad_hor(chg, 9, 0);
-  lv_obj_set_style_pad_ver(chg, 2, 0);
-  lv_obj_align_to(chg, s_arc, LV_ALIGN_CENTER, 0, 14);
-
-  lv_obj_t *stats = lv_obj_create(s_screen);
-  lv_obj_remove_style_all(stats);
-  lv_obj_set_size(stats, ui_screen_w() - 24, LV_SIZE_CONTENT);
-  lv_obj_align(stats,
-               LV_ALIGN_TOP_MID,
-               0,
-               LV_MIN(ARC_TOP_Y + ARC_SIZE + 16, ui_screen_h() - UI_CHROME_FOOTER_H - STAT_CARD_H));
-  lv_obj_remove_flag(stats, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(stats, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(stats, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(stats, 8, 0);
-
-  char vbat_s[12];
-  snprintf(vbat_s, sizeof(vbat_s), "%u.%02u", bs.vbat_mv / 1000, (bs.vbat_mv % 1000) / 10);
-  add_stat_card(stats, have ? vbat_s : "--", "VBAT", current_theme.text_main);
-  add_stat_card(stats,
-                on_usb ? "USB" : "BATT",
-                "SOURCE",
-                on_usb ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main);
-
-  const char *st = "IDLE";
-  lv_color_t st_col = current_theme.border_accent;
-  if (charging) {
-    st = (bs.chg == CHARGE_STATUS_PRECHARGE) ? "PRE" : "FAST";
-    st_col = lv_color_hex(UI_COL_SUCCESS);
-  } else if (bs.chg == CHARGE_STATUS_CHARGE_DONE) {
-    st = "FULL";
-    st_col = lv_color_hex(UI_COL_SUCCESS);
-  }
-  add_stat_card(stats, st, "STATUS", st_col);
-
-  lv_obj_t *eta = lv_label_create(s_screen);
-  if (charging)
-    lv_label_set_text(eta, LV_SYMBOL_CHARGE " Charging");
-  else if (on_usb)
-    lv_label_set_text(eta, LV_SYMBOL_CHARGE " Fully charged / on USB");
-  else
-    lv_label_set_text_fmt(eta, LV_SYMBOL_BATTERY_FULL " %d%% remaining", soc);
-  lv_obj_set_style_text_font(eta, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(eta, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_color(eta, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(eta, LV_OPA_COVER, 0);
-  lv_obj_set_style_radius(eta, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(eta, 1, 0);
-  lv_obj_set_style_border_color(eta, current_theme.border_inactive, 0);
-  lv_obj_set_style_pad_hor(eta, 12, 0);
-  lv_obj_set_style_pad_ver(eta, 4, 0);
-  lv_obj_align_to(eta, stats, LV_ALIGN_OUT_BOTTOM_MID, 0, 12);
-
-  lv_obj_fade_in(s_screen, ENTRY_FADE_MS, 0);
-
+  int metric_x = wide ? BATTERY_SIDE_PAD + hero_width + BATTERY_GAP : BATTERY_SIDE_PAD;
+  int metric_y = wide ? top : top + BATTERY_HERO_HEIGHT + BATTERY_GAP;
+  int metric_width = wide ? width - metric_x - BATTERY_SIDE_PAD : (content_width - BATTERY_GAP) / 2;
+  lv_obj_t *current_title = add_label(s_screen, &lv_font_montserrat_12, metric_width);
+  lv_label_set_text(current_title, "NET CURRENT");
+  lv_obj_set_style_text_color(current_title, current_theme.text_secondary, 0);
+  lv_obj_set_pos(current_title, metric_x, metric_y);
+  s_current = add_label(s_screen, &lv_font_montserrat_16, metric_width);
+  lv_obj_set_pos(s_current, metric_x, metric_y + BATTERY_METRIC_VALUE_Y);
+  int source_x = wide ? metric_x : metric_x + metric_width + BATTERY_GAP;
+  int source_y = wide ? metric_y + BATTERY_METRIC_ROW_GAP : metric_y;
+  lv_obj_t *source_title = add_label(s_screen, &lv_font_montserrat_12, metric_width);
+  lv_label_set_text(source_title, "SUPPLY");
+  lv_obj_set_style_text_color(source_title, current_theme.text_secondary, 0);
+  lv_obj_set_pos(source_title, source_x, source_y);
+  s_source = add_label(s_screen, &lv_font_montserrat_12, metric_width);
+  lv_obj_set_pos(s_source, source_x, source_y + BATTERY_METRIC_VALUE_Y);
+  int meta_y = wide ? top + BATTERY_HERO_HEIGHT + BATTERY_GAP : metric_y + BATTERY_META_GAP;
+  s_note = add_label(s_screen, &lv_font_montserrat_12, content_width);
+  lv_obj_set_style_text_color(s_note, current_theme.text_secondary, 0);
+  lv_obj_set_pos(s_note, BATTERY_SIDE_PAD, meta_y);
+  s_reason = add_label(s_screen, &lv_font_montserrat_12, content_width);
+  lv_obj_set_pos(s_reason, BATTERY_SIDE_PAD, meta_y + BATTERY_REASON_GAP);
+  lv_obj_add_event_cb(s_screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
   ui_input_set_screen_handler(battery_settings_input, NULL);
-
+  refresh_cb(NULL);
+  s_refresh_timer = lv_timer_create(refresh_cb, BATTERY_REFRESH_MS, NULL);
+  if (s_refresh_timer == NULL) {
+    ESP_LOGE(TAG, "Battery refresh allocation failed");
+    led_signal_error();
+    lv_label_set_text(s_reason, "Live updates unavailable");
+  }
   ui_screen_load_owned(&s_screen, s_screen);
 }

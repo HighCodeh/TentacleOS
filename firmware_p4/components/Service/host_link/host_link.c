@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "host_link.h"
+#include "host_pc_monitor.h"
 
 #include <string.h>
 
@@ -518,8 +519,10 @@ static void process_frame(const uint8_t *frame, size_t total) {
 }
 
 static void handle_hello(const uint8_t *payload, uint16_t plen) {
-  if (payload == NULL || plen != 1 + HOST_LINK_NONCE_SIZE || payload[0] != HOST_LINK_VER)
+  if (payload == NULL || plen != HOST_LINK_HELLO_SIZE || payload[0] != HOST_LINK_PAIR_VERSION) {
+    ESP_LOGW(TAG, "HELLO rejected: invalid pairing payload size/version");
     return;
+  }
   // Rekey is also a generation boundary. Invalidate queued input and every old
   // producer before deriving; do not let an old log precede the new ACK.
   portENTER_CRITICAL(&s_state_lock);
@@ -697,6 +700,12 @@ static void register_builtins(void) {
   done = true;
 
   const host_link_handler_t builtins[] = {
+      {SPI_CAT_SYSTEM,
+       SPI_ID_SYSTEM_PC_MONITOR & 0xFF,
+       SPI_ID_SYSTEM_PC_MONITOR & 0xFF,
+       1,
+       host_pc_monitor_handle,
+       "pc-monitor"},
       {SPI_CAT_SYSTEM,
        SPI_ID_FILE_LIST & 0xFF,
        SPI_ID_FILE_MKDIR & 0xFF,

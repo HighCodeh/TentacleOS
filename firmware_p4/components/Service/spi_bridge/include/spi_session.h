@@ -73,6 +73,7 @@ typedef void (*spi_session_lost_cb_t)(uint32_t session_id, spi_id_t op_id);
  * Registers the SPI_ID_SESSION_LOST stream listener.
  */
 void spi_session_init(void);
+void spi_session_link_lost(void);
 
 /**
  * @brief Start a long-running operation with full session lifecycle.

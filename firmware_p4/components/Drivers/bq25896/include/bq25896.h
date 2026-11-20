@@ -112,6 +112,7 @@ typedef struct {
                    ///< OTG.
   bool vbus_good;
   bool adc_continuous;
+  bool adc_valid; ///< Completed conversion; never inferred from reset ADC codes.
   bool ico_enabled;
   bool ico_optimized;
   bool thermal_regulation;
@@ -139,9 +140,14 @@ esp_err_t bq25896_read_register(uint8_t reg, uint8_t *value);
 /** Read REG00..REG14. REG0C is read twice as required by the datasheet. */
 esp_err_t bq25896_dump_registers(uint8_t regs[BQ25896_REGISTER_COUNT]);
 
-/** Capture all useful ADC, status, limit, DPM, identity and fault fields. */
+/** Capture ADC/status fields. V2.03 performs a fresh one-shot conversion,
+ * bounded to 1.2 seconds plus I2C transfers. Does not change charge settings.
+ * On error, output must not be consumed. */
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out);
 
+/** Retained limits for the confirmed charge profile; never enables charging. */
+esp_err_t bq25896_limit_confirmed_604858(void);
+esp_err_t bq25896_stop_charge(void);
 uint8_t bq25896_get_fault(void);
 bq25896_charge_status_t bq25896_get_charge_status(void);
 bq25896_vbus_status_t bq25896_get_vbus_status(void);

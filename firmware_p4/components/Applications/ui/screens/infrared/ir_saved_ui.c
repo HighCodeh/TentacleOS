@@ -39,12 +39,11 @@
 
 static const char *TAG = "IR_SAVED_UI";
 
-#define MAX_PROTOS 16
-#define MAX_FILES  IR_STORE_MAX_ENTRIES
+#define MAX_FILES       IR_STORE_MAX_ENTRIES
+#define SEND_STATUS_LEN (IR_STORE_NAME_MAX + 24)
 
 #define IR_ICON        "/assets/icons/settings_input_antenna.bin"
 #define IR_SIGNAL_ICON "/assets/icons/settings_remote.bin"
-#define IR_CARRIER     "38 kHz"
 
 #define IRC_LEFT        6
 #define IRC_GUTTER      16
@@ -62,8 +61,7 @@ static const char *TAG = "IR_SAVED_UI";
 #define IRC_THUMB_ICON  "/assets/icons/drag_indicator.bin"
 
 typedef enum {
-  LEVEL_PROTOCOLS = 0,
-  LEVEL_FILES,
+  LEVEL_FILES = 0,
   LEVEL_ACTIONS,
 } browse_level_t;
 
@@ -71,59 +69,26 @@ static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
 static capture_result_t s_cr = {0};
 
-static browse_level_t s_level = LEVEL_PROTOCOLS;
-static int s_proto = 0;
+static browse_level_t s_level = LEVEL_FILES;
 static int s_file = 0;
-static bool s_saved = false;
 
-EXT_RAM_BSS_ATTR static ir_store_entry_t s_all[IR_STORE_MAX_ENTRIES];
-static int s_all_count = 0;
-static char s_protos[MAX_PROTOS][16];
-static int s_proto_count = 0;
-static char s_proto_name[16] = {0};
 EXT_RAM_BSS_ATTR static ir_store_entry_t s_files[MAX_FILES];
 static int s_file_count = 0;
 
 static lv_obj_t *s_file_list = NULL;
 static lv_obj_t *s_file_rows[MAX_FILES];
 static lv_obj_t *s_file_names[MAX_FILES];
-static lv_obj_t *s_file_values[MAX_FILES];
 static lv_obj_t *s_file_thumb = NULL;
 
 static void build_screen(void);
 static void ir_saved_input(const input_event_t *ev, void *ctx);
 
 static void reload_all(void) {
-  s_all_count = ir_store_list(s_all, IR_STORE_MAX_ENTRIES);
-  if (s_all_count < 0)
-    s_all_count = 0;
-
-  s_proto_count = 0;
-  for (int i = 0; i < s_all_count; i++) {
-    bool found = false;
-    for (int j = 0; j < s_proto_count; j++) {
-      if (strcmp(s_protos[j], s_all[i].proto) == 0) {
-        found = true;
-        break;
-      }
-    }
-    if (!found && s_proto_count < MAX_PROTOS) {
-      snprintf(s_protos[s_proto_count], sizeof(s_protos[0]), "%s", s_all[i].proto);
-      s_proto_count++;
-    }
-  }
-}
-
-static void filter_for_proto(const char *proto) {
-  s_file_count = 0;
-  for (int i = 0; i < s_all_count && s_file_count < MAX_FILES; i++) {
-    if (strcmp(s_all[i].proto, proto) == 0)
-      s_files[s_file_count++] = s_all[i];
-  }
+  s_file_count = ir_store_list(s_files, MAX_FILES);
+  if (s_file_count < 0)
+    s_file_count = 0;
   if (s_file >= s_file_count)
-    s_file = s_file_count - 1;
-  if (s_file < 0)
-    s_file = 0;
+    s_file = s_file_count > 0 ? s_file_count - 1 : 0;
 }
 
 static void selected_value(char *buf, size_t cap) {
@@ -147,13 +112,20 @@ static void selected_value(char *buf, size_t cap) {
 }
 
 static void send_selected(void) {
-  ir_file_t f;
-  ir_file_init(&f);
-  if (ir_store_load(s_files[s_file].path, &f) == ESP_OK && f.count > 0) {
-    ir_store_send_signal(&f.signals[0]);
-    ESP_LOGI(TAG, "sent %s (%s)", s_files[s_file].name, s_files[s_file].proto);
+  ir_file_t file;
+  ir_file_init(&file);
+  esp_err_t err = ir_store_load(s_files[s_file].path, &file);
+  if (err == ESP_OK)
+    err = file.count > 0 ? ir_store_send_signal(&file.signals[0]) : ESP_ERR_NOT_FOUND;
+  ir_file_free(&file);
+  char message[SEND_STATUS_LEN];
+  if (err == ESP_OK) {
+    snprintf(message, sizeof(message), "Sent: %s", s_files[s_file].name);
+    notify(NOTIFY_INFO, message);
+  } else {
+    ESP_LOGW(TAG, "Send failed for %s: %s", s_files[s_file].name, esp_err_to_name(err));
+    notify(NOTIFY_WARNING, "Send failed; check signal file");
   }
-  ir_file_free(&f);
 }
 
 static void rebuild_async(void *p) {
@@ -165,28 +137,41 @@ static void on_rename_submit(const char *text, void *ud) {
   (void)ud;
   if (text == NULL || text[0] == '\0')
     return;
-  if (ir_store_rename(s_files[s_file].name, text) == ESP_OK) {
+  if (strcmp(s_files[s_file].name, text) != 0 && ir_store_exists(text)) {
+    notify(NOTIFY_WARNING, "Name exists; choose another");
+    keyboard_open_filename("Rename IR signal", text, IR_STORE_NAME_MAX - 1, on_rename_submit);
+    return;
+  }
+  if (strcmp(s_files[s_file].name, text) == 0 ||
+      ir_store_rename(s_files[s_file].name, text) == ESP_OK) {
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_INFO, "Signal renamed");
   } else {
     notify(NOTIFY_WARNING, "Rename failed");
   }
   reload_all();
-  filter_for_proto(s_proto_name);
+  for (int i = 0; i < s_file_count; i++) {
+    if (strcmp(s_files[i].name, text) == 0) {
+      s_file = i;
+      break;
+    }
+  }
   if (s_file_count == 0)
-    s_level = LEVEL_PROTOCOLS;
+    s_level = LEVEL_FILES;
   ui_async_call(rebuild_async, NULL);
 }
 
 static void on_delete_confirm(bool confirm) {
   if (!confirm)
     return;
-  ir_store_delete(s_files[s_file].name);
+  if (ir_store_delete(s_files[s_file].name) != ESP_OK) {
+    notify(NOTIFY_WARNING, "Delete failed; signal retained");
+    return;
+  }
   ui_feedback(UI_FB_WRITE);
   notify(NOTIFY_INFO, "Signal deleted");
   reload_all();
-  filter_for_proto(s_proto_name);
-  s_level = (s_file_count > 0) ? LEVEL_FILES : LEVEL_PROTOCOLS;
+  s_level = LEVEL_FILES;
   ui_async_call(rebuild_async, NULL);
 }
 
@@ -214,13 +199,11 @@ static void style_file_row(int i, bool sel) {
     lv_obj_set_style_shadow_width(card, IRC_GLOW_W, 0);
     lv_obj_set_style_shadow_opa(card, LV_OPA_40, 0);
     lv_obj_set_style_shadow_spread(card, -2, 0);
-    lv_obj_set_style_text_color(s_file_values[i], current_theme.border_accent, 0);
   } else {
     lv_obj_set_style_border_color(card, current_theme.border_inactive, 0);
     lv_obj_set_style_border_opa(card, LV_OPA_60, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
     lv_obj_set_style_shadow_opa(card, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(s_file_values[i], current_theme.text_secondary, 0);
   }
 }
 
@@ -240,7 +223,7 @@ static void build_files_list(void) {
   if (s_file < 0)
     s_file = 0;
 
-  ui_chrome_header(s_screen, s_proto_name, IR_ICON);
+  ui_chrome_header(s_screen, "SAVED SIGNALS", IR_ICON);
 
   lv_obj_t *cont = lv_obj_create(s_screen);
   s_file_list = cont;
@@ -279,19 +262,12 @@ static void build_files_list(void) {
 
     lv_obj_t *name = lv_label_create(card);
     s_file_names[i] = name;
-    lv_obj_set_width(name, lv_pct(66));
+    lv_obj_set_width(name, lv_pct(100));
     lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
     lv_label_set_text(name, s_files[i].name);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(name, current_theme.text_main, 0);
     lv_obj_align(name, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t *value = lv_label_create(card);
-    s_file_values[i] = value;
-    lv_label_set_text(value, IR_CARRIER);
-    lv_obj_set_style_text_font(value, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(value, current_theme.border_accent, 0);
-    lv_obj_align(value, LV_ALIGN_TOP_RIGHT, 0, 2);
 
     lv_obj_t *proto = lv_label_create(card);
     lv_obj_set_width(proto, lv_pct(100));
@@ -345,22 +321,13 @@ static void build_screen(void) {
   s_file_thumb = NULL;
   s_cr = (capture_result_t){0};
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
-  if (s_level == LEVEL_PROTOCOLS) {
-    s_menu = menu_component_create(s_screen, "BROWSE SIGNALS", "/assets/icons/folder_open.bin");
-    if (s_proto_count == 0) {
-      menu_component_add_item(&s_menu, "/assets/icons/folder.bin", "No saved signals");
-    } else {
-      for (int i = 0; i < s_proto_count; i++)
-        menu_component_add_item(&s_menu, "/assets/icons/folder.bin", s_protos[i]);
-    }
-    menu_component_set_hint(&s_menu, "OK Open   BACK Exit");
+  if (s_file_count == 0) {
+    s_level = LEVEL_FILES;
+    s_menu = menu_component_create(s_screen, "SAVED SIGNALS", IR_ICON);
+    menu_component_add_item(&s_menu, IR_SIGNAL_ICON, "No saved signals");
+    menu_component_set_hint(&s_menu, "Learn a signal first   BACK Exit");
   } else if (s_level == LEVEL_FILES) {
     build_files_list();
   } else {
@@ -376,9 +343,13 @@ static void build_screen(void) {
         .primary_label = "Send",
         .again_label = "Rename",
     };
-    s_cr = capture_result_create(s_screen, &cfg);
-    if (s_saved)
-      capture_result_mark_saved(&s_cr);
+    const capture_result_action_cfg_t actions[] = {
+        {.id = CAP_ACT_PRIMARY, .symbol = LV_SYMBOL_UPLOAD, .label = "Send"},
+        {.id = CAP_ACT_AGAIN, .symbol = LV_SYMBOL_EDIT, .label = "Rename"},
+        {.id = CAP_ACT_DISCARD, .symbol = LV_SYMBOL_TRASH, .label = "Delete"},
+    };
+    s_cr =
+        capture_result_create_custom(s_screen, &cfg, actions, sizeof(actions) / sizeof(actions[0]));
     ui_chrome_footer(s_screen, "UP/DOWN choose   OK do   BACK back");
   }
 
@@ -412,17 +383,12 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
             case CAP_ACT_PRIMARY:
               ui_feedback(UI_FB_EMULATE);
               send_selected();
-              notify(NOTIFY_INFO, "Signal sent");
-              break;
-            case CAP_ACT_SAVE:
-              if (!s_saved) {
-                s_saved = true;
-                capture_result_mark_saved(&s_cr);
-                notify(NOTIFY_INFO, "Already saved");
-              }
               break;
             case CAP_ACT_AGAIN:
-              keyboard_open(NULL, on_rename_submit, NULL);
+              keyboard_open_filename("Rename IR signal",
+                                     s_files[s_file].name,
+                                     IR_STORE_NAME_MAX - 1,
+                                     on_rename_submit);
               break;
             case CAP_ACT_DISCARD:
               msgbox_open(
@@ -438,47 +404,6 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
           s_level = LEVEL_FILES;
           build_screen();
         }
-        break;
-      default:
-        break;
-    }
-    return;
-  }
-
-  if (s_level == LEVEL_PROTOCOLS) {
-    switch (ev->button) {
-      case INPUT_BTN_DOWN:
-        if (nav) {
-          menu_component_next(&s_menu);
-          ui_feedback(UI_FB_NAV);
-        }
-        break;
-      case INPUT_BTN_UP:
-        if (nav) {
-          menu_component_prev(&s_menu);
-          ui_feedback(UI_FB_NAV);
-        }
-        break;
-      case INPUT_BTN_OK:
-        if (press) {
-          if (s_proto_count == 0) {
-            notify(NOTIFY_INFO, "Capture a signal in Learn first");
-            return;
-          }
-          s_proto = menu_component_get_selected(&s_menu);
-          if (s_proto < 0 || s_proto >= s_proto_count)
-            s_proto = 0;
-          snprintf(s_proto_name, sizeof(s_proto_name), "%s", s_protos[s_proto]);
-          s_file = 0;
-          filter_for_proto(s_proto_name);
-          s_level = LEVEL_FILES;
-          ui_feedback(UI_FB_SELECT);
-          build_screen();
-        }
-        break;
-      case INPUT_BTN_BACK:
-        if (press)
-          ui_switch_screen(SCREEN_IR_MENU);
         break;
       default:
         break;
@@ -503,17 +428,14 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_OK:
       if (press && s_file_count > 0) {
-        s_saved = false;
         s_level = LEVEL_ACTIONS;
         ui_feedback(UI_FB_SELECT);
         build_screen();
       }
       break;
     case INPUT_BTN_BACK:
-      if (press) {
-        s_level = LEVEL_PROTOCOLS;
-        build_screen();
-      }
+      if (press)
+        ui_switch_screen(SCREEN_IR_MENU);
       break;
     default:
       break;
@@ -521,10 +443,8 @@ static void ir_saved_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_ir_saved_open(void) {
-  s_level = LEVEL_PROTOCOLS;
-  s_proto = 0;
+  s_level = LEVEL_FILES;
   s_file = 0;
-  s_saved = false;
   reload_all();
   build_screen();
 }

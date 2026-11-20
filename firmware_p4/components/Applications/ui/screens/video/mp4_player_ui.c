@@ -23,6 +23,7 @@
 
 #include "media_thumb.h"
 #include "mp4_meta.h"
+#include "misc/cache/instance/lv_image_cache.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
@@ -31,19 +32,21 @@
 
 static const char *TAG = "MP4_PLAYER";
 
-#define PATH_MAX_LEN     256
-#define REFRESH_TIMER_MS 120
-#define COVER_BOX        118
-#define META_LINE_LEN    96
-#define DUR_BUF_LEN      16
-#define ACC1             0x7A52D6
-#define ACC2             0xB89AFF
+#define PATH_MAX_LEN  256
+#define COVER_BOX     118
+#define BODY_MARGIN   16
+#define BODY_PADDING  4
+#define BODY_GAP      8
+#define META_LINE_LEN 96
+#define DUR_BUF_LEN   16
+#define ACC1          0x7A52D6
+#define ACC2          0xB89AFF
 
 static char s_path[PATH_MAX_LEN];
 static screen_id_t s_return = SCREEN_FILES;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_refresh_timer = NULL;
+static lv_obj_t *s_cover_image = NULL;
 static lv_obj_t *s_status = NULL;
 static media_thumb_t s_thumb;
 static bool s_thumb_valid = false;
@@ -67,10 +70,12 @@ void ui_mp4_player_set_return(int screen) {
 
 static void free_thumb(void) {
   if (s_thumb_valid) {
+    lv_image_cache_drop(&s_thumb.dsc);
     media_thumb_free(&s_thumb);
     s_thumb_valid = false;
   }
   if (s_png_blob != NULL) {
+    lv_image_cache_drop(&s_png_dsc);
     free(s_png_blob);
     s_png_blob = NULL;
   }
@@ -123,11 +128,14 @@ static void mp4_player_input(const input_event_t *ev, void *ctx) {
       ui_feedback(UI_FB_SELECT);
       if (s_status != NULL) {
         if (s_meta.vcodec == MP4_VCODEC_H264)
-          lv_label_set_text(s_status, "H.264 video can't play on\nthis chip - transcode to MJPEG");
+          lv_label_set_text(s_status,
+                            "Video playback unavailable.\nFile information is shown above.");
         else if (s_meta.vcodec == MP4_VCODEC_MJPEG)
-          lv_label_set_text(s_status, "MJPEG playback pipeline\nis the next build stage");
+          lv_label_set_text(s_status,
+                            "Video playback unavailable.\nFile information is shown above.");
         else
-          lv_label_set_text(s_status, "Audio decode is the next\nbuild stage");
+          lv_label_set_text(s_status,
+                            "MP4 playback unavailable.\nFile information is shown above.");
       }
       break;
     default:
@@ -136,10 +144,18 @@ static void mp4_player_input(const input_event_t *ev, void *ctx) {
   }
 }
 
-static void refresh_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_refresh_timer = NULL;
+void ui_mp4_player_stop(void) {
+  if (s_cover_image != NULL) {
+    lv_obj_delete(s_cover_image);
+    s_cover_image = NULL;
+  }
+  free_thumb();
+}
+
+static void screen_delete_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen) {
+    ui_mp4_player_stop();
+    s_screen = NULL;
   }
 }
 
@@ -158,6 +174,7 @@ make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t 
 }
 
 void ui_mp4_player_open(void) {
+  ui_mp4_player_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -169,6 +186,7 @@ void ui_mp4_player_open(void) {
   load_cover();
 
   s_screen = lv_obj_create(NULL);
+  lv_obj_add_event_cb(s_screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -176,12 +194,17 @@ void ui_mp4_player_open(void) {
   ui_chrome_header(s_screen, "VIDEO", "/assets/icons/description.bin");
   ui_chrome_footer(s_screen, "OK info   BACK exit");
 
+  const bool wide = ui_screen_w() > ui_screen_h();
+  const int detail_width =
+      ui_screen_w() - BODY_MARGIN - 2 * BODY_PADDING - (wide ? COVER_BOX + BODY_GAP : 0);
   lv_obj_t *body = lv_obj_create(s_screen);
   lv_obj_remove_style_all(body);
-  lv_obj_set_size(body, 224, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_size(
+      body, ui_screen_w() - BODY_MARGIN, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_align(body, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
   lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_flow(body, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_column(body, BODY_GAP, 0);
   lv_obj_set_flex_align(
       body, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_all(body, 4, 0);
@@ -216,6 +239,7 @@ void ui_mp4_player_open(void) {
   }
   if (cover_src != NULL) {
     lv_obj_t *img = lv_image_create(cover);
+    s_cover_image = img;
     lv_image_set_src(img, cover_src);
     lv_obj_center(img);
     int longest = cw > ch ? cw : ch;
@@ -233,13 +257,24 @@ void ui_mp4_player_open(void) {
     lv_obj_center(ph);
   }
 
+  lv_obj_t *details = lv_obj_create(body);
+  lv_obj_remove_style_all(details);
+  lv_obj_remove_flag(details, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(details, detail_width);
+  lv_obj_set_height(details, wide ? lv_pct(100) : LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(
+      details, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(details, 3, 0);
+
   const char *slash = strrchr(s_path, '/');
   const char *fallback = s_path[0] ? (slash ? slash + 1 : s_path) : "no file";
   const char *title = s_meta.title[0] ? s_meta.title : fallback;
-  make_label(body, title, &lv_font_montserrat_14, current_theme.text_main, 210);
+  make_label(details, title, &lv_font_montserrat_14, current_theme.text_main, detail_width);
 
   if (s_meta.artist[0])
-    make_label(body, s_meta.artist, &lv_font_montserrat_12, current_theme.border_accent, 210);
+    make_label(
+        details, s_meta.artist, &lv_font_montserrat_12, current_theme.border_accent, detail_width);
 
   if (s_meta.album[0] || s_meta.year[0]) {
     char line[META_LINE_LEN];
@@ -247,7 +282,7 @@ void ui_mp4_player_open(void) {
       snprintf(line, sizeof(line), "%s  |  %s", s_meta.album, s_meta.year);
     else
       snprintf(line, sizeof(line), "%s", s_meta.album[0] ? s_meta.album : s_meta.year);
-    make_label(body, line, &lv_font_montserrat_12, current_theme.text_secondary, 210);
+    make_label(details, line, &lv_font_montserrat_12, current_theme.text_secondary, detail_width);
   }
 
   char meta_line[META_LINE_LEN];
@@ -270,10 +305,10 @@ void ui_mp4_player_open(void) {
              mp4_vcodec_name(s_meta.vcodec),
              dur[0] ? "  |  " : "",
              dur);
-  make_label(body, meta_line, &lv_font_montserrat_12, lv_color_hex(0x00E5D0), 210);
+  make_label(details, meta_line, &lv_font_montserrat_12, lv_color_hex(0x00E5D0), detail_width);
 
-  s_status = lv_label_create(body);
-  lv_obj_set_width(s_status, 210);
+  s_status = lv_label_create(details);
+  lv_obj_set_width(s_status, detail_width);
   lv_label_set_long_mode(s_status, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(s_status, &lv_font_montserrat_12, 0);
@@ -283,19 +318,17 @@ void ui_mp4_player_open(void) {
     lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
 
   if (!parsed)
-    lv_label_set_text(s_status, "Not a readable MP4");
+    lv_label_set_text(s_status, s_path[0] ? "Cannot read this MP4" : "Choose a video in Files");
   else if (s_meta.vcodec == MP4_VCODEC_H264)
-    lv_label_set_text(s_status, "H.264 - transcode to MJPEG to play");
+    lv_label_set_text(s_status, "Video playback unavailable");
   else if (s_meta.vcodec == MP4_VCODEC_MJPEG)
-    lv_label_set_text(s_status, "MJPEG - playback: next build stage");
+    lv_label_set_text(s_status, "Video playback unavailable");
   else if (s_meta.has_audio)
-    lv_label_set_text(s_status, "Audio - playback: next build stage");
+    lv_label_set_text(s_status, "MP4 playback unavailable");
   else
     lv_label_set_text(s_status, "Metadata only");
 
   ui_input_set_screen_handler(mp4_player_input, NULL);
-  if (s_refresh_timer == NULL)
-    s_refresh_timer = lv_timer_create(refresh_timer_cb, REFRESH_TIMER_MS, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);
 }

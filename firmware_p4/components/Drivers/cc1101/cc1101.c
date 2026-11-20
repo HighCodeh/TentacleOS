@@ -14,14 +14,19 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cc1101.h"
+#include "cc1101_rf_path.h"
 #include "cc1101_lease.h"
 
+#include <float.h>
 #include <math.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <rom/ets_sys.h>
@@ -29,15 +34,55 @@
 #include "pin_def.h"
 #include "spi.h"
 
-#define CC1101_SPI_CLOCK_HZ    (1 * 1000 * 1000)
-#define CC1101_SPI_QUEUE_SIZE  7
-#define CC1101_RESET_DELAY_MS  50
-#define CC1101_CAL_DELAY_MS    5
-#define CC1101_MAX_TX_FIFO     61
-#define CC1101_PA_TABLE_SIZE   8
-#define CC1101_RSSI_OFFSET     74
-#define CC1101_DEFAULT_FREQ_HZ 433920000
-#define CC1101_XTAL_FREQ_HZ    26000000
+#define CC1101_SPI_CLOCK_HZ             (1 * 1000 * 1000)
+#define CC1101_SPI_QUEUE_SIZE           7
+#define CC1101_STATE_TIMEOUT_US         100000
+#define CC1101_RF_SWITCH_SETTLE_US      5
+#define CC1101_FREQ_SCALE               65536UL
+#define CC1101_STATUS_READ              0x40U
+#define CC1101_FSCAL2_HIGH_VCO          0x20U
+#define CC1101_TEST0_AUTO_VCO           0x0BU
+#define CC1101_TEST0_HIGH_VCO           0x09U
+#define CC1101_VCO_315_THRESHOLD_HZ     322880000UL
+#define CC1101_VCO_433_THRESHOLD_HZ     430500000UL
+#define CC1101_VCO_HIGH_THRESHOLD_HZ    861000000UL
+#define CC1101_MARCSTATE_IDLE           0x01U
+#define CC1101_MARCSTATE_RX             0x0DU
+#define CC1101_MODEM_MANTISSA_MAX       255U
+#define CC1101_RATE_EXPONENT_MAX        15U
+#define CC1101_RATE_SCALE               268435456.0f
+#define CC1101_RATE_MANTISSA_BASE       256U
+#define CC1101_CHSP_EXPONENT_MAX        3U
+#define CC1101_CHSP_SCALE               262144.0f
+#define CC1101_DEVIATION_EXPONENT_MAX   7U
+#define CC1101_DEVIATION_MANTISSA_MAX   7U
+#define CC1101_DEVIATION_MANTISSA_BASE  8U
+#define CC1101_DEVIATION_SCALE          131072.0f
+#define CC1101_KHZ_TO_HZ                1000.0f
+#define CC1101_BANDWIDTH_EXPONENT_MAX   3U
+#define CC1101_BANDWIDTH_MANTISSA_MAX   3U
+#define CC1101_BANDWIDTH_MANTISSA_BASE  4U
+#define CC1101_BANDWIDTH_DIVISOR        8U
+#define CC1101_BANDWIDTH_EXPONENT_SHIFT 6U
+#define CC1101_BANDWIDTH_MANTISSA_SHIFT 4U
+#define CC1101_DEVIATION_EXPONENT_SHIFT 4U
+#define CC1101_RATE_EXPONENT_MASK       0x0FU
+#define CC1101_BANDWIDTH_MASK           0xF0U
+#define CC1101_CHSP_EXPONENT_MASK       0x03U
+#define CC1101_DEFAULT_RATE_BAUD        4800.0f
+#define CC1101_DEFAULT_BANDWIDTH_KHZ    812.0f
+#define CC1101_DEFAULT_DEVIATION_KHZ    47.0f
+#define CC1101_DEFAULT_PA_DBM           10
+#define CC1101_GDO_HIGH_IMPEDANCE       0x2EU
+#define CC1101_GDO_ASYNC_DATA           0x0DU
+#define CC1101_PKT_ASYNC                0x32U
+#define CC1101_FOC_OOK                  0x14U
+#define CC1101_FOC_FSK                  0x16U
+#define CC1101_MAX_TX_FIFO              61
+#define CC1101_PA_TABLE_SIZE            8
+#define CC1101_RSSI_OFFSET              74
+#define CC1101_DEFAULT_FREQ_HZ          433920000
+#define CC1101_XTAL_FREQ_HZ             26000000
 
 #define CC1101_MARCSTATE_TX     0x13
 #define CC1101_MARCSTATE_TX_END 0x14
@@ -50,14 +95,34 @@
 #define CC1101_MOD_4FSK 3
 #define CC1101_MOD_MSK  4
 
-#define CC1101_BUS_LOCK_TIMEOUT_MS 1000
+#define CC1101_BUS_LOCK_TIMEOUT_MS    1000
+#define CC1101_PACKET_TX_TIMEOUT_US   2000000
+#define CC1101_PACKET_FORMAT_MASK     0x30U
+#define CC1101_PACKET_LENGTH_MASK     0x03U
+#define CC1101_PACKET_VARIABLE_LENGTH 0x01U
+#define CC1101_TX_FIFO_UNDERFLOW      0x80U
+#define CC1101_TX_FIFO_COUNT_MASK     0x7FU
+#define CC1101_MARCSTATE_FSTXON       0x12U
+
+#define CC1101_RETURN_ON_ERROR(operation)    \
+  do {                                       \
+    esp_err_t operation_error = (operation); \
+    if (operation_error != ESP_OK)           \
+      return operation_error;                \
+  } while (0)
+
+#define CC1101_RSSI_SIGN_THRESHOLD 128
+#define CC1101_RSSI_SIGN_RANGE     256
+#define CC1101_RSSI_DB_PER_STEP    0.5f
 
 static const char *TAG = "CC1101_DRIVER";
 static spi_device_handle_t s_cc1101_spi = NULL;
 
-static float s_current_freq_mhz = 433.92;
+static uint32_t s_current_freq_hz = CC1101_DEFAULT_FREQ_HZ;
+static bool s_is_tuned;
+static bool s_is_initialized;
 static uint8_t s_current_modulation = CC1101_MOD_ASK;
-static int s_current_pa_dbm = 10;
+static int s_current_pa_dbm = CC1101_DEFAULT_PA_DBM;
 static uint8_t s_active_preset_id = 0;
 
 static const uint8_t PA_TABLE_315[CC1101_PA_TABLE_SIZE] = {
@@ -69,48 +134,53 @@ static const uint8_t PA_TABLE_868[CC1101_PA_TABLE_SIZE] = {
 static const uint8_t PA_TABLE_915[CC1101_PA_TABLE_SIZE] = {
     0x03, 0x0E, 0x1E, 0x27, 0x38, 0x8E, 0x84, 0xCC}; // 900 - 928 MHz
 
-static void write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len);
-static void write_reg_impl(uint8_t reg, uint8_t val);
+static esp_err_t write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len);
+static esp_err_t write_reg_impl(uint8_t reg, uint8_t val);
 static uint8_t read_reg_impl(uint8_t reg);
+static esp_err_t get_register_impl(uint8_t reg, uint8_t *out_value);
 static void read_burst_impl(uint8_t reg, uint8_t *buf, uint8_t len);
-static void strobe_impl(uint8_t cmd);
-static void calibrate_impl(void);
-static void set_frequency_impl(uint32_t freq_hz);
-static void set_rx_bandwidth_impl(float khz);
-static void set_data_rate_impl(float baud);
-static void set_deviation_impl(float dev);
-static void set_modulation_impl(uint8_t modulation);
-static void set_pa_impl(int dbm);
+static esp_err_t strobe_impl(uint8_t cmd);
+static esp_err_t calibrate_impl(void);
+static esp_err_t set_frequency_impl(uint32_t freq_hz);
+static esp_err_t set_rx_bandwidth_impl(float khz);
+static esp_err_t set_data_rate_impl(float baud);
+static esp_err_t set_deviation_impl(float dev);
+static esp_err_t set_modulation_impl(uint8_t modulation);
+static esp_err_t set_pa_impl(int dbm);
 static void set_channel_impl(uint8_t channel);
-static void set_chsp_impl(float khz);
+static esp_err_t set_chsp_impl(float khz);
 static void set_sync_mode_impl(uint8_t mode);
 static void set_fec_impl(bool enable);
 static void set_preamble_impl(uint8_t preamble_bytes);
 static void set_dc_filter_off_impl(bool disable);
 static void set_manchester_impl(bool enable);
-static void send_data_impl(const uint8_t *data, size_t len);
-static void init_impl(void);
+static esp_err_t send_data_impl(const uint8_t *data, size_t len);
+static esp_err_t init_impl(void);
 static bool is_initialized_impl(void);
 static esp_err_t recover_impl(void);
-static void enable_async_mode_impl(uint32_t freq_hz);
-static void enable_fsk_mode_impl(uint32_t freq_hz);
-static void set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz);
+static esp_err_t enable_async_mode_impl(uint32_t freq_hz);
+static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz);
+static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz);
 static uint8_t get_active_preset_id_impl(void);
-static void enter_tx_mode_impl(void);
-static void enter_rx_mode_impl(void);
+static esp_err_t enter_tx_mode_impl(void);
+static esp_err_t enter_rx_mode_impl(void);
 
-void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
+esp_err_t cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len) {
   if (!cc1101_lease_enter())
-    return;
-  write_burst_impl(reg, buf, len);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = write_burst_impl(reg, buf, len);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_write_reg(uint8_t reg, uint8_t val) {
+esp_err_t cc1101_write_reg(uint8_t reg, uint8_t val) {
   if (!cc1101_lease_enter())
-    return;
-  write_reg_impl(reg, val);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = write_reg_impl(reg, val);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
 uint8_t cc1101_read_reg(uint8_t reg) {
@@ -119,6 +189,15 @@ uint8_t cc1101_read_reg(uint8_t reg) {
   uint8_t result = read_reg_impl(reg);
   cc1101_lease_leave();
   return result;
+}
+
+esp_err_t cc1101_get_register(uint8_t reg, uint8_t *out_value) {
+  if (!cc1101_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = get_register_impl(reg, out_value);
+  cc1101_lease_record_error(error);
+  cc1101_lease_leave();
+  return error;
 }
 
 void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
@@ -131,60 +210,76 @@ void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len) {
   cc1101_lease_leave();
 }
 
-void cc1101_strobe(uint8_t cmd) {
+esp_err_t cc1101_strobe(uint8_t cmd) {
   if (!cc1101_lease_enter())
-    return;
-  strobe_impl(cmd);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = strobe_impl(cmd);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_calibrate(void) {
+esp_err_t cc1101_calibrate(void) {
   if (!cc1101_lease_enter())
-    return;
-  calibrate_impl();
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = calibrate_impl();
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_frequency(uint32_t freq_hz) {
+esp_err_t cc1101_set_frequency(uint32_t freq_hz) {
   if (!cc1101_lease_enter())
-    return;
-  set_frequency_impl(freq_hz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_frequency_impl(freq_hz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_rx_bandwidth(float khz) {
+esp_err_t cc1101_set_rx_bandwidth(float khz) {
   if (!cc1101_lease_enter())
-    return;
-  set_rx_bandwidth_impl(khz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_rx_bandwidth_impl(khz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_data_rate(float baud) {
+esp_err_t cc1101_set_data_rate(float baud) {
   if (!cc1101_lease_enter())
-    return;
-  set_data_rate_impl(baud);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_data_rate_impl(baud);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_deviation(float dev) {
+esp_err_t cc1101_set_deviation(float dev) {
   if (!cc1101_lease_enter())
-    return;
-  set_deviation_impl(dev);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_deviation_impl(dev);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_modulation(uint8_t modulation) {
+esp_err_t cc1101_set_modulation(uint8_t modulation) {
   if (!cc1101_lease_enter())
-    return;
-  set_modulation_impl(modulation);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_modulation_impl(modulation);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_pa(int dbm) {
+esp_err_t cc1101_set_pa(int dbm) {
   if (!cc1101_lease_enter())
-    return;
-  set_pa_impl(dbm);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_pa_impl(dbm);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
 void cc1101_set_channel(uint8_t channel) {
@@ -194,11 +289,13 @@ void cc1101_set_channel(uint8_t channel) {
   cc1101_lease_leave();
 }
 
-void cc1101_set_chsp(float khz) {
+esp_err_t cc1101_set_chsp(float khz) {
   if (!cc1101_lease_enter())
-    return;
-  set_chsp_impl(khz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_chsp_impl(khz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
 void cc1101_set_sync_mode(uint8_t mode) {
@@ -236,18 +333,22 @@ void cc1101_set_manchester(bool enable) {
   cc1101_lease_leave();
 }
 
-void cc1101_send_data(const uint8_t *data, size_t len) {
+esp_err_t cc1101_send_data(const uint8_t *data, size_t len) {
   if (!cc1101_lease_enter())
-    return;
-  send_data_impl(data, len);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = send_data_impl(data, len);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_init(void) {
+esp_err_t cc1101_init(void) {
   if (!cc1101_lease_enter())
-    return;
-  init_impl();
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = init_impl();
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
 bool cc1101_is_initialized(void) {
@@ -266,25 +367,31 @@ esp_err_t cc1101_recover(void) {
   return result;
 }
 
-void cc1101_enable_async_mode(uint32_t freq_hz) {
+esp_err_t cc1101_enable_async_mode(uint32_t freq_hz) {
   if (!cc1101_lease_enter())
-    return;
-  enable_async_mode_impl(freq_hz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = enable_async_mode_impl(freq_hz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_enable_fsk_mode(uint32_t freq_hz) {
+esp_err_t cc1101_enable_fsk_mode(uint32_t freq_hz) {
   if (!cc1101_lease_enter())
-    return;
-  enable_fsk_mode_impl(freq_hz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = enable_fsk_mode_impl(freq_hz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz) {
+esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz) {
   if (!cc1101_lease_enter())
-    return;
-  set_preset_impl(preset, freq_hz);
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_preset_impl(preset, freq_hz);
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
 uint8_t cc1101_get_active_preset_id(void) {
@@ -295,94 +402,92 @@ uint8_t cc1101_get_active_preset_id(void) {
   return result;
 }
 
-void cc1101_enter_tx_mode(void) {
+esp_err_t cc1101_enter_tx_mode(void) {
   if (!cc1101_lease_enter())
-    return;
-  enter_tx_mode_impl();
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = enter_tx_mode_impl();
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-void cc1101_enter_rx_mode(void) {
+esp_err_t cc1101_enter_rx_mode(void) {
   if (!cc1101_lease_enter())
-    return;
-  enter_rx_mode_impl();
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = enter_rx_mode_impl();
+  cc1101_lease_record_error(error);
   cc1101_lease_leave();
+  return error;
 }
 
-static long linear_map(long x, long in_min, long in_max, long out_min, long out_max) {
-  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+static esp_err_t read_register(uint8_t reg, uint8_t *out_value);
+
+static esp_err_t wait_for_state(uint8_t state) {
+  int64_t deadline = esp_timer_get_time() + CC1101_STATE_TIMEOUT_US;
+  do {
+    uint8_t current;
+    CC1101_RETURN_ON_ERROR(read_register(CC1101_MARCSTATE | CC1101_STATUS_READ, &current));
+    if ((current & CC1101_MARCSTATE_MASK) == state)
+      return ESP_OK;
+    vTaskDelay(1);
+  } while (esp_timer_get_time() < deadline);
+  ESP_LOGE(TAG, "Radio state 0x%02X timeout", state);
+  return ESP_ERR_TIMEOUT;
 }
 
-static void cc1101_enable_sniffer_mode(uint32_t freq_hz, uint8_t modulation) {
-  if (s_cc1101_spi == NULL)
-    return;
+static esp_err_t enter_idle(void) {
+  CC1101_RETURN_ON_ERROR(strobe_impl(CC1101_SIDLE));
+  return wait_for_state(CC1101_MARCSTATE_IDLE);
+}
 
-  if (modulation == CC1101_MOD_ASK) {
-    ESP_LOGI(TAG, "Configuring CC1101 for Async mode...");
-  } else {
-    ESP_LOGI(TAG, "Configuring CC1101 for FSK mode...");
-  }
+static esp_err_t
+configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, float deviation_khz) {
+  if (cc1101_rf_path_for_frequency(freq_hz) == CC1101_RF_PATH_NONE)
+    return ESP_ERR_INVALID_ARG;
+  s_is_tuned = false;
+  s_active_preset_id = CC1101_PRESET_IDLE;
+  CC1101_RETURN_ON_ERROR(enter_idle());
+  CC1101_RETURN_ON_ERROR(strobe_impl(CC1101_SRES));
+  CC1101_RETURN_ON_ERROR(wait_for_state(CC1101_MARCSTATE_IDLE));
 
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_strobe(CC1101_SRES);
-  vTaskDelay(pdMS_TO_TICKS(CC1101_CAL_DELAY_MS));
-
-  cc1101_write_reg(CC1101_FSCTRL1, 0x06);
-  cc1101_write_reg(CC1101_IOCFG0, 0x0D);   // Serial Data Output (RX via GDO0/GPIO8)
-  cc1101_write_reg(CC1101_IOCFG2, 0x2E);   // High Impedance (GDO2 free for TX)
-  cc1101_write_reg(CC1101_PKTCTRL0, 0x32); // Async mode, Infinite packet length
-  cc1101_write_reg(CC1101_PKTCTRL1, 0x04); // No addr check
-
-  if (modulation != CC1101_MOD_ASK) {
-    cc1101_write_reg(CC1101_PKTLEN, 0x00);
-  }
-
-  cc1101_set_frequency(freq_hz);
-  cc1101_set_rx_bandwidth(812.0);
-  cc1101_set_data_rate(4800.0f);
-  cc1101_set_modulation(modulation);
-
-  /* Transparent RX must not inherit the reset-default sync qualifier. */
-  if (modulation == CC1101_MOD_ASK) {
-    cc1101_write_reg(CC1101_MDMCFG2, 0x30); // DC filter on, OOK, no sync qualification
-  }
-
-  cc1101_write_reg(CC1101_MDMCFG1, 0x02); // 2 preamble bytes, no FEC
-  cc1101_write_reg(CC1101_MDMCFG0, 0xF8); // Channel spacing
-  cc1101_set_deviation(47.0);
-
-  cc1101_write_reg(CC1101_MCSM0, 0x18); // FS Autocalibrate
-  cc1101_write_reg(CC1101_FOCCFG, 0x16);
-  cc1101_write_reg(CC1101_BSCFG, 0x1C);
-
-  /* Board-proven OOK profile.  Higher-gain experimental settings made this
-   * prototype lose the
-   * CC1101 after RX; keep the stable profile until the
-   * filtered 3V3 rail can be measured under
-   * load. */
-  cc1101_write_reg(CC1101_AGCCTRL2, 0xC7);
-  cc1101_write_reg(CC1101_AGCCTRL1, 0x00);
-  cc1101_write_reg(CC1101_AGCCTRL0, 0x91); // 8 dB OOK boundary, faster settling
-
-  cc1101_write_reg(CC1101_FREND1, 0x56);
-  cc1101_set_pa(10); // Max power
-
-  // Test Settings from SmartRC
-  cc1101_write_reg(CC1101_FSCAL3, 0xE9);
-  cc1101_write_reg(CC1101_FSCAL2, 0x2A);
-  cc1101_write_reg(CC1101_FSCAL1, 0x00);
-  cc1101_write_reg(CC1101_FSCAL0, 0x1F);
-  cc1101_write_reg(CC1101_FSTEST, 0x59);
-  cc1101_write_reg(CC1101_TEST2, 0x81);
-  cc1101_write_reg(CC1101_TEST1, 0x35);
-  cc1101_write_reg(CC1101_TEST0, 0x09);
-
-  if (modulation == CC1101_MOD_ASK) {
-    ESP_LOGI(TAG, "CC1101 configured in Async mode (GDO0 serial out)");
-  } else {
-    ESP_LOGI(TAG, "CC1101 configured in FSK mode");
-  }
-  cc1101_strobe(CC1101_SRX);
+  static const uint8_t ASYNC_REGISTERS[][2] = {
+      {CC1101_FSCTRL1, 0x06},
+      {CC1101_IOCFG0, CC1101_GDO_ASYNC_DATA},
+      {CC1101_IOCFG2, CC1101_GDO_HIGH_IMPEDANCE},
+      {CC1101_PKTCTRL0, CC1101_PKT_ASYNC},
+      {CC1101_PKTCTRL1, 0x00},
+      {CC1101_PKTLEN, 0x00},
+      {CC1101_CHANNR, 0x00},
+      {CC1101_MDMCFG2, 0x00}, // Async data must not require a sync word.
+      {CC1101_MDMCFG1, 0x02},
+      {CC1101_MDMCFG0, 0xF8},
+      {CC1101_MCSM0, 0x18},
+      {CC1101_BSCFG, 0x1C},
+      {CC1101_AGCCTRL2, 0xC7},
+      {CC1101_AGCCTRL1, 0x00},
+      {CC1101_AGCCTRL0, 0x91},
+      {CC1101_FREND1, 0x56},
+      {CC1101_FSCAL3, 0xE9},
+      {CC1101_FSCAL2, 0x2A},
+      {CC1101_FSCAL1, 0x00},
+      {CC1101_FSCAL0, 0x1F},
+      {CC1101_FSTEST, 0x59},
+      {CC1101_TEST2, 0x81},
+      {CC1101_TEST1, 0x35},
+  };
+  for (size_t i = 0; i < sizeof(ASYNC_REGISTERS) / sizeof(ASYNC_REGISTERS[0]); ++i)
+    CC1101_RETURN_ON_ERROR(write_reg_impl(ASYNC_REGISTERS[i][0], ASYNC_REGISTERS[i][1]));
+  uint8_t foc = modulation == CC1101_MOD_ASK ? CC1101_FOC_OOK : CC1101_FOC_FSK;
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FOCCFG, foc));
+  CC1101_RETURN_ON_ERROR(set_rx_bandwidth_impl(bandwidth_khz));
+  CC1101_RETURN_ON_ERROR(set_data_rate_impl(CC1101_DEFAULT_RATE_BAUD));
+  CC1101_RETURN_ON_ERROR(set_deviation_impl(deviation_khz));
+  CC1101_RETURN_ON_ERROR(set_modulation_impl(modulation));
+  CC1101_RETURN_ON_ERROR(set_frequency_impl(freq_hz));
+  esp_err_t error = enter_rx_mode_impl();
+  if (error != ESP_OK)
+    s_is_tuned = false;
+  return error;
 }
 
 static esp_err_t cc1101_reset_radio(void) {
@@ -431,15 +536,16 @@ static esp_err_t cc1101_txn(spi_transaction_t *t) {
   return err;
 }
 
-static void write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len) {
+static esp_err_t write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len) {
   if (s_cc1101_spi == NULL)
-    return;
+    return ESP_ERR_INVALID_STATE;
+  if (buf == NULL || len == 0)
+    return ESP_ERR_INVALID_ARG;
 
   uint8_t *tx_buf = heap_caps_malloc(len + 1, MALLOC_CAP_DMA);
   if (tx_buf == NULL) {
     ESP_LOGE(TAG, "Cannot allocate burst buffer");
-    cc1101_lease_record_error(ESP_ERR_NO_MEM);
-    return;
+    return ESP_ERR_NO_MEM;
   }
 
   tx_buf[0] = (reg | 0x40); // Add Burst bit (0x40)
@@ -451,33 +557,42 @@ static void write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len) {
   t.tx_buffer = tx_buf;
   t.rx_buffer = NULL;
 
-  cc1101_txn(&t);
-
+  esp_err_t error = cc1101_txn(&t);
   free(tx_buf);
+  return error;
 }
 
-static void write_reg_impl(uint8_t reg, uint8_t val) {
-  if (s_cc1101_spi == NULL)
-    return;
+static esp_err_t write_reg_impl(uint8_t reg, uint8_t val) {
   spi_transaction_t t;
   memset(&t, 0, sizeof(t));
   t.length = 16;
   t.flags = SPI_TRANS_USE_TXDATA;
   t.tx_data[0] = reg;
   t.tx_data[1] = val;
-  cc1101_txn(&t);
+  return cc1101_txn(&t);
+}
+
+static esp_err_t read_register(uint8_t reg, uint8_t *out_value) {
+  spi_transaction_t t = {0};
+  t.length = 16;
+  t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+  t.tx_data[0] = 0x80 | reg;
+  esp_err_t error = cc1101_txn(&t);
+  if (error == ESP_OK)
+    *out_value = t.rx_data[1];
+  return error;
+}
+
+static esp_err_t get_register_impl(uint8_t reg, uint8_t *out_value) {
+  if (out_value == NULL)
+    return ESP_ERR_INVALID_ARG;
+  return read_register(reg, out_value);
 }
 
 static uint8_t read_reg_impl(uint8_t reg) {
-  if (s_cc1101_spi == NULL)
-    return 0;
-  spi_transaction_t t;
-  memset(&t, 0, sizeof(t));
-  t.length = 16;
-  t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
-  t.tx_data[0] = 0x80 | reg; // Read bit
-  t.tx_data[1] = 0x00;
-  return cc1101_txn(&t) == ESP_OK ? t.rx_data[1] : 0xFFU;
+  uint8_t value = 0xFF;
+  read_register(reg, &value);
+  return value;
 }
 
 static void read_burst_impl(uint8_t reg, uint8_t *buf, uint8_t len) {
@@ -491,6 +606,8 @@ static void read_burst_impl(uint8_t reg, uint8_t *buf, uint8_t len) {
       free(tx_buf);
     if (rx_buf != NULL)
       free(rx_buf);
+    cc1101_lease_record_error(ESP_ERR_NO_MEM);
+    memset(buf, 0, len);
     return;
   }
 
@@ -512,181 +629,148 @@ static void read_burst_impl(uint8_t reg, uint8_t *buf, uint8_t len) {
   free(rx_buf);
 }
 
-static void strobe_impl(uint8_t cmd) {
-  if (s_cc1101_spi == NULL)
-    return;
+static esp_err_t strobe_impl(uint8_t cmd) {
   if (cmd == CC1101_SRES) {
-    cc1101_reset_radio();
-    return;
+    s_is_tuned = false;
+    s_active_preset_id = CC1101_PRESET_IDLE;
+    return cc1101_reset_radio();
   }
-  spi_transaction_t t;
-  memset(&t, 0, sizeof(t));
+  if ((cmd == CC1101_STX || cmd == CC1101_SRX) && !s_is_tuned)
+    return ESP_ERR_INVALID_STATE;
+  spi_transaction_t t = {0};
   t.length = 8;
   t.flags = SPI_TRANS_USE_TXDATA;
   t.tx_data[0] = cmd;
-  cc1101_txn(&t);
+  return cc1101_txn(&t);
 }
 
-static void calibrate_impl(void) {
-  uint8_t fsctrl0 = 0;
-  uint8_t test0 = 0x09;
-  bool needs_fscal2_adj = false;
-
-  if (s_current_freq_mhz >= 300 && s_current_freq_mhz <= 348) {
-    fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 300000, 348000, 24, 28);
-    if (s_current_freq_mhz < 322.88)
-      test0 = 0x0B;
-    else
-      needs_fscal2_adj = true;
-  } else if (s_current_freq_mhz >= 378 && s_current_freq_mhz <= 464) {
-    fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 378000, 464000, 31, 38);
-    if (s_current_freq_mhz < 430.5)
-      test0 = 0x0B;
-    else
-      needs_fscal2_adj = true;
-  } else if (s_current_freq_mhz >= 779 && s_current_freq_mhz <= 899.99) {
-    fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 779000, 899000, 65, 76);
-    if (s_current_freq_mhz < 861)
-      test0 = 0x0B;
-    else
-      needs_fscal2_adj = true;
-  } else if (s_current_freq_mhz >= 900 && s_current_freq_mhz <= 928) {
-    fsctrl0 = (uint8_t)linear_map(s_current_freq_mhz * 1000, 900000, 928000, 77, 79);
-    needs_fscal2_adj = true;
+static esp_err_t calibrate_impl(void) {
+  s_is_tuned = false;
+  CC1101_RETURN_ON_ERROR(enter_idle());
+  uint32_t vco_threshold_hz = CC1101_VCO_HIGH_THRESHOLD_HZ;
+  if (s_current_freq_hz <= CC1101_BAND_315_MAX_HZ)
+    vco_threshold_hz = CC1101_VCO_315_THRESHOLD_HZ;
+  else if (s_current_freq_hz <= CC1101_BAND_433_MAX_HZ)
+    vco_threshold_hz = CC1101_VCO_433_THRESHOLD_HZ;
+  bool is_high_vco = s_current_freq_hz >= vco_threshold_hz;
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FSCTRL0, 0));
+  uint8_t test0 = is_high_vco ? CC1101_TEST0_HIGH_VCO : CC1101_TEST0_AUTO_VCO;
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_TEST0, test0));
+  if (is_high_vco) {
+    uint8_t fscal2;
+    CC1101_RETURN_ON_ERROR(read_register(CC1101_FSCAL2, &fscal2));
+    CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FSCAL2, fscal2 | CC1101_FSCAL2_HIGH_VCO));
   }
-
-  cc1101_write_reg(CC1101_FSCTRL0, fsctrl0);
-  cc1101_write_reg(CC1101_TEST0, test0);
-
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_strobe(CC1101_SCAL);
-
-  // Wait for calibration (check MARCSTATE or just wait)
-  vTaskDelay(pdMS_TO_TICKS(CC1101_CAL_DELAY_MS));
-
-  if (needs_fscal2_adj) {
-    uint8_t s = cc1101_read_reg(CC1101_FSCAL2 | 0x40);
-    if (s < 32)
-      cc1101_write_reg(CC1101_FSCAL2, s + 32);
-  }
+  CC1101_RETURN_ON_ERROR(strobe_impl(CC1101_SCAL));
+  CC1101_RETURN_ON_ERROR(wait_for_state(CC1101_MARCSTATE_IDLE));
+  s_is_tuned = true;
+  return ESP_OK;
 }
 
-static void set_frequency_impl(uint32_t freq_hz) {
-  s_current_freq_mhz = (float)freq_hz / 1000000.0;
+static esp_err_t set_frequency_impl(uint32_t freq_hz) {
+  cc1101_rf_path_t path = cc1101_rf_path_for_frequency(freq_hz);
+  if (path == CC1101_RF_PATH_NONE)
+    return ESP_ERR_INVALID_ARG;
+  s_is_tuned = false;
+  CC1101_RETURN_ON_ERROR(enter_idle());
+  uint32_t v1, v2;
+  if (!cc1101_rf_path_levels(path, &v1, &v2))
+    return ESP_ERR_INVALID_ARG;
+  CC1101_RETURN_ON_ERROR(gpio_set_level(GPIO_RF_SW_V1_PIN, v1));
+  CC1101_RETURN_ON_ERROR(gpio_set_level(GPIO_RF_SW_V2_PIN, v2));
+  ets_delay_us(CC1101_RF_SWITCH_SETTLE_US);
 
-  // Standard frequency calculation for 26MHz XTAL
-  // FREQ = (f_carrier * 2^16) / XTAL_FREQ
-  uint64_t freq_reg = ((uint64_t)freq_hz * 65536) / CC1101_XTAL_FREQ_HZ;
-
-  uint8_t freq_bytes[3];
-  freq_bytes[0] = (freq_reg >> 16) & 0xFF; // FREQ2
-  freq_bytes[1] = (freq_reg >> 8) & 0xFF;  // FREQ1
-  freq_bytes[2] = freq_reg & 0xFF;         // FREQ0
-
-  cc1101_write_burst(CC1101_FREQ2, freq_bytes, 3);
-
-  cc1101_calibrate();
+  uint32_t freq_reg = ((uint64_t)freq_hz * CC1101_FREQ_SCALE) / CC1101_XTAL_FREQ_HZ;
+  const uint8_t freq_bytes[] = {freq_reg >> 16, freq_reg >> 8, freq_reg};
+  CC1101_RETURN_ON_ERROR(write_burst_impl(CC1101_FREQ2, freq_bytes, sizeof(freq_bytes)));
+  s_current_freq_hz = freq_hz;
+  CC1101_RETURN_ON_ERROR(calibrate_impl());
+  esp_err_t error = set_pa_impl(s_current_pa_dbm);
+  if (error != ESP_OK)
+    s_is_tuned = false;
+  return error;
 }
 
-static void set_rx_bandwidth_impl(float khz) {
-  uint8_t mdmcfg4 = cc1101_read_reg(CC1101_MDMCFG4);
-  uint8_t drate_e = mdmcfg4 & 0x0F; // Preserve Data Rate Exponent
-
-  int s1 = 3;
-  int s2 = 3;
-  float f = khz;
-
-  for (int i = 0; i < 3; i++) {
-    if (f > 101.5625) {
-      f /= 2;
-      s1--;
-    } else {
-      break;
+static esp_err_t set_rx_bandwidth_impl(float khz) {
+  if (!isfinite(khz) || khz <= 0)
+    return ESP_ERR_INVALID_ARG;
+  float best_error = FLT_MAX;
+  uint8_t fields = 0;
+  for (uint8_t e = 0; e <= CC1101_BANDWIDTH_EXPONENT_MAX; ++e) {
+    for (uint8_t m = 0; m <= CC1101_BANDWIDTH_MANTISSA_MAX; ++m) {
+      float divisor = CC1101_KHZ_TO_HZ * CC1101_BANDWIDTH_DIVISOR *
+                      (CC1101_BANDWIDTH_MANTISSA_BASE + m) * (1U << e);
+      float bandwidth = CC1101_XTAL_FREQ_HZ / divisor;
+      float error = fabsf(khz - bandwidth);
+      if (error < best_error) {
+        best_error = error;
+        fields = (e << CC1101_BANDWIDTH_EXPONENT_SHIFT) | (m << CC1101_BANDWIDTH_MANTISSA_SHIFT);
+      }
     }
   }
-  for (int i = 0; i < 3; i++) {
-    if (f > 58.1) {
-      f /= 1.25;
-      s2--;
-    } else {
-      break;
-    }
-  }
-
-  s1 *= 64;
-  s2 *= 16;
-  uint8_t rxbw_val = s1 + s2;
-
-  cc1101_write_reg(CC1101_MDMCFG4, rxbw_val | drate_e);
+  uint8_t value;
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG4, &value));
+  return write_reg_impl(CC1101_MDMCFG4, fields | (value & CC1101_RATE_EXPONENT_MASK));
 }
 
-static void set_data_rate_impl(float baud) {
-  uint8_t mdmcfg4 = cc1101_read_reg(CC1101_MDMCFG4);
-  uint8_t rxbw_val = mdmcfg4 & 0xF0; // Preserve RX Bandwidth
-
-  /* The register-search constants below are expressed in kBaud while the
-   * public API (and UI
-   * callers) pass baud. */
-  float c = baud / 1000.0f;
-  uint8_t mdmcfg3 = 0;
-  uint8_t drate_e = 0;
-
-  if (c > 1621.83)
-    c = 1621.83;
-  if (c < 0.0247955)
-    c = 0.0247955;
-
-  for (int i = 0; i < 20; i++) {
-    if (c <= 0.0494942) {
-      c = c - 0.0247955;
-      c = c / 0.00009685;
-      mdmcfg3 = (uint8_t)c;
-      float s1 = (c - mdmcfg3) * 10;
-      if (s1 >= 5)
-        mdmcfg3++;
-      break;
-    } else {
-      drate_e++;
-      c = c / 2;
+static void select_modem_fields(float target,
+                                float scale,
+                                uint16_t base,
+                                uint8_t max_exponent,
+                                uint8_t max_mantissa,
+                                uint8_t *out_exponent,
+                                uint8_t *out_mantissa) {
+  float minimum = (float)CC1101_XTAL_FREQ_HZ * base / scale;
+  float maximum = (float)CC1101_XTAL_FREQ_HZ * (base + max_mantissa) * (1U << max_exponent) / scale;
+  target = fminf(maximum, fmaxf(minimum, target));
+  float best_error = FLT_MAX;
+  for (uint8_t e = 0; e <= max_exponent; ++e) {
+    float step = (float)CC1101_XTAL_FREQ_HZ * (1U << e) / scale;
+    float rounded = roundf(target / step - base);
+    uint8_t m = (uint8_t)fminf(max_mantissa, fmaxf(0, rounded));
+    float error = fabsf(target - (base + m) * step);
+    if (error < best_error) {
+      best_error = error;
+      *out_exponent = e;
+      *out_mantissa = m;
     }
   }
-
-  cc1101_write_reg(CC1101_MDMCFG4, rxbw_val | drate_e);
-  cc1101_write_reg(CC1101_MDMCFG3, mdmcfg3);
 }
 
-static void set_deviation_impl(float dev) {
-  float f = 1.586914;
-  float v = 0.19836425;
-  int c = 0;
-
-  if (dev > 380.859375)
-    dev = 380.859375;
-  if (dev < 1.586914)
-    dev = 1.586914;
-
-  for (int i = 0; i < 255; i++) {
-    f += v;
-    if (c == 7) {
-      v *= 2;
-      c = -1;
-      i += 8;
-    }
-    if (f >= dev) {
-      c = i;
-      break;
-    }
-    c++;
-  }
-
-  cc1101_write_reg(CC1101_DEVIATN, (uint8_t)c);
+static esp_err_t set_data_rate_impl(float baud) {
+  if (!isfinite(baud) || baud <= 0)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t e = 0, m = 0, value;
+  select_modem_fields(baud,
+                      CC1101_RATE_SCALE,
+                      CC1101_RATE_MANTISSA_BASE,
+                      CC1101_RATE_EXPONENT_MAX,
+                      CC1101_MODEM_MANTISSA_MAX,
+                      &e,
+                      &m);
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG4, &value));
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_MDMCFG4, (value & CC1101_BANDWIDTH_MASK) | e));
+  return write_reg_impl(CC1101_MDMCFG3, m);
 }
 
-static void set_modulation_impl(uint8_t modulation) {
+static esp_err_t set_deviation_impl(float dev) {
+  if (!isfinite(dev) || dev <= 0)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t e = 0, m = 0;
+  select_modem_fields(dev,
+                      CC1101_DEVIATION_SCALE * CC1101_KHZ_TO_HZ,
+                      CC1101_DEVIATION_MANTISSA_BASE,
+                      CC1101_DEVIATION_EXPONENT_MAX,
+                      CC1101_DEVIATION_MANTISSA_MAX,
+                      &e,
+                      &m);
+  return write_reg_impl(CC1101_DEVIATN, (e << CC1101_DEVIATION_EXPONENT_SHIFT) | m);
+}
+
+static esp_err_t set_modulation_impl(uint8_t modulation) {
   // 0=2-FSK, 1=GFSK, 2=ASK/OOK, 3=4-FSK, 4=MSK
   if (modulation > CC1101_MOD_MSK)
-    modulation = CC1101_MOD_MSK;
-  s_current_modulation = modulation;
+    return ESP_ERR_INVALID_ARG;
 
   uint8_t m2modfm = 0;
   uint8_t frend0 = 0;
@@ -714,29 +798,30 @@ static void set_modulation_impl(uint8_t modulation) {
       break;
   }
 
-  uint8_t current_mdmcfg2 = cc1101_read_reg(CC1101_MDMCFG2);
+  uint8_t current_mdmcfg2;
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG2, &current_mdmcfg2));
   uint8_t dcoff = current_mdmcfg2 & 0x80;
   uint8_t manch = current_mdmcfg2 & 0x08;
   uint8_t syncm = current_mdmcfg2 & 0x07;
 
-  cc1101_write_reg(CC1101_MDMCFG2, dcoff | m2modfm | manch | syncm);
-  cc1101_write_reg(CC1101_FREND0, frend0);
-
-  // Re-apply PA setting because ASK/OOK uses different PATABLE index logic in SmartRC
-  cc1101_set_pa(s_current_pa_dbm);
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_MDMCFG2, dcoff | m2modfm | manch | syncm));
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FREND0, frend0));
+  s_current_modulation = modulation;
+  return set_pa_impl(s_current_pa_dbm);
 }
 
-static void set_pa_impl(int dbm) {
-  s_current_pa_dbm = dbm;
+static esp_err_t set_pa_impl(int dbm) {
   uint8_t pa_val = 0xC0; // Default max
 
   // Select based on frequency band and dbm
   const uint8_t *table = PA_TABLE_433; // Default
-  if (s_current_freq_mhz >= 300 && s_current_freq_mhz <= 348)
+  if (s_current_freq_hz >= CC1101_BAND_315_MIN_HZ && s_current_freq_hz <= CC1101_BAND_315_MAX_HZ)
     table = PA_TABLE_315;
-  else if (s_current_freq_mhz >= 779 && s_current_freq_mhz <= 899.99)
+  else if (s_current_freq_hz >= CC1101_BAND_HIGH_MIN_HZ &&
+           s_current_freq_hz < CC1101_PATH_915_MIN_HZ)
     table = PA_TABLE_868;
-  else if (s_current_freq_mhz >= 900 && s_current_freq_mhz <= 928)
+  else if (s_current_freq_hz >= CC1101_PATH_915_MIN_HZ &&
+           s_current_freq_hz <= CC1101_BAND_HIGH_MAX_HZ)
     table = PA_TABLE_915;
 
   if (dbm <= -30)
@@ -766,41 +851,29 @@ static void set_pa_impl(int dbm) {
     pa_table[1] = 0x00;
   }
 
-  cc1101_write_burst(CC1101_PATABLE, pa_table, CC1101_PA_TABLE_SIZE);
+  CC1101_RETURN_ON_ERROR(write_burst_impl(CC1101_PATABLE, pa_table, sizeof(pa_table)));
+  s_current_pa_dbm = dbm;
+  return ESP_OK;
 }
 
 static void set_channel_impl(uint8_t channel) {
   cc1101_write_reg(CC1101_CHANNR, channel);
 }
 
-static void set_chsp_impl(float khz) {
-  float f = khz;
-  uint8_t mdmcfg0 = 0;
-  uint8_t mdmcfg1 = cc1101_read_reg(CC1101_MDMCFG1) & 0xFC; // Clear CHSP (lower 2 bits)
-  uint8_t chsp_e = 0;
-
-  if (f > 405.456543)
-    f = 405.456543;
-  if (f < 25.390625)
-    f = 25.390625;
-
-  for (int i = 0; i < 5; i++) {
-    if (f <= 50.682068) {
-      f -= 25.390625;
-      f /= 0.0991825;
-      mdmcfg0 = (uint8_t)f;
-      float s1 = (f - mdmcfg0) * 10;
-      if (s1 >= 5)
-        mdmcfg0++;
-      break;
-    } else {
-      chsp_e++;
-      f /= 2;
-    }
-  }
-
-  cc1101_write_reg(CC1101_MDMCFG1, mdmcfg1 | chsp_e);
-  cc1101_write_reg(CC1101_MDMCFG0, mdmcfg0);
+static esp_err_t set_chsp_impl(float khz) {
+  if (!isfinite(khz) || khz <= 0)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t e = 0, m = 0, value;
+  select_modem_fields(khz,
+                      CC1101_CHSP_SCALE * CC1101_KHZ_TO_HZ,
+                      CC1101_RATE_MANTISSA_BASE,
+                      CC1101_CHSP_EXPONENT_MAX,
+                      CC1101_MODEM_MANTISSA_MAX,
+                      &e,
+                      &m);
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG1, &value));
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_MDMCFG1, (value & ~CC1101_CHSP_EXPONENT_MASK) | e));
+  return write_reg_impl(CC1101_MDMCFG0, m);
 }
 
 static void set_sync_mode_impl(uint8_t mode) {
@@ -865,179 +938,170 @@ static void set_manchester_impl(bool enable) {
   cc1101_write_reg(CC1101_MDMCFG2, mdmcfg2);
 }
 
-static void send_data_impl(const uint8_t *data, size_t len) {
-  if (s_cc1101_spi == NULL || len == 0)
-    return;
-  if (len > CC1101_MAX_TX_FIFO)
-    len = CC1101_MAX_TX_FIFO;
-
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_strobe(CC1101_SFTX); // Flush TX FIFO
-
-  cc1101_write_reg(CC1101_TXFIFO, (uint8_t)len);
-  cc1101_write_burst(CC1101_TXFIFO, data, (uint8_t)len);
-
-  cc1101_strobe(CC1101_STX);
-
-  // Wait for transmission to complete (checking MARCSTATE)
-  uint8_t marcstate;
+static esp_err_t send_data_impl(const uint8_t *data, size_t len) {
+  if (data == NULL || len == 0 || len > CC1101_MAX_TX_FIFO)
+    return ESP_ERR_INVALID_ARG;
+  uint8_t packet_control;
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_PKTCTRL0, &packet_control));
+  if ((packet_control & CC1101_PACKET_FORMAT_MASK) != 0 ||
+      (packet_control & CC1101_PACKET_LENGTH_MASK) != CC1101_PACKET_VARIABLE_LENGTH)
+    return ESP_ERR_NOT_SUPPORTED;
+  esp_err_t cleanup_error;
+  esp_err_t error = enter_idle();
+  if (error != ESP_OK)
+    return error;
+  error = strobe_impl(CC1101_SFTX);
+  if (error != ESP_OK)
+    goto cleanup;
+  error = write_reg_impl(CC1101_TXFIFO, (uint8_t)len);
+  if (error != ESP_OK)
+    goto cleanup;
+  error = write_burst_impl(CC1101_TXFIFO, data, (uint8_t)len);
+  if (error != ESP_OK)
+    goto cleanup;
+  error = strobe_impl(CC1101_STX);
+  if (error != ESP_OK)
+    goto cleanup;
+  int64_t deadline = esp_timer_get_time() + CC1101_PACKET_TX_TIMEOUT_US;
   do {
-    marcstate = cc1101_read_reg(CC1101_MARCSTATE | 0x40) & CC1101_MARCSTATE_MASK;
-  } while (marcstate == CC1101_MARCSTATE_TX || marcstate == CC1101_MARCSTATE_TX_END ||
-           marcstate == CC1101_MARCSTATE_RXTX);
+    uint8_t state, remaining;
+    error = read_register(CC1101_MARCSTATE | CC1101_STATUS_READ, &state);
+    if (error != ESP_OK)
+      goto cleanup;
+    error = read_register(CC1101_TXBYTES | CC1101_STATUS_READ, &remaining);
+    if (error != ESP_OK)
+      goto cleanup;
+    if (remaining & CC1101_TX_FIFO_UNDERFLOW) {
+      error = ESP_FAIL;
+      goto cleanup;
+    }
+    state &= CC1101_MARCSTATE_MASK;
+    if ((remaining & CC1101_TX_FIFO_COUNT_MASK) == 0 &&
+        (state == CC1101_MARCSTATE_IDLE || state == CC1101_MARCSTATE_RX ||
+         state == CC1101_MARCSTATE_FSTXON))
+      goto cleanup;
+    vTaskDelay(1);
+  } while (esp_timer_get_time() < deadline);
+  error = ESP_ERR_TIMEOUT;
+cleanup:
+  cleanup_error = enter_idle();
+  if (cleanup_error == ESP_OK)
+    cleanup_error = strobe_impl(CC1101_SFTX);
+  if (error == ESP_OK)
+    error = cleanup_error;
+  if (error != ESP_OK)
+    ESP_LOGE(TAG, "Packet transmission failed: %s", esp_err_to_name(error));
+  return error;
 }
 
 float cc1101_convert_rssi(uint8_t rssi_raw) {
-  float rssi_dbm;
-  if (rssi_raw >= 128) {
-    rssi_dbm = ((float)(rssi_raw - 256) / 2.0) - (float)CC1101_RSSI_OFFSET;
-  } else {
-    rssi_dbm = ((float)rssi_raw / 2.0) - (float)CC1101_RSSI_OFFSET;
-  }
-  return rssi_dbm;
+  int16_t signed_rssi = rssi_raw >= CC1101_RSSI_SIGN_THRESHOLD
+                            ? (int16_t)rssi_raw - CC1101_RSSI_SIGN_RANGE
+                            : rssi_raw;
+  return signed_rssi * CC1101_RSSI_DB_PER_STEP - CC1101_RSSI_OFFSET;
 }
 
-static void init_impl(void) {
-  if (s_cc1101_spi != NULL)
-    return;
-
-  /* PE613050A antenna-tuning switch controls.  The current BOM leaves the
-   * four selectable
-   * shunt branches unpopulated, but the CMOS inputs must not
-   * float.  V2=0, V1=0
-   * deterministically selects RF1. */
-  const gpio_config_t rf_switch_cfg = {
-      .pin_bit_mask = (1ULL << GPIO_RF_SW_V1_PIN) | (1ULL << GPIO_RF_SW_V2_PIN),
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_ENABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  gpio_config(&rf_switch_cfg);
-  gpio_set_level(GPIO_RF_SW_V1_PIN, 0);
-  gpio_set_level(GPIO_RF_SW_V2_PIN, 0);
-
-  spi_device_config_t devcfg = {.clock_speed_hz = CC1101_SPI_CLOCK_HZ,
-                                .mode = 0,
-                                .cs_pin = GPIO_CC1101_CS_PIN,
-                                .queue_size = CC1101_SPI_QUEUE_SIZE};
-
-  esp_err_t ret = spi_add_device(SPI3_HOST, SPI_DEVICE_CC1101, &devcfg);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to add SPI device: %s", esp_err_to_name(ret));
-    return;
+static esp_err_t init_impl(void) {
+  if (s_is_initialized)
+    return ESP_OK;
+  s_is_tuned = false;
+  if (s_cc1101_spi == NULL) {
+    const gpio_config_t rf_switch_cfg = {
+        .pin_bit_mask = (1ULL << GPIO_RF_SW_V1_PIN) | (1ULL << GPIO_RF_SW_V2_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    CC1101_RETURN_ON_ERROR(gpio_config(&rf_switch_cfg));
+    CC1101_RETURN_ON_ERROR(gpio_set_level(GPIO_RF_SW_V1_PIN, 0));
+    CC1101_RETURN_ON_ERROR(gpio_set_level(GPIO_RF_SW_V2_PIN, 0));
+    const spi_device_config_t devcfg = {
+        .clock_speed_hz = CC1101_SPI_CLOCK_HZ,
+        .mode = 0,
+        .cs_pin = GPIO_CC1101_CS_PIN,
+        .queue_size = CC1101_SPI_QUEUE_SIZE,
+    };
+    CC1101_RETURN_ON_ERROR(spi_add_device(SPI3_HOST, SPI_DEVICE_CC1101, &devcfg));
+    s_cc1101_spi = spi_get_handle(SPI_DEVICE_CC1101);
   }
-
-  s_cc1101_spi = spi_get_handle(SPI_DEVICE_CC1101);
-  cc1101_strobe(CC1101_SRES);
-  vTaskDelay(pdMS_TO_TICKS(CC1101_RESET_DELAY_MS));
-
-  cc1101_write_reg(CC1101_IOCFG0, 0x2E);
-  cc1101_write_reg(CC1101_IOCFG2, 0x2E);
-
-  uint8_t version = cc1101_read_reg(CC1101_VERSION | 0x40);
-  if (version == 0x00 || version == 0xFF) {
-    ESP_LOGE(TAG, "CC1101 not detected!");
-  } else {
-    ESP_LOGI(TAG, "CC1101 detected! Version: 0x%02X", version);
+  CC1101_RETURN_ON_ERROR(strobe_impl(CC1101_SRES));
+  CC1101_RETURN_ON_ERROR(wait_for_state(CC1101_MARCSTATE_IDLE));
+  uint8_t part, version;
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_PARTNUM | CC1101_STATUS_READ, &part));
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_VERSION | CC1101_STATUS_READ, &version));
+  if (part != 0 || version == 0 || version == UINT8_MAX) {
+    ESP_LOGE(TAG, "CC1101 not detected");
+    return ESP_ERR_NOT_FOUND;
   }
-
-  // Default Init similar to SmartRC
-  cc1101_set_frequency(CC1101_DEFAULT_FREQ_HZ);
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_IOCFG0, CC1101_GDO_HIGH_IMPEDANCE));
+  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_IOCFG2, CC1101_GDO_HIGH_IMPEDANCE));
+  CC1101_RETURN_ON_ERROR(set_modulation_impl(CC1101_MOD_ASK));
+  CC1101_RETURN_ON_ERROR(set_frequency_impl(CC1101_DEFAULT_FREQ_HZ));
+  s_is_initialized = true;
+  ESP_LOGI(TAG, "CC1101 initialized, version 0x%02X", version);
+  return ESP_OK;
 }
 
 static bool is_initialized_impl(void) {
-  return s_cc1101_spi != NULL;
+  return s_is_initialized;
 }
 
 static esp_err_t recover_impl(void) {
-  if (s_cc1101_spi == NULL)
-    cc1101_init();
-  if (s_cc1101_spi == NULL)
-    return ESP_ERR_INVALID_STATE;
-
-  esp_err_t err = cc1101_reset_radio();
-  if (err != ESP_OK)
-    return err;
-
-  cc1101_write_reg(CC1101_IOCFG0, 0x2E);
-  cc1101_write_reg(CC1101_IOCFG2, 0x2E);
-  cc1101_set_frequency(CC1101_DEFAULT_FREQ_HZ);
-
-  uint8_t part = cc1101_read_reg(CC1101_PARTNUM | 0x40U);
-  uint8_t version = cc1101_read_reg(CC1101_VERSION | 0x40U);
-  return (part == 0x00U && version != 0x00U && version != 0xFFU) ? ESP_OK : ESP_FAIL;
+  s_is_initialized = false;
+  return init_impl();
 }
 
-static void enable_async_mode_impl(uint32_t freq_hz) {
-  cc1101_enable_sniffer_mode(freq_hz, CC1101_MOD_ASK);
+static esp_err_t enable_async_mode_impl(uint32_t freq_hz) {
+  return configure_sniffer(
+      freq_hz, CC1101_MOD_ASK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
 }
 
-static void enable_fsk_mode_impl(uint32_t freq_hz) {
-  cc1101_enable_sniffer_mode(freq_hz, CC1101_MOD_2FSK);
+static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz) {
+  return configure_sniffer(
+      freq_hz, CC1101_MOD_2FSK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
 }
 
-static void set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
-  s_active_preset_id = (uint8_t)preset;
-
-  switch (preset) {
-    case CC1101_PRESET_IDLE:
-      cc1101_strobe(CC1101_SIDLE);
-      break;
-
-    case CC1101_PRESET_OOK_270KHZ:
-      cc1101_enable_async_mode(freq_hz);
-      cc1101_set_rx_bandwidth(270.0);
-      /* Keep the board-proven AGCCTRL2=0xC7 base profile.  Enabling every
-       * DVGA stage
-       * (0x07) has made this prototype lose the CC1101 after RX. */
-      break;
-
-    case CC1101_PRESET_OOK_650KHZ:
-      cc1101_enable_async_mode(freq_hz);
-      cc1101_set_rx_bandwidth(650.0);
-      break;
-
-    case CC1101_PRESET_2FSK_2KHZ:
-      cc1101_enable_fsk_mode(freq_hz);
-      cc1101_set_rx_bandwidth(58.0);
-      cc1101_set_deviation(2.38);
-      break;
-
-    case CC1101_PRESET_2FSK_47KHZ:
-      cc1101_enable_fsk_mode(freq_hz);
-      cc1101_set_rx_bandwidth(270.0);
-      cc1101_set_deviation(47.6);
-      break;
-
-    case CC1101_PRESET_2FSK_95KHZ:
-      cc1101_enable_fsk_mode(freq_hz);
-      cc1101_set_rx_bandwidth(540.0);
-      cc1101_set_deviation(95.2);
-      break;
-
-    case CC1101_PRESET_OOK_800KHZ:
-    default:
-      cc1101_enable_async_mode(freq_hz);
-      cc1101_set_rx_bandwidth(812.0);
-      break;
+static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
+  if (preset < CC1101_PRESET_IDLE || preset >= CC1101_PRESET_COUNT)
+    return ESP_ERR_INVALID_ARG;
+  if (preset == CC1101_PRESET_IDLE) {
+    CC1101_RETURN_ON_ERROR(enter_idle());
+    s_active_preset_id = CC1101_PRESET_IDLE;
+    return ESP_OK;
   }
+  static const float PRESET_BANDWIDTH_KHZ[CC1101_PRESET_COUNT] = {0, 270, 650, 58, 270, 540, 812};
+  static const float PRESET_DEVIATION_KHZ[CC1101_PRESET_COUNT] = {
+      0, 47, 47, 2.38f, 47.6f, 95.2f, 47};
+  bool is_fsk = preset >= CC1101_PRESET_2FSK_2KHZ && preset <= CC1101_PRESET_2FSK_95KHZ;
+  uint8_t modulation = is_fsk ? CC1101_MOD_2FSK : CC1101_MOD_ASK;
+  esp_err_t error = configure_sniffer(
+      freq_hz, modulation, PRESET_BANDWIDTH_KHZ[preset], PRESET_DEVIATION_KHZ[preset]);
+  CC1101_RETURN_ON_ERROR(error);
+  s_active_preset_id = (uint8_t)preset;
+  return ESP_OK;
 }
 
 static uint8_t get_active_preset_id_impl(void) {
   return s_active_preset_id;
 }
 
-static void enter_tx_mode_impl(void) {
-  if (s_cc1101_spi == NULL)
-    return;
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_strobe(CC1101_STX);
+static esp_err_t enter_mode(uint8_t command, uint8_t state) {
+  CC1101_RETURN_ON_ERROR(enter_idle());
+  esp_err_t error = strobe_impl(command);
+  if (error == ESP_OK)
+    error = wait_for_state(state);
+  if (error != ESP_OK) {
+    s_is_tuned = false;
+    strobe_impl(CC1101_SIDLE);
+  }
+  return error;
 }
 
-static void enter_rx_mode_impl(void) {
-  if (s_cc1101_spi == NULL)
-    return;
-  cc1101_strobe(CC1101_SIDLE);
-  cc1101_strobe(CC1101_SRX);
+static esp_err_t enter_tx_mode_impl(void) {
+  return enter_mode(CC1101_STX, CC1101_MARCSTATE_TX);
+}
+
+static esp_err_t enter_rx_mode_impl(void) {
+  return enter_mode(CC1101_SRX, CC1101_MARCSTATE_RX);
 }

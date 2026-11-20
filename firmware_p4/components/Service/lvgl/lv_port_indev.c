@@ -36,6 +36,11 @@ static volatile int s_remote_phase = 0;
 // When true, the keypad reports "no button" so the LVGL group (menus/lists/home)
 // receives no keys. The global dropdown raises this while open so it owns input.
 static volatile bool s_suppressed = false;
+static lv_port_indev_guard_cb_t s_guard;
+
+void lv_port_indev_set_guard(lv_port_indev_guard_cb_t guard) {
+  s_guard = guard;
+}
 
 void lv_port_indev_set_suppressed(bool suppressed) {
   s_suppressed = suppressed;
@@ -48,7 +53,9 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
 
   // Held down by the global dropdown: swallow all keys so the screen underneath
   // does not navigate while the panel is open.
-  if (s_suppressed) {
+  if (s_suppressed || (s_guard != NULL && s_guard())) {
+    lv_indev_wait_release(indev);
+    s_remote_phase = 0;
     data->key = last_key;
     data->state = LV_INDEV_STATE_RELEASED;
     return;
@@ -66,7 +73,7 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     key = landscape ? LV_KEY_UP : LV_KEY_RIGHT;
   } else if (ok_button_is_down()) {
     key = LV_KEY_ENTER;
-  } else if (back_button_is_down()) {
+  } else if (s_guard == NULL && back_button_is_down()) {
     key = LV_KEY_ESC;
   }
 

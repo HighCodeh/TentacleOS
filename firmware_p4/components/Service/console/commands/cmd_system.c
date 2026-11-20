@@ -69,7 +69,7 @@ static void c5_print_usage(void) {
   printf("  sync            perform one bridge reconnection attempt\n");
   printf("  wait [seconds]  retry bridge reconnection (default: 10 s)\n");
   printf("  reboot          reboot C5 and wait until the app reconnects\n");
-  printf("  boot            enter C5 ROM download mode (alias: download)\n");
+  printf("  boot [spi|physical]  enter C5 ROM download mode (default: spi)\n");
   printf("  ota <spi|uart>  update the C5 application from the microSD\n");
   printf("  rom             flash embedded recovery images to a C5 in ROM mode\n");
   printf("  passthrough     bridge host esptool <-> C5 until P4 reboot/BACK\n");
@@ -242,8 +242,15 @@ static int cmd_c5(int argc, char **argv) {
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "boot") == 0 || strcmp(argv[1], "download") == 0) {
-    printf("Entering C5 ROM bootloader. The SPI link will go down.\n");
-    esp_err_t r = c5_flasher_enter_download();
+    if (argc > 3 ||
+        (argc == 3 && strcmp(argv[2], "spi") != 0 && strcmp(argv[2], "physical") != 0)) {
+      printf("usage: c5 boot [spi|physical]\n");
+      return 1;
+    }
+    bool is_physical = argc == 3 && strcmp(argv[2], "physical") == 0;
+    printf("Entering C5 ROM bootloader via %s. The SPI link will go down.\n",
+           is_physical ? "BOOT/RESET pins" : "SPI");
+    esp_err_t r = is_physical ? c5_flasher_enter_download_physical() : c5_flasher_enter_download();
     printf("C5 ROM boot: %s\n", esp_err_to_name(r));
     if (r == ESP_OK) {
       spi_bridge_set_alive(false);
@@ -259,9 +266,8 @@ static int cmd_c5(int argc, char **argv) {
     return r == ESP_OK ? 0 : 1;
   }
   if (strcmp(argv[1], "passthrough") == 0) {
-    printf("Entering C5 passthrough. Reboot (or BACK) to exit.\n");
     c5_passthrough_run();
-    return 0;
+    return 1;
   }
   if (strcmp(argv[1], "release") == 0) {
     c5_flasher_release_uart();

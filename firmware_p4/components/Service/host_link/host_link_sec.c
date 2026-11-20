@@ -330,6 +330,17 @@ void host_link_sec_pairing_window(bool is_open) {
   xSemaphoreGiveRecursive(s_crypto_lock);
 }
 
+void host_link_sec_pairing_refresh(void) {
+  if (s_crypto_lock == NULL)
+    return;
+  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
+  expire_pairing();
+  // Extend only an explicitly opened window, never an active transcript or session.
+  if (s_window_deadline != 0 && !s_authed && s_pairing.token == 0)
+    s_window_deadline = esp_timer_get_time() + (int64_t)HL_PAIR_WINDOW_MS * HL_US_PER_MS;
+  xSemaphoreGiveRecursive(s_crypto_lock);
+}
+
 bool host_link_sec_pairing_get(host_link_pairing_t *out) {
   if (out == NULL)
     return false;

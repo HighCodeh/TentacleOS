@@ -33,11 +33,13 @@ extern "C" {
 #include "highboy_nfc_error.h"
 #include "highboy_nfc_types.h"
 
-#define NFC_MFC1K_SECTORS  16
-#define NFC_MFC1K_BLOCKS   64
-#define NFC_MFC_BLOCK_SIZE 16
-#define NFC_MFC_KEY_SIZE   6
-#define NFC_MFC_PATH_MAX   128
+#define NFC_MFC1K_SECTORS   16
+#define NFC_MFC1K_BLOCKS    64
+#define NFC_MFC_BLOCK_SIZE  16
+#define NFC_MFC_KEY_SIZE    6
+#define NFC_MFC_MAX_SECTORS 40
+#define NFC_MFC_MAX_BLOCKS  256
+#define NFC_MFC_PATH_MAX    128
 
 typedef enum {
   NFC_MFC_DUMP_PHASE_KEYS,
@@ -50,16 +52,20 @@ typedef struct {
   int sector;
   int blocks_read;
   int keys_found;
+  int total_blocks;
+  int sector_count;
 } nfc_mfc_dump_progress_t;
 
 typedef struct {
   hb_nfc_err_t err;
-  uint8_t blocks[NFC_MFC1K_BLOCKS][NFC_MFC_BLOCK_SIZE];
-  bool block_read[NFC_MFC1K_BLOCKS];
-  uint8_t key_a[NFC_MFC1K_SECTORS][NFC_MFC_KEY_SIZE];
-  uint8_t key_b[NFC_MFC1K_SECTORS][NFC_MFC_KEY_SIZE];
-  bool key_a_found[NFC_MFC1K_SECTORS];
-  bool key_b_found[NFC_MFC1K_SECTORS];
+  int total_blocks;
+  int sector_count;
+  uint8_t blocks[NFC_MFC_MAX_BLOCKS][NFC_MFC_BLOCK_SIZE];
+  bool block_read[NFC_MFC_MAX_BLOCKS];
+  uint8_t key_a[NFC_MFC_MAX_SECTORS][NFC_MFC_KEY_SIZE];
+  uint8_t key_b[NFC_MFC_MAX_SECTORS][NFC_MFC_KEY_SIZE];
+  bool key_a_found[NFC_MFC_MAX_SECTORS];
+  bool key_b_found[NFC_MFC_MAX_SECTORS];
   int blocks_read;
   int sectors_complete;
   int keys_a_found;
@@ -69,10 +75,27 @@ typedef struct {
   bool emulation_ready;
   char bin_path[NFC_MFC_PATH_MAX];
   char keys_path[NFC_MFC_PATH_MAX];
+  char nfc_path[NFC_MFC_PATH_MAX];
 } nfc_mfc_dump_result_t;
 
 typedef bool (*nfc_mfc_dump_cancel_cb_t)(void *ctx);
 typedef void (*nfc_mfc_dump_progress_cb_t)(const nfc_mfc_dump_progress_t *progress, void *ctx);
+
+typedef struct {
+  nfc_mfc_dump_cancel_cb_t cancel;
+  nfc_mfc_dump_progress_cb_t progress;
+  void *context;
+} nfc_mfc_dump_callbacks_t;
+
+/* Classic geometry, including 4K sectors 32..39 (16 blocks each). */
+int nfc_mfc_dump_first_block(int sector);
+int nfc_mfc_dump_sector_blocks(int sector);
+int nfc_mfc_dump_block_sector(int block);
+
+/* Reads Mini, 1K or 4K. Cancellation retains verified blocks and cached keys. */
+hb_nfc_err_t nfc_mfc_dump_read(nfc_iso14443a_data_t *card,
+                               const nfc_mfc_dump_callbacks_t *callbacks,
+                               nfc_mfc_dump_result_t *out);
 
 /**
  * @brief Read a MIFARE Classic 1K using cached/dictionary keys only.
@@ -88,10 +111,11 @@ hb_nfc_err_t nfc_mfc_dump_read_1k(nfc_iso14443a_data_t *card,
                                   nfc_mfc_dump_result_t *out);
 
 /**
- * @brief Save a complete 1K dump and its key report without overwriting files.
+ * @brief Save a complete or partial Classic profile without overwriting files.
  *
- * The binary is a raw 1024-byte image suitable for Proxmark3 `hf mf eload`.
- * Known keys are reconstructed into each sector trailer.
+ * A raw binary is emitted only when every block and both keys are known.
+ * Known keys are reconstructed into each sector trailer. Complete profiles
+ * and partial profiles produce a Flipper .nfc file; unknown bytes are ??.
  */
 esp_err_t nfc_mfc_dump_save(const nfc_iso14443a_data_t *card, nfc_mfc_dump_result_t *dump);
 

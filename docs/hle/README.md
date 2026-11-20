@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Host HLE compatibility
 
 The Linux HLE target uses host-side ESP-IDF shims. It does not exercise physical
@@ -39,3 +56,7 @@ The headless suite does not require SDL2. The full HLE executable still requires
 Linux's GNU-compatible linker wrapping for filesystem shims; macOS-only CRC
 checks do not substitute for running the Linux suite. See the repository README
 for the interactive simulator and its additional dependencies.
+
+The pinned cJSON 1.7.19 (`c859b25da02955fef659d658b8f324b5cde87be3`) dependency uses a legacy CMake minimum. Its configure
+step applies a policy floor of 3.5 for CMake 4 compatibility, then restores the
+caller setting. Dependency sources and firmware builds are unchanged.

@@ -43,6 +43,7 @@ static const ir_menu_item_t MENU_ITEMS[] = {
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
+static int s_selected;
 
 static void ir_menu_input(const input_event_t *ev, void *ctx);
 
@@ -61,6 +62,7 @@ void ui_ir_menu_open(void) {
   for (size_t i = 0; i < MENU_ITEMS_COUNT; i++)
     menu_component_add_item(&s_menu, MENU_ITEMS[i].icon, MENU_ITEMS[i].name);
 
+  menu_component_select(&s_menu, s_selected);
   ui_input_set_screen_handler(ir_menu_input, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);
@@ -80,12 +82,15 @@ static void ir_menu_input(const input_event_t *ev, void *ctx) {
         menu_component_prev(&s_menu);
       break;
     case INPUT_BTN_BACK:
-      if (press)
+      if (press) {
+        s_selected = menu_component_get_selected(&s_menu);
         ui_switch_screen(SCREEN_MENU);
+      }
       break;
     case INPUT_BTN_OK:
       if (press) {
         int sel = menu_component_get_selected(&s_menu);
+        s_selected = sel;
         if (sel >= 0 && sel < (int)MENU_ITEMS_COUNT) {
           if (MENU_ITEMS[sel].target < 0)
             ui_ir_library_open();

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "connection_settings_ui.h"
+#include "esp_log.h"
 
 #include "host_link.h"
 #include "lv_port_indev.h"
@@ -24,15 +25,24 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define IDX_USB_NATIVE 0
+#define IDX_USB_NATIVE     0
+#define USB_STATUS_POLL_MS 100
+static const char *TAG = "CONNECTION_UI";
+static lv_timer_t *s_usb_timer;
+static bool s_usb_pending;
+static bool s_usb_requested;
 
 static lv_obj_t *s_screen_conn = NULL;
 static menu_component_t s_menu;
 static bool s_usb_no_sleep_held = false;
 
+static void usb_status_cb(lv_timer_t *timer);
+
 static void connection_settings_input(const input_event_t *ev, void *ctx);
 
 void ui_connection_settings_open(void) {
+  if (s_usb_timer == NULL)
+    s_usb_timer = lv_timer_create(usb_status_cb, USB_STATUS_POLL_MS, NULL);
   if (s_screen_conn != NULL) {
     lv_obj_del(s_screen_conn);
     s_screen_conn = NULL;
@@ -51,31 +61,46 @@ void ui_connection_settings_open(void) {
   ui_screen_load_owned(&s_screen_conn, s_screen_conn);
 }
 
-static void conn_toggle(int sel) {
-  if (sel == IDX_USB_NATIVE) {
-    menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
-    bool native = menu_component_get_toggle(&s_menu, IDX_USB_NATIVE);
-    esp_err_t err = usb_mux_set_native(native);
-    if (err == ESP_OK && native) {
-      err = host_link_cdc_init();
-    }
-    if (err != ESP_OK) {
-      // Do not show a working native connection or retain its sleep guard
-      // when the CDC service could not start (e.g. allocation failure).
-      usb_mux_set_native(false);
-      if (menu_component_get_toggle(&s_menu, IDX_USB_NATIVE))
-        menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
-      notify(NOTIFY_WARNING, "Falha USB NATIVE | tente novamente");
+static void usb_status_cb(lv_timer_t *timer) {
+  (void)timer;
+  bool native = usb_mux_is_native();
+  if (native && !s_usb_no_sleep_held) {
+    power_manager_no_sleep_acquire();
+    s_usb_no_sleep_held = true;
+  } else if (!native && s_usb_no_sleep_held) {
+    power_manager_no_sleep_release();
+    s_usb_no_sleep_held = false;
+  }
+  if (s_usb_pending) {
+    esp_err_t ret = usb_mux_result();
+    if (ret == ESP_ERR_NOT_FINISHED)
       return;
+    s_usb_pending = false;
+    if (ret == ESP_OK && s_usb_requested)
+      ret = host_link_cdc_init();
+    if (ret != ESP_OK) {
+      (void)usb_mux_request_native(false);
+      ESP_LOGW(TAG, "USB switch: %s", esp_err_to_name(ret));
+      notify(NOTIFY_WARNING, "USB indisponivel | tente novamente");
+    } else {
+      notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
     }
-    if (native && !s_usb_no_sleep_held) {
-      power_manager_no_sleep_acquire();
-      s_usb_no_sleep_held = true;
-    } else if (!native && s_usb_no_sleep_held) {
-      power_manager_no_sleep_release();
-      s_usb_no_sleep_held = false;
-    }
-    notify(NOTIFY_INFO, native ? "USB: native (serial off)" : "USB: UART bridge");
+  }
+  if (s_screen_conn != NULL && lv_obj_is_valid(s_screen_conn) &&
+      menu_component_get_toggle(&s_menu, IDX_USB_NATIVE) != native)
+    menu_component_toggle_item(&s_menu, IDX_USB_NATIVE);
+}
+
+static void conn_toggle(int sel) {
+  if (sel != IDX_USB_NATIVE || s_usb_pending)
+    return;
+  s_usb_requested = !usb_mux_is_native();
+  esp_err_t ret = usb_mux_request_native(s_usb_requested);
+  if (ret == ESP_OK) {
+    s_usb_pending = true;
+    notify(NOTIFY_INFO, "USB: alternando...");
+  } else {
+    notify(NOTIFY_WARNING, "USB ocupado ou indisponivel");
   }
 }
 

@@ -19,6 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+
+static const char *TAG = "ID3_META";
+
 #define ID3_MAX_TAG   (2u * 1024u * 1024u)
 #define ID3_MAX_COVER (4u * 1024u * 1024u)
 
@@ -140,8 +145,9 @@ bool id3_meta_parse(const char *path, id3_meta_t *out) {
     return true;
   }
 
-  uint8_t *buf = malloc(tag_size);
+  uint8_t *buf = heap_caps_malloc(tag_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buf == NULL) {
+    ESP_LOGW(TAG, "Metadata/cover PSRAM unavailable");
     fclose(f);
     return true;
   }
@@ -186,7 +192,7 @@ bool id3_meta_parse(const char *path, id3_meta_t *out) {
       fsize = be32(buf + p + id_len);
 
     uint32_t data_off = p + hdr_len;
-    if (fsize == 0 || data_off + fsize > tag_size)
+    if (fsize == 0 || fsize > tag_size - data_off)
       break;
     const uint8_t *data = buf + data_off;
     long file_base = 10 + (long)data_off;
@@ -232,8 +238,9 @@ uint8_t *id3_meta_read_cover(const char *path, const id3_meta_t *m, uint32_t *ou
   FILE *f = fopen(path, "rb");
   if (f == NULL)
     return NULL;
-  uint8_t *buf = malloc(m->cover_size);
+  uint8_t *buf = heap_caps_malloc(m->cover_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buf == NULL) {
+    ESP_LOGW(TAG, "Metadata/cover PSRAM unavailable");
     fclose(f);
     return NULL;
   }

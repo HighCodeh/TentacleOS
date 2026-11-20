@@ -17,6 +17,16 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # TentacleOS - P4 ↔ C5 SPI Bridge
 
+## V2.03 pin ownership
+
+Bridge pins are unchanged. There is no IRQ connection: C5 defaults to POLL,
+rejects other modes with `ESP_ERR_NOT_SUPPORTED`, and never configures GPIO3
+for IRQ. The compatibility IRQ setter does not access GPIO. P4 initializes
+GPIO0/1 low to release the C5 reset/boot transistors before starting services.
+This stage does not implement automatic hardware recovery or change the v2
+command contract / transport revision 1. See [pins](../pins/README.md).
+
+
 How the two microcontrollers in TentacleOS talk to each other.
 
 This document contains the **architecture overview** and the details for both
@@ -26,6 +36,16 @@ sides. For side-specific detail and migration recipes see:
 
 ---
 
+
+## V2.03 remote IR extension
+
+`SPI_ID_IR_REMOTE` (system 0x11) carries revision-1 IR backend requests. It is
+separate from P4-local companion `SPI_CAT_IR` operations. Full frames are
+uploaded before commit; IDs and session epochs prevent duplicate optical TX.
+C5 dispatch is nonblocking; RMT execution/teardown belongs to the IR worker.
+A new SPI master session or transport recovery cancels the old IR session.
+Same-master HELLO/FETCH recovery does not repeat a commit. See [IR](../ir/README.md)
+for serialization, limits, capture fragments and release acknowledgement.
 
 ## Current SPI-only transport revision 1
 
@@ -42,6 +62,26 @@ covered by the CRC. Sessions are random nonzero identifiers, not authentication
 keys. CRC detects accidental corruption; it does not authenticate a hostile peer.
 Normal transfers are **296 bytes** and stream reads **2080 bytes**, both DMA
 word-aligned. The 264/2048-byte layouts below describe the inner frames.
+P4 checks DMA capability and address/length alignment against the internal cache
+alignment before a transfer. Direct DMA uses `SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL`
+and does not require free heap for duplicate buffers. Only transfers that need
+SDK bounce buffers retain the heap reserve check for their actual memory pool.
+The normal P4 transport scratch buffers live in PSRAM and use
+`SPI_TRANS_DMA_USE_PSRAM`; cache-alignment bounce buffers therefore also come
+from PSRAM, rather than allocating internal DMA RAM on each stream poll.
+The PSRAM reserve query uses `MALLOC_CAP_SPIRAM` alone: IDF normalizes
+`MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM` during allocation, but its heap information
+queries do not, and would report zero for that combination. Host admission tests
+model this distinction for both boot/control packets and stream packets.
+A local `ESP_ERR_NO_MEM` can
+therefore be distinguished from a peer timeout; it is not evidence of bad SPI
+wiring. Transfer size, clock and the paired protocol remain unchanged.
+Session START diagnostics distinguish a validated C5 rejection from a local or
+transport failure. For sniffer START, the bridge additionally reports admission
+state (`suspended`, `alive`, recovery permission) or a failed transport send.
+`ESP_ERR_INVALID_STATE` alone is not a physical-link diagnosis: it also maps the
+peer's BUSY response. A short RX at C5 startup must be correlated with later
+traffic before attributing an application-start failure to it.
 
 - `HELLO` establishes the peer boot/session before application traffic. Only this
   side-effect-free negotiation is automatically retransmitted during resync.
@@ -51,7 +91,12 @@ word-aligned. The 264/2048-byte layouts below describe the inner frames.
   same number and older requests are rejected.
 - `FETCH` asks only for the cached response matching the current sessions and
   transaction. Polling therefore recovers a damaged/lost response without
-  repeating the command or consuming another stream batch.
+  repeating the command or consuming another stream batch. After an invalid
+  long stream read, P4 sends a command-sized FETCH (296 bytes) before the next
+  2080-byte read: C5 has rearmed a 296-byte command RX and rejects oversized
+  transfers before cache lookup. If a delayed response is still armed, this
+  short transfer can truncate it; C5 retains the cache and subsequent FETCH/read
+  cycles recover it without redispatch. The original absolute deadline applies.
 - `RECOVER` asks the P4 to stop clocking for 50 ms and invalidate its session.
   The pause is honored under the bridge mutex, including across calls; a short
   caller deadline fails rather than extending the deadline to finish the pause.
@@ -106,7 +151,11 @@ Validation: `python tools/spi_transport/test_transport.py` executes the producti
 codec, master transport helpers and C5 admission logic with an explicit fake PHY
 and clock, under ASan/UBSan. It covers duplicate requests, late replies, changed
 requests with a reused ID, restarts, counter exhaustion, corruption, bounds,
-response retrieval, bounded negotiation and the recovery pause. The separate
+response retrieval, bounded negotiation and the recovery pause. The fake PHY
+requires exact command RX sizes, including during cache retrieval. Regressions
+cover a corrupt stream response and a delayed response truncated by a short
+FETCH, with both empty and populated batches, and assert no command reexecution
+or second batch consumption. The separate
 `python tools/spi_transport/test_recovery.py` executes the production ownership
 tracker and supervisor against a fake IDF queue, including partial enqueue,
 returned/unknown descriptors, short completion, stuck DMA, deadlines and retained
@@ -806,7 +855,12 @@ Scan results are then pulled item-by-item through the **Generic Data Pipe** (`SP
 To keep the bridge simple, we use a "Dumb Pipe" approach for large data sets (like Scan results):
 1. **Pull Count**: Call `SPI_ID_SYSTEM_DATA` with index `0xFFFF`.
 2. **Pull Item**: Call `SPI_ID_SYSTEM_DATA` with index `0 to N`.
-3. **Real-time Stats**: Call `SPI_ID_SYSTEM_DATA` with index `0xEEEE` to get a `sniffer_stats_t` structure.
+3. **Real-time Stats**: Call `SPI_ID_SYSTEM_DATA` with index `0xEEEE` to get a `sniffer_stats_t` structure. The
+   packed `spi_sniffer_stats_t` tail includes two `uint16_t` lab capture counters
+   (attempted TX calls and failed calls), followed by `uint8_t` remaining hold
+   seconds and last per-AP attempt number. This six-byte extension is identical
+   on P4/C5 and fits the existing payload limit. Use matching applications; TX
+   acceptance does not establish reconnection or handshake completion.
 
 ## Stream Transport (batched)
 
@@ -1172,3 +1226,66 @@ already fetched before removal therefore finishes before native mesh state is
 reset. The barrier refuses self-wait on the stream worker and reports timeout
 without claiming quiescence. MeshCore/Meshtastic stop retain ownership when the
 barrier or C5 transport stop fails. This changes no protocol-v8 wire fields.
+
+The C5 `arm_diag` counters are logged at debug level. They report CS observations
+after hardware setup, not confirmed transfer failures. Invalid transfer lengths
+and transport failures retain their warning/error diagnostics.
+
+## V2.03 remote controls
+
+The negotiated [board control service](../board_control/README.md) owns remote
+amplifier enable, haptic reset and USB `/OE`, with explicit capability checks,
+state reconciliation and a C5 safe-state lease. Driver consumer integration
+continues in the subsequent migration stages.
+
+The V2.03 board-control extension now negotiates revision 2: STATE input bit 1
+reports the latched haptic INTN event. See [AW8623](../aw8623/README.md).
+
+## V2.03 physical recovery
+
+The [P4 supervisor](../bridge_manager/README.md) now coordinates bounded external
+C5 reset with transport exclusion, CS readback and callback draining. Recovery
+creates a fresh transport session and link generation; old session starts and
+stream batches are discarded. It does not change mode, clock, polling, CRC,
+FETCH size or DMA ownership. OTA/programming/shutdown guards and the P4-lifetime
+reset budget are described in the supervisor documentation.
+
+## C5 configuration staging memory
+
+The serialized config-cache receiver allocates its 4097-byte staging buffer in
+PSRAM on the first BEGIN and reuses it thereafter. Allocation failure returns
+`ESP_ERR_NO_MEM` without accepting a transaction; a subsequent BEGIN can retry.
+There is no internal-RAM fallback. Bounds, text termination and credential
+zeroization on completion/rejection are retained. This recovers approximately
+4 KiB of static internal RAM without lowering the CI headroom floor or changing
+DMA buffers, task stacks or `sdkconfig.defaults`.
+
+## P4 SPI allocation-failure cleanup override
+
+`tools/cmake/highboy_spi.cmake` generates an ESP-IDF v6.1 `esp_driver_spi`
+override under `build/components/Drivers/esp_driver_spi`. The upstream component
+and its Apache-2.0 notices are copied from the installed SDK; the SDK is not
+modified. The original `src/gpspi/spi_master.c` SHA-256 is pinned in that CMake
+file and configuration fails if it changes.
+
+The qualified SDK revision is `fff9895c82d744c7237be8847347bdd1b07c6643`.
+
+The sole source patch checks for a non-null temporary RX buffer before copying
+it back in `uninstall_priv_desc`. In the pinned SDK, a failed RX DMA allocation
+otherwise reaches `memcpy` with a null source during `setup_priv_desc` cleanup.
+The patch lets the original allocation error propagate and still frees a TX
+bounce buffer allocated before the failure. It does not cure heap exhaustion.
+
+When upgrading IDF, review the upstream cleanup, remove this override if fixed,
+or requalify the patch and update its source hash. Never edit the generated copy.
+
+Run `python3 tools/spi_transport/test_dma_cleanup.py` after configuring P4
+to test the generated cleanup with allocation failure and successful RX copying.
+
+### Incremental WiFi scan records
+
+`SPI_ID_WIFI_SCAN_STEP_RECORD` returns `spi_wifi_scan_record_t` (42 bytes),
+including raw SSID bytes, BSSID, RSSI, primary channel and authentication mode.
+Both chips must be updated together for this layout. The C5 keeps a bounded
+compact snapshot instead of duplicating 64 SDK-native AP structures in internal
+RAM; the P4 reconstructs its local AP view and sanitizes names for display.

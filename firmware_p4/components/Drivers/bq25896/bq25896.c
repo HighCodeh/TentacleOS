@@ -24,19 +24,24 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "i2c_init.h"
 #include "pin_def.h"
+#include "power_profile.h"
 
 #define I2C_TIMEOUT_MS      100
 #define DRIVER_LOCK_MS      300
+#define POWER_OFF_LOCK_MS   5000
 #define I2C_FAIL_RECOVER    3
 #define BATTERY_MIN_MV      3200
 #define BATTERY_MAX_MV      4200
 #define BQ25896_EXPECTED_PN 0
+#define ADC_POLL_MS         20
+#define ADC_DEADLINE_US     1200000
 
 enum {
   REG00_INPUT = 0x00,
@@ -118,6 +123,7 @@ static uint32_t s_i2c_fail_streak = 0;
 static uint32_t s_i2c_error_count = 0;
 static uint8_t s_otg_voltage_code = OTG_DEFAULT_VOLTAGE_CODE;
 static uint8_t s_otg_current_code = OTG_DEFAULT_CURRENT_CODE;
+static esp_err_t pack_boot_unlocked(void);
 
 static esp_err_t ensure_lock(void) {
   if (s_lock == NULL) {
@@ -161,6 +167,19 @@ static esp_err_t read_reg_unlocked(uint8_t reg, uint8_t *value) {
 }
 
 static esp_err_t write_reg_unlocked(uint8_t reg, uint8_t value) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  /* Only conversion control is permitted. Charge, boost, watchdog and all
+   * other REG02 bits remain unchanged on this board revision. */
+  if (reg != REG02_ADC_CONTROL)
+    return ESP_ERR_NOT_SUPPORTED;
+  uint8_t current = 0;
+  esp_err_t checked = read_reg_unlocked(reg, &current);
+  if (checked != ESP_OK)
+    return checked;
+  if ((current ^ value) & (uint8_t)~(REG02_CONV_START | REG02_CONV_RATE)) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+#endif
   if (s_dev == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -168,6 +187,43 @@ static esp_err_t write_reg_unlocked(uint8_t reg, uint8_t value) {
   esp_err_t ret = i2c_master_transmit(s_dev, packet, sizeof(packet), I2C_TIMEOUT_MS);
   note_i2c_result(ret);
   return ret;
+}
+
+/* TI section 9.2.8: one-shot completion is CONV_START clearing, not the
+ * contents of the ADC result registers. Do not decode reset defaults as volts.
+ * The driver mutex serializes conversion + result capture; I2C bus transfers
+ * remain individually bounded and the bus is free between polls. */
+static esp_err_t convert_once_unlocked(void) {
+  uint8_t control = 0;
+  esp_err_t err = read_reg_unlocked(REG02_ADC_CONTROL, &control);
+  if (err != ESP_OK)
+    return err;
+  /* Stop any previously retained continuous conversion first. */
+  control &= (uint8_t)~(REG02_CONV_START | REG02_CONV_RATE);
+  err = write_reg_unlocked(REG02_ADC_CONTROL, control);
+  if (err == ESP_OK) {
+    err = write_reg_unlocked(REG02_ADC_CONTROL, control | REG02_CONV_START);
+  }
+  if (err != ESP_OK)
+    return err;
+  err = read_reg_unlocked(REG02_ADC_CONTROL, &control);
+  if (err != ESP_OK)
+    return err;
+  if (!(control & REG02_CONV_START) || (control & REG02_CONV_RATE)) {
+    return ESP_ERR_INVALID_RESPONSE;
+  }
+  int64_t deadline = esp_timer_get_time() + ADC_DEADLINE_US;
+  while (esp_timer_get_time() < deadline) {
+    vTaskDelay(pdMS_TO_TICKS(ADC_POLL_MS));
+    err = read_reg_unlocked(REG02_ADC_CONTROL, &control);
+    if (err != ESP_OK)
+      return err;
+    if (control & REG02_CONV_RATE)
+      return ESP_ERR_INVALID_RESPONSE;
+    if (!(control & REG02_CONV_START))
+      return ESP_OK;
+  }
+  return ESP_ERR_TIMEOUT;
 }
 
 static esp_err_t update_reg_unlocked(uint8_t reg, uint8_t mask, uint8_t value) {
@@ -310,6 +366,15 @@ esp_err_t bq25896_init(void) {
     return ESP_ERR_NOT_FOUND;
   }
 
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  ret = pack_boot_unlocked();
+  s_present = ret == ESP_OK;
+  unlock_driver();
+  ESP_LOGW(
+      TAG, "V2.03 pack boot: charge OFF, <=384mA/4176mV, HIZ cleared: %s", esp_err_to_name(ret));
+  return ret;
+#endif
+
   /* Like Flipper, reset retained charger state after an MCU-only reboot. */
   ret = write_reg_unlocked(REG14_PART_INFO, REG14_REG_RESET);
   if (ret == ESP_OK) {
@@ -350,6 +415,9 @@ bool bq25896_is_present(void) {
 }
 
 esp_err_t bq25896_reapply_runtime_config(void) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  return ESP_ERR_NOT_SUPPORTED;
+#else
   esp_err_t ret = configure_otg_pin_low();
   if (ret != ESP_OK) {
     return ret;
@@ -360,6 +428,7 @@ esp_err_t bq25896_reapply_runtime_config(void) {
     unlock_driver();
   }
   return ret;
+#endif
 }
 
 esp_err_t bq25896_read_register(uint8_t reg, uint8_t *value) {
@@ -387,16 +456,156 @@ esp_err_t bq25896_dump_registers(uint8_t regs[BQ25896_REGISTER_COUNT]) {
   return ret;
 }
 
+#define PACK_604858_CURRENT_CODE 6U
+#define PACK_604858_VOLTAGE_CODE 21U
+#define PACK_604858_MIN_MV       3200U
+#define PACK_604858_MAX_MV       4200U
+#define PACK_604858_TS_MIN       50000U
+#define PACK_604858_TS_MAX       65000U
+#define REG05_TERM_MASK          0x0F
+#define REG07_EN_TERM            0x80
+#define REG07_EN_TIMER           0x08
+
+/* Checked masked writes for dedicated charge and shutdown operations. */
+static esp_err_t pack_write_unlocked(uint8_t reg, uint8_t mask, uint8_t value) {
+  uint8_t current = 0, checked = 0;
+  esp_err_t result = read_reg_unlocked(reg, &current);
+  if (result != ESP_OK)
+    return result;
+  uint8_t updated = (current & (uint8_t)~mask) | (value & mask);
+  if (current == updated)
+    return ESP_OK;
+  uint8_t packet[] = {reg, updated};
+  result = i2c_master_transmit(s_dev, packet, sizeof(packet), I2C_TIMEOUT_MS);
+  note_i2c_result(result);
+  if (result == ESP_OK)
+    result = read_reg_unlocked(reg, &checked);
+  if (result == ESP_OK && ((updated ^ checked) & mask))
+    result = ESP_ERR_INVALID_RESPONSE;
+  return result;
+}
+
+static esp_err_t pack_limits_unlocked(const uint8_t *regs) {
+  if ((regs[REG07_TIMER_CONTROL] & (REG07_EN_TERM | REG07_EN_TIMER)) !=
+      (REG07_EN_TERM | REG07_EN_TIMER))
+    return ESP_ERR_INVALID_STATE;
+  if (regs[REG03_POWER_CONTROL] & REG03_OTG_CONFIG)
+    return ESP_ERR_INVALID_STATE;
+  uint8_t current_code = regs[REG04_CHARGE_CURRENT] & REG04_ICHG_MASK;
+  uint8_t voltage_code = (regs[REG06_CHARGE_VOLTAGE] & REG06_VREG_MASK) >> 2;
+  if (current_code > PACK_604858_CURRENT_CODE)
+    current_code = PACK_604858_CURRENT_CODE;
+  if (voltage_code > PACK_604858_VOLTAGE_CODE)
+    voltage_code = PACK_604858_VOLTAGE_CODE;
+  /* A watchdog expiry would undo these limits. Keep the charge safety timer. */
+  esp_err_t result = pack_write_unlocked(REG07_TIMER_CONTROL, REG07_WATCHDOG_MASK, 0);
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG04_CHARGE_CURRENT, REG04_ICHG_MASK, current_code);
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG06_CHARGE_VOLTAGE, REG06_VREG_MASK, voltage_code << 2);
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG05_PRE_TERM_CURRENT, REG05_TERM_MASK, 0);
+  if (result == ESP_OK) {
+    uint8_t fault = 0;
+    result = read_reg_unlocked(REG0C_FAULT, &fault);
+    if (result == ESP_OK)
+      result = read_reg_unlocked(REG0C_FAULT, &fault);
+    if (result == ESP_OK && fault)
+      result = ESP_ERR_INVALID_STATE;
+  }
+  if (result == ESP_OK) {
+    result = pack_write_unlocked(
+        REG03_POWER_CONTROL, REG03_CHG_CONFIG, regs[REG03_POWER_CONTROL] & REG03_CHG_CONFIG);
+  }
+  if (result != ESP_OK) {
+    esp_err_t stopped = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+    if (stopped != ESP_OK)
+      ESP_LOGE(TAG, "Pack profile failed and charge stop unconfirmed");
+  }
+  return result;
+}
+
+esp_err_t bq25896_limit_confirmed_604858(void) {
+#ifndef CONFIG_HIGHBOY_BOARD_V203
+  return ESP_ERR_NOT_SUPPORTED;
+#else
+  bq25896_telem_t telemetry;
+  esp_err_t result = bq25896_read_telemetry(&telemetry);
+  if (result != ESP_OK)
+    return result;
+  if (!telemetry.adc_valid || !telemetry.power_good || telemetry.fault_live ||
+      telemetry.vbat_mv < PACK_604858_MIN_MV || telemetry.vbat_mv > PACK_604858_MAX_MV ||
+      telemetry.ts_milli_pct < PACK_604858_TS_MIN || telemetry.ts_milli_pct > PACK_604858_TS_MAX)
+    return ESP_ERR_INVALID_STATE;
+  result = lock_driver();
+  if (result != ESP_OK)
+    return result;
+  uint8_t regs[BQ25896_REGISTER_COUNT], latched;
+  result = read_all_unlocked(regs, &latched);
+  if (result == ESP_OK)
+    result = pack_limits_unlocked(regs);
+  unlock_driver();
+  ESP_LOGW(TAG,
+           "604858 charge limits: <=384mA, <=4176mV, termination64mA; board TS is not cell "
+           "temperature: %s",
+           esp_err_to_name(result));
+  return result;
+#endif
+}
+
+esp_err_t bq25896_stop_charge(void) {
+  esp_err_t result = lock_driver();
+  if (result != ESP_OK)
+    return result;
+  result = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+  esp_err_t watchdog = pack_write_unlocked(REG07_TIMER_CONTROL, REG07_WATCHDOG_MASK, 0);
+  if (result == ESP_OK)
+    result = watchdog;
+  unlock_driver();
+  return result;
+}
+
+static esp_err_t pack_boot_unlocked(void) {
+  uint8_t regs[BQ25896_REGISTER_COUNT], latched;
+  esp_err_t result =
+      pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG | REG03_OTG_CONFIG, 0);
+  if (result == ESP_OK)
+    result = read_all_unlocked(regs, &latched);
+  if (result == ESP_OK)
+    result = pack_limits_unlocked(regs);
+  /* Keep USB input available when the guarded charge service starts. */
+  esp_err_t restored = pack_write_unlocked(REG00_INPUT, REG00_EN_HIZ, 0);
+  if (result == ESP_OK)
+    result = restored;
+  if (result != ESP_OK)
+    (void)pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+  return result;
+}
+
+static bool pack_sample_usable(const bq25896_telem_t *sample) {
+  return sample->adc_valid && sample->power_good && !sample->fault_live &&
+         sample->vbat_mv >= PACK_604858_MIN_MV && sample->vbat_mv <= PACK_604858_MAX_MV &&
+         sample->ts_milli_pct >= PACK_604858_TS_MIN && sample->ts_milli_pct <= PACK_604858_TS_MAX &&
+         sample->charge_current_limit_ma <= 384 && sample->charge_voltage_limit_mv <= 4176 &&
+         sample->ichg_ma <= 500 && !sample->otg_enabled;
+}
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   if (out == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
 
+  memset(out, 0, sizeof(*out));
   uint8_t regs[BQ25896_REGISTER_COUNT] = {0};
   uint8_t fault_latched = 0;
   esp_err_t ret = lock_driver();
   if (ret == ESP_OK) {
-    ret = read_all_unlocked(regs, &fault_latched);
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+    ret = convert_once_unlocked();
+#endif
+    if (ret == ESP_OK)
+      ret = read_all_unlocked(regs, &fault_latched);
     unlock_driver();
   }
   if (ret != ESP_OK) {
@@ -461,6 +670,14 @@ esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   /* CONV_START self-clears; CONV_RATE is the persistent continuous-mode
    * indicator. */
   out->adc_continuous = (regs[REG02_ADC_CONTROL] & REG02_CONV_RATE) != 0;
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  /* A watchdog/reset during conversion invalidates the transaction. */
+  out->adc_valid = (fault_live & FAULT_WATCHDOG) == 0;
+  if (!out->adc_valid)
+    return ESP_ERR_INVALID_STATE;
+#else
+  out->adc_valid = out->adc_continuous;
+#endif
   out->ico_enabled = (regs[REG02_ADC_CONTROL] & REG02_ICO_EN) != 0;
   out->ico_optimized = (regs[REG14_PART_INFO] & REG14_ICO_OPTIMIZED) != 0;
   out->thermal_regulation = (regs[REG0E_BATTERY_ADC] & REG0E_THERM_STAT) != 0;
@@ -505,11 +722,16 @@ int bq25896_get_battery_percentage(uint16_t voltage_mv) {
 }
 
 uint16_t bq25896_get_battery_voltage(void) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  bq25896_telem_t telemetry;
+  return bq25896_read_telemetry(&telemetry) == ESP_OK ? telemetry.vbat_mv : 0;
+#else
   uint8_t value = 0;
   if (bq25896_read_register(REG0E_BATTERY_ADC, &value) != ESP_OK) {
     return 0;
   }
   return 2304 + (uint16_t)(value & 0x7F) * 20;
+#endif
 }
 
 uint8_t bq25896_get_fault(void) {
@@ -533,12 +755,32 @@ bool bq25896_get_charge_enable(void) {
 }
 
 esp_err_t bq25896_set_charge_enable(bool enable) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  if (!enable)
+    return bq25896_stop_charge();
+  esp_err_t result = bq25896_limit_confirmed_604858();
+  bq25896_telem_t sample;
+  if (result == ESP_OK)
+    result = bq25896_read_telemetry(&sample);
+  if (result == ESP_OK && !pack_sample_usable(&sample))
+    result = ESP_ERR_INVALID_STATE;
+  if (result == ESP_OK)
+    result = lock_driver();
+  if (result == ESP_OK) {
+    result = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, REG03_CHG_CONFIG);
+    unlock_driver();
+  }
+  if (result != ESP_OK)
+    (void)bq25896_stop_charge();
+  return result;
+#else
   esp_err_t ret = lock_driver();
   if (ret == ESP_OK) {
     ret = update_reg_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, enable ? REG03_CHG_CONFIG : 0);
     unlock_driver();
   }
   return ret;
+#endif
 }
 
 esp_err_t bq25896_set_input_current_limit(uint16_t requested_ma, uint16_t *actual_ma) {
@@ -557,6 +799,9 @@ esp_err_t bq25896_set_input_current_limit(uint16_t requested_ma, uint16_t *actua
 }
 
 esp_err_t bq25896_set_charge_current_limit(uint16_t requested_ma, uint16_t *actual_ma) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  requested_ma = power_profile_charge_current_ma(requested_ma);
+#endif
   uint16_t clamped = requested_ma > 3008 ? 3008 : requested_ma;
   uint8_t code = (uint8_t)(clamped / 64);
   uint16_t actual = (uint16_t)code * 64;
@@ -572,6 +817,12 @@ esp_err_t bq25896_set_charge_current_limit(uint16_t requested_ma, uint16_t *actu
 }
 
 esp_err_t bq25896_set_charge_voltage_limit(uint16_t requested_mv, uint16_t *actual_mv) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  requested_mv = power_profile_charge_voltage_mv(requested_mv);
+  if (requested_mv == 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+#endif
   /* Match Flipper's single-cell safety ceiling even though silicon allows more.
    */
   uint16_t clamped = requested_mv < 3840 ? 3840 : (requested_mv > 4208 ? 4208 : requested_mv);
@@ -623,6 +874,11 @@ esp_err_t bq25896_set_otg_profile(uint16_t requested_mv,
 }
 
 esp_err_t bq25896_set_otg_enable(bool enable) {
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  if (enable) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+#endif
   esp_err_t ret = lock_driver();
   if (ret != ESP_OK) {
     return ret;
@@ -685,15 +941,27 @@ bool bq25896_get_otg_enable(void) {
 }
 
 esp_err_t bq25896_power_off(void) {
-  esp_err_t ret = lock_driver();
-  if (ret != ESP_OK) {
+  esp_err_t ret = ensure_lock();
+  if (ret != ESP_OK)
     return ret;
+  // A one-shot telemetry transaction can outlast the ordinary driver lock timeout.
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(POWER_OFF_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+
+  ret = pack_write_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
+  if (ret == ESP_OK)
+    ret = gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
+  uint8_t control = 0;
+  if (ret == ESP_OK)
+    ret = read_reg_unlocked(REG09_MISC_CONTROL, &control);
+  if (ret == ESP_OK) {
+    // TI 9.2.10 / REG09: the delayed cut is the final command, after checked preparation.
+    const uint8_t mask = REG09_BATFET_DIS | REG09_BATFET_DLY | REG09_BATFET_RST_EN;
+    uint8_t packet[] = {REG09_MISC_CONTROL,
+                        (control & (uint8_t)~mask) | REG09_BATFET_DIS | REG09_BATFET_DLY};
+    ret = i2c_master_transmit(s_dev, packet, sizeof(packet), I2C_TIMEOUT_MS);
+    note_i2c_result(ret);
   }
-  (void)update_reg_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
-  (void)gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
-  ret = update_reg_unlocked(REG09_MISC_CONTROL,
-                            REG09_BATFET_DIS | REG09_BATFET_DLY | REG09_BATFET_RST_EN,
-                            REG09_BATFET_DIS | REG09_BATFET_DLY);
   unlock_driver();
   if (ret == ESP_OK) {
     ESP_LOGW(TAG, "ship mode requested; power falls when external VBUS is removed");

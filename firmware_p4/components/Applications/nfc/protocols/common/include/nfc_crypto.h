@@ -181,8 +181,9 @@ int nfc_mac_verify(const nfc_mac_input_t *in, const uint8_t *mac_rx, size_t mac_
  * @param rnd_b    Random challenge B (16 bytes).
  * @param[out] ses_mac  Derived 16-byte session MAC key.
  * @param[out] ses_enc  Derived 16-byte session encryption key.
+ * @return true on success; false on invalid input or crypto failure (outputs cleared).
  */
-void nfc_ev2_derive_session_keys(const uint8_t *kx,
+bool nfc_ev2_derive_session_keys(const uint8_t *kx,
                                  const uint8_t *rnd_a,
                                  const uint8_t *rnd_b,
                                  uint8_t *ses_mac,
@@ -229,8 +230,9 @@ int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
  * @param ti        Transaction identifier (4 bytes).
  * @param cmd_ctr   Command counter value.
  * @param[out] iv_out   Computed 16-byte IV.
+ * @return true on success; false on invalid input or crypto failure (outputs cleared).
  */
-void nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],
+bool nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],
                           const uint8_t ti[4],
                           uint16_t cmd_ctr,
                           uint8_t iv_out[16]);
@@ -242,8 +244,9 @@ void nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],
  * @param ti            Transaction identifier (4 bytes).
  * @param cmd_ctr_next  Command counter value after increment.
  * @param[out] iv_out       Computed 16-byte IV.
+ * @return true on success; false on invalid input or crypto failure (outputs cleared).
  */
-void nfc_ev2_build_iv_resp(const uint8_t ses_enc[16],
+bool nfc_ev2_build_iv_resp(const uint8_t ses_enc[16],
                            const uint8_t ti[4],
                            uint16_t cmd_ctr_next,
                            uint8_t iv_out[16]);

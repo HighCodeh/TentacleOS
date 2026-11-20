@@ -1086,3 +1086,9 @@ integration/recovery_candidates/
 
 # Preserve the upstream Lua source inventory, including its hand-maintained Makefile.
 !firmware_p4/components/Service/script_engine/lua/src/Makefile
+
+# Local integration history, device backups and generated review artifacts.
+/integration/
+
+# Personal PC Monitor pairing key.
+/.highboy-pc-monitor.psk

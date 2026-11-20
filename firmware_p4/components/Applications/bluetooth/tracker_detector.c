@@ -34,14 +34,14 @@ static tracker_detector_record_t s_empty_record;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 
 bool tracker_detector_start(void) {
-  ESP_LOGI(TAG, "Tracker detector started");
+  ESP_LOGD(TAG, "Tracker detector started");
   tracker_detector_clear_results();
   s_session_id = spi_session_start(SPI_ID_BT_APP_TRACKER, NULL, 0, NULL, NULL);
   return s_session_id != SPI_SESSION_INVALID_ID;
 }
 
 void tracker_detector_stop(void) {
-  ESP_LOGI(TAG, "Tracker detector stopped");
+  ESP_LOGD(TAG, "Tracker detector stopped");
   if (s_session_id != SPI_SESSION_INVALID_ID) {
     spi_session_stop(s_session_id);
     s_session_id = SPI_SESSION_INVALID_ID;

@@ -56,12 +56,22 @@ Bus lifecycle:
 - `sx1262_hal_create()` calls `spi_bus_initialize(SPI3_HOST, ...)`. If the bus is **already initialized** by another driver (the ST7789 display, via the kernel `spi_init`), the returned `ESP_ERR_INVALID_STATE` is treated as success - the SX1262 simply adds itself as a second device.
 - `sx1262_hal_destroy()` removes only the SX1262 device and deletes the device mutex. **It never frees the SPI3 bus**, because the display still needs it. `sx1262_deinit()` -> `sx1262_hal_destroy()` therefore leaves the display fully functional.
 
+On P4 with PSRAM BSS enabled, the HAL stages transfers in two 64-byte-aligned
+PSRAM arrays under the same transaction lock and requests `SPI_TRANS_DMA_USE_PSRAM`.
+IDF cache-alignment bounce allocations therefore use PSRAM instead of the small
+internal DMA heap shared with the display. The SPI clock count remains exactly
+`len * 8`; commands are never padded on the wire. Accepted lengths are 1..264
+bytes, and RX is copied to the caller only after successful transfer. Other
+ports retain their original buffer route. The host regression
+`tools/highboy/tests/test_lora_dma.py` checks lengths, bounds and copy semantics;
+it does not replace simultaneous radio/display acceptance on a physical P4.
+
 ## RX Robustness / Hardening
 
 The RX path is hardened against errored packets and a flaky/contended SPI3 bus:
 
-- **Retry bring-up until STDBY_RC.** `sx1262_init()` runs `sx1262_hw_bringup()` up to `SX1262_INIT_MAX_ATTEMPTS` (3) times. Bring-up performs reset -> standby -> DCDC regulator -> full calibration -> image calibration -> workarounds -> LoRa config, then reads the chip status and **only succeeds if the chip actually landed in STDBY_RC** (`chip_mode == STDBY_RC`). Any device error reported after calibration also fails the attempt, triggering a retry.
-- **IRQ-task self-recovery.** The IRQ task (`irq_task`) counts consecutive `sx1262_irq_process()` failures; after `SX1262_IRQ_FAIL_RECOVER` (5) in a row it calls `sx1262_recover()`, which does a hardware reset + full reconfigure (`sx1262_hw_bringup`) and resumes continuous RX. A single success resets the streak.
+- **Retry bring-up until STDBY_RC.** `sx1262_init()` runs `sx1262_hw_bringup()` up to `SX1262_INIT_MAX_ATTEMPTS` (3) times. Bring-up performs reset hook -> standby -> LDO regulator -> POR calibration baseline -> workarounds -> LoRa config, then reads the chip status and **only succeeds if the chip actually landed in STDBY_RC** (`chip_mode == STDBY_RC`). Any device error reported during bring-up also fails the attempt, triggering a retry.
+- **IRQ-task self-recovery.** The IRQ task (`irq_task`) counts consecutive `sx1262_irq_process()` failures; after `SX1262_IRQ_FAIL_RECOVER` (5) in a row it calls `sx1262_recover()`, which does the board reset hook + reconfigure (`sx1262_hw_bringup`); V2.03 has no wired reset, so this cannot recover a wedged chip and resumes continuous RX. A single success resets the streak.
 - **Errored packets do not read the FIFO.** In `read_rx_packet()`, if the RxDone IRQ arrives with CRC-error or header-error flags set, the payload buffer is **not** read (`len = 0`), avoiding acting on corrupt FIFO contents. RSSI/SNR and the `has_crc_error` / `has_header_error` flags are still populated so the caller can observe the failure. Standalone CRC/header errors (no RxDone) are surfaced through the `on_error` callback.
 - **Demoted RX-error hot-path logs.** RxDone, CRC error, header error, timeout, CAD, and ring-buffer-full messages log at `ESP_LOGD` (debug), not error/warning. This keeps the hot path quiet under noisy conditions instead of flooding the console on every errored packet.
 - **Bounded RX ring buffer.** Received packets are pushed into a fixed ring of `SX1262_RX_RING_SIZE` (8) entries; a full ring drops the newest packet (debug log). Ring access is guarded by the HAL critical section, so `sx1262_get_packet()` is safe against the IRQ task.
@@ -226,3 +236,7 @@ These software acknowledgements do not replace electrical acceptance.
 The IDF v6.1 build declares its GPIO/SPI driver dependencies explicitly.
 Optional disconnected GPIOs contribute a zero mask before any bit shift,
 retaining the board pin mapping while avoiding GCC 15 negative-shift diagnostics.
+
+The LoRa configuration accepts an optional exact `sync_word`. Zero retains the
+private/public selector. Meshtastic uses 0x24B4; the generic private value 0x1424
+is not the Meshtastic network identifier. See the [native mesh integration](../LoRa/README.md).

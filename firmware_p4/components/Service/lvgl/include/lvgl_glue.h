@@ -1,5 +1,20 @@
 // Copyright (c) 2025 HIGH CODE LLC
 //
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+// Copyright (c) 2025 HIGH CODE LLC
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -69,11 +84,11 @@ void lvgl_glue_unlock(void);
  * The ST7789 SPI is async: draw_bitmap queues the transfer and returns, so
  * reusing a single blit buffer for the next strip while the previous strip's DMA
  * is still reading it corrupts the image (horizontal noise). Between _begin() and
- * _end(), the shared color-transfer-done ISR raises a semaphore instead of
- * signalling LVGL's flush-ready; the app calls lvgl_glue_wait_flush() after each
- * draw to block until that strip's DMA has finished, making single-buffer reuse
- * safe. Call _begin() right after taking the LVGL lock and _end() before
- * releasing it. Outside this window the ISR drives LVGL exactly as before.
+ * _end(), the color-transfer-done ISR signals the direct-draw semaphore.
+ * The app calls lvgl_glue_wait_flush() after each draw before reusing its buffer.
+ * Call _begin() right after taking the LVGL lock and _end() before releasing it.
+ * A pending LVGL strip completes through its separate semaphore even during
+ * takeover; LVGL consumes that completion on its render task.
  */
 void lvgl_glue_direct_begin(void);
 void lvgl_glue_direct_end(void);

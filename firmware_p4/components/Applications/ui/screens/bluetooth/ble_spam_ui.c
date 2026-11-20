@@ -14,10 +14,12 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_spam_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "lvgl.h"
 #include "st7789.h"
@@ -29,6 +31,7 @@
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
+#include "menu_component_ui.h"
 #include "ui_theme.h"
 
 static const char *TAG = "BLE_SPAM_UI";
@@ -36,25 +39,19 @@ static const char *TAG = "BLE_SPAM_UI";
 #define RUN_TICK_MS 250
 #define SPAM_ICON   "/assets/icons/broadcast_on_personal.bin"
 
-#define SPAM_GRID_PAD      8
-#define SPAM_GRID_GAP      6
-#define SPAM_CARD_W        109
+#define SPAM_GRID_PAD       8
+#define SPAM_GRID_GAP       6
+#define SPAM_GRID_GUTTER    16
+#define SPAM_GRID_COLS_TALL 2
+#define SPAM_GRID_COLS_WIDE 3
+#define SPAM_CARD_W                                                                             \
+  ((ui_screen_w() - SPAM_GRID_GUTTER - 2 * SPAM_GRID_PAD - (s_grid_cols - 1) * SPAM_GRID_GAP) / \
+   s_grid_cols)
 #define SPAM_CARD_H        76
 #define SPAM_CARD_PAD      6
 #define SPAM_CARD_ROW_GAP  3
 #define SPAM_CARD_GLOW_ON  22
 #define SPAM_CARD_GLOW_OFF 16
-#define SPAM_EDIT_ICON_HEX 0xB89AFF
-
-static const uint32_t SPAM_ECO_COLOR[] = {
-    0xE0E0E0,
-    0xFF8A5B,
-    0x4CBDD6,
-    0x54D08A,
-    0x54D08A,
-    0xFFC24C,
-};
-#define SPAM_ECO_COLOR_COUNT (sizeof(SPAM_ECO_COLOR) / sizeof(SPAM_ECO_COLOR[0]))
 
 #define SPAM_MAX_ATTACKS 12
 #define SPAM_CARD_MAX    (SPAM_MAX_ATTACKS + 1)
@@ -90,11 +87,13 @@ static lv_obj_t *s_select_screen = NULL;
 static lv_obj_t *s_spam_cards[SPAM_CARD_MAX];
 static int s_card_count = 0;
 static int s_sel_idx = 0;
+static int s_grid_cols = SPAM_GRID_COLS_TALL;
+static lv_obj_t *s_select_footer;
+EXT_RAM_BSS_ATTR static menu_component_t s_grid_scroll;
 
 static void ble_spam_select_input(const input_event_t *ev, void *ctx);
 
-static lv_obj_t *build_spam_card(
-    lv_obj_t *parent, const char *eco, uint32_t eco_hex, const char *title, const char *effect) {
+static lv_obj_t *build_spam_card(lv_obj_t *parent, const char *title, bool is_custom) {
   lv_obj_t *c = lit_panel(parent, SPAM_CARD_W, SPAM_CARD_H);
   lv_obj_set_style_pad_all(c, SPAM_CARD_PAD, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -102,19 +101,20 @@ static lv_obj_t *build_spam_card(
   lv_obj_set_style_pad_row(c, SPAM_CARD_ROW_GAP, 0);
 
   lv_obj_t *e = lv_label_create(c);
-  lv_label_set_text(e, eco);
+  lv_label_set_text(e, is_custom ? "EDIT" : "BLE");
   lv_obj_set_style_text_font(e, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(e, lv_color_hex(eco_hex), 0);
+  lv_obj_set_style_text_color(e, current_theme.border_accent, 0);
 
   lv_obj_t *t = lv_label_create(c);
   lv_obj_set_width(t, SPAM_CARD_W - 2 * SPAM_CARD_PAD);
   lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
   lv_label_set_text(t, title);
   lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
+  lv_obj_set_height(t, lv_font_get_line_height(&lv_font_montserrat_14));
   lv_obj_set_style_text_color(t, current_theme.text_main, 0);
 
   lv_obj_t *d = lv_label_create(c);
-  lv_label_set_text(d, effect);
+  lv_label_set_text(d, is_custom ? "your list" : "advertise");
   lv_obj_set_style_text_font(d, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(d, current_theme.text_secondary, 0);
   return c;
@@ -127,11 +127,19 @@ static void select_card(int idx) {
     if (s_spam_cards[i] == NULL)
       continue;
     bool on = (i == idx);
+    lv_label_set_long_mode(lv_obj_get_child(s_spam_cards[i], 1),
+                           on ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
     lv_obj_set_style_border_width(s_spam_cards[i], on ? 2 : 1, 0);
     lv_obj_set_style_shadow_width(s_spam_cards[i], on ? SPAM_CARD_GLOW_ON : SPAM_CARD_GLOW_OFF, 0);
     lv_obj_set_style_shadow_opa(s_spam_cards[i], on ? LV_OPA_70 : LV_OPA_30, 0);
   }
   s_sel_idx = idx;
+  menu_component_scroll_to_item(&s_grid_scroll, s_spam_cards[idx]);
+  ui_chrome_footer_set_text(
+      s_select_footer,
+      idx == s_custom_idx
+          ? LV_SYMBOL_UP LV_SYMBOL_DOWN LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Move  OK Edit  BACK"
+          : LV_SYMBOL_UP LV_SYMBOL_DOWN LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Move  OK Start  BACK");
 }
 
 void ui_ble_spam_select_open(void) {
@@ -157,12 +165,15 @@ void ui_ble_spam_select_open(void) {
   lv_obj_set_style_pad_all(s_select_screen, 0, 0);
 
   ui_chrome_header(s_select_screen, "DEVICE SPAM", SPAM_ICON);
-  ui_chrome_footer(s_select_screen, "OK Start   BACK Back");
+  s_select_footer = ui_chrome_footer(s_select_screen, "");
+  s_grid_cols = ui_screen_w() > ui_screen_h() ? SPAM_GRID_COLS_WIDE : SPAM_GRID_COLS_TALL;
 
   lv_obj_t *grid = lv_obj_create(s_select_screen);
-  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grid, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
-  lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_scroll_dir(grid, LV_DIR_VER);
+  lv_obj_set_size(grid,
+                  ui_screen_w() - SPAM_GRID_GUTTER,
+                  ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(grid, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
   lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(grid, 0, 0);
   lv_obj_set_style_pad_all(grid, SPAM_GRID_PAD, 0);
@@ -174,19 +185,19 @@ void ui_ble_spam_select_open(void) {
   for (int i = 0; i < s_attack_count; i++) {
     const canned_spam_type_t *t = spam_get_attack_type(i);
     const char *name = (t != NULL && t->name != NULL) ? t->name : "Attack";
-    uint32_t color = SPAM_ECO_COLOR[i % SPAM_ECO_COLOR_COUNT];
-    s_spam_cards[i] = build_spam_card(grid, "BLE", color, name, "advertise");
+    s_spam_cards[i] = build_spam_card(grid, name, false);
   }
-  s_spam_cards[s_custom_idx] =
-      build_spam_card(grid, "EDIT", SPAM_EDIT_ICON_HEX, "Custom Names", "your list");
+  s_spam_cards[s_custom_idx] = build_spam_card(grid, "Custom Names", true);
 
-  s_sel_idx = 0;
-  select_card(0);
+  menu_component_attach_scroll(&s_grid_scroll, s_select_screen, grid);
+  if (s_sel_idx >= s_card_count)
+    s_sel_idx = 0;
+  select_card(s_sel_idx);
 
   ui_input_set_screen_handler(ble_spam_select_input, NULL);
 
   ui_screen_load_owned(&s_select_screen, s_select_screen);
-  fade_in(grid, 240);
+  fade_in(grid, UI_CONTENT_FADE_MS);
 }
 
 static void ble_spam_select_input(const input_event_t *ev, void *ctx) {
@@ -196,13 +207,24 @@ static void ble_spam_select_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_DOWN:
       if (nav) {
-        select_card((s_sel_idx + 1) % s_card_count);
+        select_card(s_sel_idx + s_grid_cols < s_card_count ? s_sel_idx + s_grid_cols
+                                                           : s_sel_idx % s_grid_cols);
         ui_feedback(UI_FB_NAV);
       }
       break;
     case INPUT_BTN_UP:
       if (nav) {
-        select_card((s_sel_idx - 1 + s_card_count) % s_card_count);
+        int last = ((s_card_count - 1) / s_grid_cols) * s_grid_cols + s_sel_idx % s_grid_cols;
+        select_card(s_sel_idx >= s_grid_cols ? s_sel_idx - s_grid_cols
+                                             : (last < s_card_count ? last : s_card_count - 1));
+        ui_feedback(UI_FB_NAV);
+      }
+      break;
+    case INPUT_BTN_LEFT:
+    case INPUT_BTN_RIGHT:
+      if (nav) {
+        select_card((s_sel_idx + (ev->button == INPUT_BTN_RIGHT ? 1 : s_card_count - 1)) %
+                    s_card_count);
         ui_feedback(UI_FB_NAV);
       }
       break;
@@ -240,7 +262,7 @@ static bool s_is_run_active = false;
 static void ble_spam_run_input(const input_event_t *ev, void *ctx);
 static void run_spam_tick_cb(lv_timer_t *timer);
 
-static void run_stop(void) {
+void ui_ble_spam_stop(void) {
   if (s_run_spam_timer != NULL) {
     lv_timer_delete(s_run_spam_timer);
     s_run_spam_timer = NULL;
@@ -249,6 +271,8 @@ static void run_stop(void) {
     spam_stop();
     s_is_run_active = false;
   }
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 void ui_ble_spam_open(void) {
@@ -320,9 +344,9 @@ void ui_ble_spam_open(void) {
     ESP_LOGE(TAG, "spam_start(%d) failed: %s", s_spam_mode, esp_err_to_name(err));
   }
 
-  fade_in(status, 200);
-  fade_in(mode, 240);
-  fade_in(card, 280);
+  fade_in(status, UI_CONTENT_FADE_MS);
+  fade_in(mode, UI_CONTENT_FADE_MS);
+  fade_in(card, UI_CONTENT_FADE_MS);
   fade_in(s_run_intensity.obj, 320);
   fade_in(s_run_rate_label, 340);
 
@@ -337,7 +361,7 @@ void ui_ble_spam_open(void) {
 
 static void run_spam_tick_cb(lv_timer_t *timer) {
   if (lv_screen_active() != s_run_screen) {
-    run_stop();
+    ui_ble_spam_stop();
     return;
   }
   if (s_run_count_label == NULL)
@@ -352,7 +376,7 @@ static void ble_spam_run_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        run_stop();
+        ui_ble_spam_stop();
         ui_switch_screen(SCREEN_BLE_SPAM_SELECT);
       }
       break;

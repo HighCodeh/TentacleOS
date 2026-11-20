@@ -29,10 +29,11 @@
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 #include "waves_ui.h"
 
-#include "ap_scanner.h"
+#include "wifi_live_scan_ui.h"
 #include "beacon_spam.h"
 #include "wifi_deauther.h"
 #include "wifi_flood.h"
@@ -107,6 +108,7 @@ static view_t s_view = VIEW_LIST;
 static int s_attack_idx = 0;
 
 static int s_ap_count = 0;
+static uint16_t s_ap_page;
 static pick_ap_t s_aps[AP_PICK_MAX];
 static bool s_is_pick_scanning = false;
 
@@ -172,8 +174,8 @@ static void build_list_view(void) {
   for (size_t i = 0; i < ATTACKS_COUNT; i++)
     menu_component_add_item(&s_menu, ATTACK_ICONS[i], ATTACKS[i].name);
 
-  fade_in(s_menu.title_bar, 200);
-  fade_in(s_menu.items_cont, 200);
+  fade_in(s_menu.title_bar, UI_CONTENT_FADE_MS);
+  fade_in(s_menu.items_cont, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_LIST;
 }
@@ -215,8 +217,8 @@ static void build_pick_list(void) {
   }
   menu_component_set_hint(&s_menu, "OK target   BACK exit");
 
-  fade_in(s_menu.title_bar, 200);
-  fade_in(s_menu.items_cont, 200);
+  fade_in(s_menu.title_bar, UI_CONTENT_FADE_MS);
+  fade_in(s_menu.items_cont, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_PICK_LIST;
 }
@@ -256,10 +258,10 @@ static void build_running_view(void) {
 
   ui_chrome_footer(s_screen, "BACK to stop");
 
-  fade_in(header, 200);
-  fade_in(status_label, 200);
-  fade_in(target_label, 200);
-  fade_in(s_elapsed_label, 200);
+  fade_in(header, UI_CONTENT_FADE_MS);
+  fade_in(status_label, UI_CONTENT_FADE_MS);
+  fade_in(target_label, UI_CONTENT_FADE_MS);
+  fade_in(s_elapsed_label, UI_CONTENT_FADE_MS);
 
   s_view = VIEW_RUNNING;
   s_start_tick = lv_tick_get();
@@ -397,7 +399,7 @@ static void stop_running_attack(void) {
 
 static void ap_pick_done_cb(void *unused) {
   (void)unused;
-  if (ui_current_screen() != SCREEN_WIFI_ATTACK_MENU || s_view != VIEW_PICK_SCANNING)
+  if (ui_current_screen() != SCREEN_WIFI_ATTACK_MENU)
     return;
   build_pick_list();
   ui_input_set_screen_handler(wifi_attack_input, NULL);
@@ -409,40 +411,40 @@ static void ap_pick_task(void *arg) {
   (void)arg;
   int n = 0;
 
-  wifi_service_start();
-  if (ap_scanner_start()) {
-    uint16_t count = 0;
-    wifi_ap_record_t *recs = ap_scanner_get_results(&count);
-    if (recs != NULL) {
-      for (uint16_t i = 0; i < count && n < AP_PICK_MAX; i++) {
-        pick_ap_t *ap = &s_aps[n++];
-        strncpy(ap->ssid, (const char *)recs[i].ssid, sizeof(ap->ssid) - 1);
-        ap->ssid[sizeof(ap->ssid) - 1] = '\0';
-        memcpy(ap->bssid, recs[i].bssid, sizeof(ap->bssid));
-        ap->channel = recs[i].primary;
-        ap->rssi = recs[i].rssi;
-      }
-    }
-    ap_scanner_free_results();
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  uint16_t count = status.count;
+  for (uint16_t i = s_ap_page * AP_PICK_MAX;
+       i < count && i < (s_ap_page + 1) * AP_PICK_MAX && n < AP_PICK_MAX;
+       i++) {
+    wifi_ap_record_t record;
+    if (wifi_live_scan_get_record(i, &record) != ESP_OK)
+      continue;
+    pick_ap_t *ap = &s_aps[n++];
+    strncpy(ap->ssid, (const char *)record.ssid, sizeof(ap->ssid) - 1);
+    ap->ssid[sizeof(ap->ssid) - 1] = '\0';
+    memcpy(ap->bssid, record.bssid, sizeof(ap->bssid));
+    ap->channel = record.primary;
+    ap->rssi = record.rssi;
   }
 
   s_ap_count = n;
   s_is_pick_scanning = false;
-  ui_async_call(ap_pick_done_cb, NULL);
-  vTaskDelete(NULL);
+  ap_pick_done_cb(NULL);
+  menu_component_set_hint(&s_menu, "LEFT/RIGHT page | OK select | BACK");
 }
 
 static void start_ap_pick(attack_kind_t kind) {
+  s_is_pick_scanning = false;
   s_pending_kind = kind;
   s_ap_count = 0;
+  s_ap_page = 0;
   build_pick_scanning();
   ui_input_set_screen_handler(wifi_attack_input, NULL);
 
   if (!s_is_pick_scanning) {
     s_is_pick_scanning = true;
-    if (xTaskCreatePinnedToCore(
-            ap_pick_task, "atk_pick", TASK_STACK_SIZE, NULL, TASK_PRIORITY, NULL, SYS_CORE_RADIO) !=
-        pdPASS) {
+    if (wifi_live_scan_ui_open(SPI_WIFI_BAND_DUAL, ap_pick_task, NULL) != ESP_OK) {
       s_is_pick_scanning = false;
       build_pick_list();
       ui_input_set_screen_handler(wifi_attack_input, NULL);
@@ -520,8 +522,13 @@ static void wifi_attack_input(const input_event_t *ev, void *ctx) {
           if (press)
             build_list_view();
           break;
-        case INPUT_BTN_OK:
+        case INPUT_BTN_LEFT:
         case INPUT_BTN_RIGHT:
+          if (press &&
+              wifi_live_scan_ui_change_page(&s_ap_page, AP_PICK_MAX, ev->button == INPUT_BTN_RIGHT))
+            ap_pick_task(NULL);
+          break;
+        case INPUT_BTN_OK:
           if (press && s_ap_count > 0)
             select_target_and_run(menu_component_get_selected(&s_menu));
           break;

@@ -32,8 +32,41 @@ extern "C" {
  */
 typedef void (*keyboard_submit_cb_t)(const char *text, void *user_data);
 
+typedef enum {
+  KEYBOARD_TEXT,
+  KEYBOARD_PASSWORD,
+  KEYBOARD_HEX,
+  KEYBOARD_NUMBER,
+  KEYBOARD_FILENAME,
+} keyboard_mode_t;
+
+typedef struct {
+  const char *title;
+  const char *initial;
+  uint32_t max_chars;
+  uint32_t min_chars;
+  keyboard_mode_t mode;
+} keyboard_config_t;
+
+/** @brief Open a contextual editor; strings are copied before this call returns. */
+void keyboard_open_config(const keyboard_config_t *config,
+                          keyboard_submit_cb_t callback,
+                          void *context);
+
+/** @brief Edit a file stem (extension is supplied by the caller); BACK cancels. */
+void keyboard_open_filename(const char *title,
+                            const char *initial,
+                            uint32_t max_chars,
+                            keyboard_submit_cb_t callback);
+
 /** @brief Open the on-screen keyboard. */
 void keyboard_open(lv_obj_t *target_textarea, keyboard_submit_cb_t cb, void *user_data);
+
+/** @brief Open with a retained draft and an explicit character limit. */
+void keyboard_open_text(const char *initial,
+                        uint32_t max_chars,
+                        keyboard_submit_cb_t cb,
+                        void *user_data);
 
 /** @brief Close the on-screen keyboard. */
 void keyboard_close(void);

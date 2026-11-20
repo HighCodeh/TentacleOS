@@ -70,6 +70,16 @@ if (storage_is_mounted()) {
 storage_deinit();
 ```
 
+### Battery selection in system config
+
+On P4, `tos_config_system_t.battery_capacity_mah` persists the nominal battery
+selection in `config/system.conf`. Accepted values are 2000 and 2450 mAh;
+missing, non-integer or unsupported values load the 2450 mAh default.
+`tos_config_set_battery_capacity()` validates, saves through the existing atomic
+writer and applies the selection to the battery service only after success.
+A failed save restores the previous in-memory config. No gauge programming or
+charger-limit change is involved. See [battery service](../bq25896/README.md).
+
 ### Default Directory Structure
 
 On first boot, `tos_first_boot_setup()` creates the full directory tree on the SD card:
@@ -1021,3 +1031,8 @@ an empty base when resolving absolute paths.
 
 The microSD filesystem override is generated from a verified SDK patch; see
 [FatFS](../fatfs/README.md) for the source and validation process.
+
+SD health probes acquire the storage backend lifecycle guard for the entire
+write/read/remove operation. `ESP_ERR_INVALID_STATE` means unavailable or busy
+(e.g. formatting or USB handoff); the system monitor skips that result rather
+than requesting a destructive remount while another operation owns the card.

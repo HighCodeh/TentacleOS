@@ -170,16 +170,6 @@ esp_err_t spi_slave_driver_init(void) {
       .post_setup_cb = post_setup_observe,
   };
 
-  gpio_config_t io_conf = {
-      .intr_type = GPIO_INTR_DISABLE,
-      .mode = GPIO_MODE_OUTPUT,
-      .pin_bit_mask = (1ULL << GPIO_BRIDGE_IRQ_PIN),
-      .pull_down_en = 1,
-      .pull_up_en = 0,
-  };
-  gpio_config(&io_conf);
-  gpio_set_level(GPIO_BRIDGE_IRQ_PIN, 0);
-
   esp_err_t ret = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize SPI slave: %s", esp_err_to_name(ret));
@@ -279,7 +269,7 @@ esp_err_t spi_slave_driver_wait_for_ticks(spi_slave_transaction_t *expected, Tic
 }
 
 void spi_slave_driver_set_irq(int level) {
-  gpio_set_level(GPIO_BRIDGE_IRQ_PIN, level);
+  (void)level; // V2.03 has no IRQ trace.
 }
 
 esp_err_t spi_slave_driver_wait_for(spi_slave_transaction_t *expected) {

@@ -16,6 +16,8 @@
 #ifndef RFID_MENU_UI_H
 #define RFID_MENU_UI_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

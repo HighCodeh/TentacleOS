@@ -23,6 +23,8 @@ extern "C" {
 /** @brief Open the BLE skimmer detector using observed device records. */
 void ui_ble_skimmer_open(void);
 
+void ui_ble_skimmer_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

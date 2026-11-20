@@ -16,10 +16,12 @@
 #ifndef SUBGHZ_TRANSMITTER_H
 #define SUBGHZ_TRANSMITTER_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "cc1101.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +39,14 @@ esp_err_t subghz_tx_init(void);
  */
 void subghz_tx_stop(void);
 
+typedef struct {
+  bool is_busy;
+  esp_err_t error;
+} subghz_tx_status_t;
+
+/** Pending jobs include the active frame; success requires is_busy=false and ESP_OK. */
+void subghz_tx_get_status(subghz_tx_status_t *out_status);
+
 /**
  * @brief Transmit a raw pulse sequence.
  *
@@ -46,6 +56,13 @@ void subghz_tx_stop(void);
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
+/* Configuration is copied into the queued job and applied by its radio worker. */
+typedef struct {
+  uint32_t frequency_hz;
+  cc1101_preset_t preset;
+} subghz_tx_config_t;
+esp_err_t
+subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_config_t *config);
 
 #ifdef __cplusplus
 }

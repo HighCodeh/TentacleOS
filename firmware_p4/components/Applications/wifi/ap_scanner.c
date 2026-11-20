@@ -108,7 +108,11 @@ bool ap_scanner_save_results_to_internal_flash(void) {
 }
 
 bool ap_scanner_save_results_to_sd_card(void) {
-  if (s_cached_results == NULL || s_cached_count == 0) {
+  return ap_scanner_save_snapshot(s_cached_results, s_cached_count);
+}
+
+bool ap_scanner_save_snapshot(const wifi_ap_record_t *records, uint16_t count) {
+  if (records == NULL || count == 0) {
     return false;
   }
 
@@ -117,8 +121,8 @@ bool ap_scanner_save_results_to_sd_card(void) {
     return false;
   }
 
-  for (uint16_t i = 0; i < s_cached_count; i++) {
-    const wifi_ap_record_t *ap = &s_cached_results[i];
+  for (uint16_t i = 0; i < count; i++) {
+    const wifi_ap_record_t *ap = &records[i];
     cJSON *obj = cJSON_CreateObject();
     if (obj == NULL) {
       continue;
@@ -152,7 +156,7 @@ bool ap_scanner_save_results_to_sd_card(void) {
   esp_err_t err = storage_write_string(AP_SCAN_SAVE_PATH, json);
   free(json);
   if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Saved %u APs to %s", s_cached_count, AP_SCAN_SAVE_PATH);
+    ESP_LOGI(TAG, "Saved %u APs to %s", count, AP_SCAN_SAVE_PATH);
   }
   return err == ESP_OK;
 }

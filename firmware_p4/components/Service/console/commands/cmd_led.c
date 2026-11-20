@@ -25,7 +25,7 @@
 
 static int cmd_led(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: led <color|clear|blink|signal>\n");
+    printf("usage: led <status|color|clear|blink|signal>\n");
     printf("  color <r> <g> <b>           set the LED color (0-255 each)\n");
     printf("  clear                        turn the LED off\n");
     printf("  blink <r> <g> <b> <ms>       blink once for <ms> milliseconds\n");
@@ -33,6 +33,20 @@ static int cmd_led(int argc, char **argv) {
     return 1;
   }
 
+  if (strcmp(argv[1], "status") == 0) {
+    led_status_t status;
+    esp_err_t result = led_get_status(&status);
+    if (result != ESP_OK) {
+      printf("LED readback failed: %s\n", esp_err_to_name(result));
+      return 1;
+    }
+    printf("LED PWM=%06lX brightness=%d power=%d activity=%lu\n",
+           (unsigned long)status.rgb,
+           status.brightness,
+           (int)status.power,
+           (unsigned long)status.activity);
+    return 0;
+  }
   if (strcmp(argv[1], "color") == 0) {
     if (argc < 5) {
       printf("usage: led color <r> <g> <b>\n");
@@ -86,7 +100,7 @@ static int cmd_led(int argc, char **argv) {
 void register_led_commands(void) {
   const esp_console_cmd_t cmd_led_def = {
       .command = "led",
-      .help = "RGB status LED: led color | clear | blink | signal",
+      .help = "RGB LED: led status | color | clear | blink | signal",
       .hint = NULL,
       .func = &cmd_led,
   };

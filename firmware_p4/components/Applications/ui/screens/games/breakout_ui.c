@@ -23,6 +23,7 @@
 
 #include "buttons_gpio.h"
 #include "game_fx.h"
+#include "ui_metrics.h"
 #include "st7789.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -44,7 +45,7 @@
 #define START_LIVES     3
 #define SCORE_PER_BRICK 10
 
-#define COL_BG     0x0A0014
+#define COL_BG     0x000000
 #define COL_PADDLE 0xE040FB
 #define COL_BALL   0xFFFFFF
 
@@ -241,6 +242,12 @@ static void step_ball(void) {
   lv_obj_set_pos(s_ball, (int)s_bx, (int)s_by);
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_GAMES_MENU);
+}
+
 static void tick_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
     lv_timer_delete(t);
@@ -252,12 +259,6 @@ static void tick_cb(lv_timer_t *t) {
   bool ok = ok_button_is_down(), back = back_button_is_down();
 
   if (!ui_input_is_locked()) {
-    if (back && !s_back_last) {
-      s_back_last = back;
-      ui_switch_screen(SCREEN_GAMES_MENU);
-      return;
-    }
-
     if (left)
       s_px -= PADDLE_SPEED;
     if (right)
@@ -278,7 +279,7 @@ static void tick_cb(lv_timer_t *t) {
 
   if (s_state == ST_READY) {
     park_ball_on_paddle();
-  } else if (s_state == ST_PLAY) {
+  } else if (s_state == ST_PLAY && !ui_input_is_locked()) {
     step_ball();
   }
 
@@ -298,7 +299,15 @@ static lv_obj_t *make_rect(uint32_t color) {
   return o;
 }
 
+void ui_breakout_stop(void) {
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+}
+
 void ui_breakout_open(void) {
+  ui_breakout_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -307,14 +316,14 @@ void ui_breakout_open(void) {
   s_best = load_best();
 
   s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, lv_color_hex(COL_BG), 0);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_set_style_border_width(s_screen, 0, 0);
 
-  s_w = LCD_H_RES;
-  s_h = LCD_V_RES;
+  s_w = ui_screen_w();
+  s_h = ui_screen_h();
 
   for (int i = 0; i < BRICK_N; i++) {
     s_brick[i] = make_rect(ROW_COLORS[0]);
@@ -330,7 +339,7 @@ void ui_breakout_open(void) {
   lv_obj_set_style_radius(s_ball, LV_RADIUS_CIRCLE, 0);
 
   s_score_lbl = lv_label_create(s_screen);
-  lv_obj_set_style_text_color(s_score_lbl, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_color(s_score_lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_score_lbl, &lv_font_montserrat_14, 0);
   lv_obj_align(s_score_lbl, LV_ALIGN_TOP_MID, 0, 5);
 
@@ -339,21 +348,26 @@ void ui_breakout_open(void) {
   lv_obj_set_size(s_msg_panel, s_w - 60, LV_SIZE_CONTENT);
   lv_obj_align(s_msg_panel, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_radius(s_msg_panel, 14, 0);
-  lv_obj_set_style_bg_color(s_msg_panel, lv_color_hex(0x1A0426), 0);
+  lv_obj_set_style_bg_color(s_msg_panel, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(s_msg_panel, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_msg_panel, 2, 0);
   lv_obj_set_style_border_color(s_msg_panel, ui_theme_get_accent(), 0);
   lv_obj_set_style_pad_all(s_msg_panel, 14, 0);
   s_msg_lbl = lv_label_create(s_msg_panel);
-  lv_obj_set_style_text_color(s_msg_lbl, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_color(s_msg_lbl, current_theme.text_main, 0);
   lv_obj_set_style_text_font(s_msg_lbl, &lv_font_montserrat_14, 0);
+  lv_obj_set_width(s_msg_lbl, lv_pct(100));
   lv_obj_set_style_text_align(s_msg_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(s_msg_lbl);
 
   reset_game();
 
-  if (s_timer == NULL)
-    s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
+  s_timer = lv_timer_create(tick_cb, TICK_MS, NULL);
+  if (s_timer == NULL) {
+    lv_label_set_text(s_msg_lbl, "Game unavailable\nBACK to Apps");
+    lv_obj_remove_flag(s_msg_panel, LV_OBJ_FLAG_HIDDEN);
+  }
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

@@ -24,6 +24,7 @@
 #include "st7789.h"
 
 #include "assets_manager.h"
+#include "led_control.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
@@ -31,6 +32,7 @@
 #include "sigwave_ui.h"
 #include "subghz_receiver.h"
 #include "subghz_replay.h"
+#include "subghz_transmitter.h"
 #include "subghz_scope_ui.h"
 #include "subghz_spectrum.h"
 #include "subghz_storage.h"
@@ -39,6 +41,8 @@
 #include "ui_manager.h"
 #include "ui_metrics.h"
 #include "ui_theme.h"
+
+static const char *TAG = "SUBGHZ_MENU_UI";
 
 #define FADE_MS 200
 
@@ -187,6 +191,8 @@ static lv_obj_t *s_sig_thumb = NULL;
 static lv_obj_t *s_spec_bars[BAR_COUNT];
 
 static lv_obj_t *s_send_overlay = NULL;
+static bool s_owns_tx;
+static bool s_owns_spectrum;
 static lv_obj_t *s_send_status = NULL;
 static lv_timer_t *s_send_t1 = NULL;
 static lv_timer_t *s_send_t2 = NULL;
@@ -197,6 +203,13 @@ static void build_screen(void);
 static void rebuild_async(void *p) {
   (void)p;
   build_screen();
+}
+
+static void stop_tx(void) {
+  if (s_owns_tx) {
+    subghz_tx_stop();
+    s_owns_tx = false;
+  }
 }
 
 static void stop_freq_timer(void) {
@@ -231,8 +244,13 @@ static void spectrum_poll_cb(lv_timer_t *t) {
     return;
   }
 
+  if (subghz_spectrum_get_error() != ESP_OK) {
+    lv_label_set_text(s_freq_lbl, "Radio error");
+    stop_freq_timer();
+    return;
+  }
   subghz_spectrum_line_t line;
-  if (!subghz_spectrum_get_line(&line))
+  if (!subghz_spectrum_get_line(&line) || line.timestamp == 0)
     return;
 
   int per = SPECTRUM_SAMPLES / BAR_COUNT;
@@ -321,8 +339,18 @@ static void build_analyzer(void) {
 
   if (subghz_receiver_is_running())
     subghz_receiver_stop();
-  subghz_spectrum_start(ANALYZER_CENTER_HZ, ANALYZER_SPAN_HZ);
   s_freq_timer = lv_timer_create(spectrum_poll_cb, ANALYZER_POLL_MS, NULL);
+  esp_err_t error = s_freq_timer != NULL
+                        ? subghz_spectrum_start(ANALYZER_CENTER_HZ, ANALYZER_SPAN_HZ)
+                        : ESP_ERR_NO_MEM;
+  s_owns_spectrum = error == ESP_OK;
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot start spectrum: %s", esp_err_to_name(error));
+    led_signal_error();
+    stop_freq_timer();
+    lv_label_set_text(s_freq_lbl, "Radio unavailable");
+    notify(NOTIFY_WARNING, "Cannot start spectrum");
+  }
 
   ui_chrome_footer(s_screen, HINT_ANALYZER);
 }
@@ -676,9 +704,18 @@ static void info_del_confirm(bool confirm) {
   ui_async_call(rebuild_async, NULL);
 }
 
+static void screen_deleted_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_subghz_menu_stop();
+}
+
 static void build_screen(void) {
+  stop_tx();
   stop_freq_timer();
-  subghz_spectrum_stop();
+  if (s_owns_spectrum) {
+    subghz_spectrum_stop();
+    s_owns_spectrum = false;
+  }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -698,12 +735,8 @@ static void build_screen(void) {
   s_send_overlay = NULL;
   s_send_status = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
 
   switch (s_view) {
     case VIEW_ANALYZER:
@@ -731,6 +764,24 @@ static void build_screen(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
+void ui_subghz_menu_stop(void) {
+  stop_freq_timer();
+  if (s_owns_spectrum) {
+    subghz_spectrum_stop();
+    s_owns_spectrum = false;
+  }
+  stop_tx();
+  subghz_scope_stop();
+  if (s_send_t1 != NULL) {
+    lv_timer_delete(s_send_t1);
+    s_send_t1 = NULL;
+  }
+  if (s_send_t2 != NULL) {
+    lv_timer_delete(s_send_t2);
+    s_send_t2 = NULL;
+  }
+}
+
 static void send_finish_cb(lv_timer_t *t) {
   lv_timer_delete(t);
   s_send_t2 = NULL;
@@ -744,20 +795,32 @@ static void send_finish_cb(lv_timer_t *t) {
 }
 
 static void send_lock_cb(lv_timer_t *t) {
+  if (lv_screen_active() != s_screen) {
+    ui_subghz_menu_stop();
+    return;
+  }
+  subghz_tx_status_t status;
+  subghz_tx_get_status(&status);
+  if (status.error == ESP_OK && status.is_busy)
+    return;
   lv_timer_delete(t);
   s_send_t1 = NULL;
-  if (lv_screen_active() != s_screen) {
+  stop_tx();
+  if (status.error != ESP_OK) {
     subghz_scope_stop();
+    if (s_send_status != NULL)
+      lv_label_set_text(s_send_status, "Transmission failed. BACK to exit");
     return;
   }
   subghz_scope_lock();
   if (s_send_status != NULL) {
     lv_label_set_text(s_send_status, "Signal sent!");
-    lv_obj_set_style_text_color(s_send_status, lv_color_hex(SIGNAL_STRONG_COLOR), 0);
+    lv_obj_set_style_text_color(s_send_status, current_theme.text_main, 0);
   }
   ui_feedback(UI_FB_WRITE);
   s_send_t2 = lv_timer_create(send_finish_cb, SEND_DONE_MS, NULL);
-  lv_timer_set_repeat_count(s_send_t2, 1);
+  if (s_send_t2 != NULL)
+    lv_timer_set_repeat_count(s_send_t2, 1);
 }
 
 static void start_saved_send(void) {
@@ -771,6 +834,7 @@ static void start_saved_send(void) {
     return;
   }
 
+  s_owns_tx = true;
   s_send_overlay = lv_obj_create(s_screen);
   lv_obj_set_size(s_send_overlay, lv_pct(100), lv_pct(100));
   lv_obj_center(s_send_overlay);
@@ -800,8 +864,15 @@ static void start_saved_send(void) {
   ui_chrome_footer(s_send_overlay, "Transmitting...");
 
   ui_feedback(UI_FB_EMULATE);
-  s_send_t1 = lv_timer_create(send_lock_cb, SEND_ANIM_MS, NULL);
-  lv_timer_set_repeat_count(s_send_t1, 1);
+  s_send_t1 = lv_timer_create(send_lock_cb, ANALYZER_POLL_MS, NULL);
+  if (s_send_t1 == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate transmission monitor");
+    led_signal_error();
+    stop_tx();
+    subghz_scope_stop();
+    lv_label_set_text(s_send_status, "Cannot monitor transmission. BACK to exit");
+    notify(NOTIFY_WARNING, "Cannot monitor transmission");
+  }
 }
 
 static void subghz_menu_input(const input_event_t *ev, void *ctx) {
@@ -809,8 +880,15 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
 
-  if (s_send_overlay != NULL)
+  if (s_send_overlay != NULL) {
+    if (press && ev->button == INPUT_BTN_BACK) {
+      ui_subghz_menu_stop();
+      lv_obj_delete(s_send_overlay);
+      s_send_overlay = NULL;
+      s_send_status = NULL;
+    }
     return;
+  }
 
   switch (s_view) {
     case VIEW_LIST:

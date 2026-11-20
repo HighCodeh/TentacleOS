@@ -29,6 +29,8 @@
 
 #define VISIBLE_KEYS 5
 
+static screen_id_t s_return = SCREEN_NFC_MENU;
+
 static lv_obj_t *s_screen;
 static lv_obj_t *s_count_label;
 static lv_obj_t *s_rows[VISIBLE_KEYS];
@@ -138,7 +140,7 @@ static void input_cb(const input_event_t *event, void *ctx) {
   const bool press = event->action == INPUT_ACTION_PRESS;
   const bool nav = press || event->action == INPUT_ACTION_REPEAT;
   if ((event->button == INPUT_BTN_BACK || event->button == INPUT_BTN_LEFT) && press) {
-    ui_switch_screen(SCREEN_NFC_MENU);
+    ui_switch_screen(s_return);
   } else if (event->button == INPUT_BTN_DOWN && nav && s_count > 0) {
     s_selected = (s_selected + 1) % s_count;
     refresh();
@@ -148,11 +150,22 @@ static void input_cb(const input_event_t *event, void *ctx) {
     refresh();
     ui_feedback(UI_FB_NAV);
   } else if (event->button == INPUT_BTN_OK && press) {
-    keyboard_open(NULL, add_key_submit, NULL);
+    keyboard_open_config(&(keyboard_config_t){.title = "MIFARE key - 12 hex",
+                                              .initial = NULL,
+                                              .max_chars = 12,
+                                              .min_chars = 12,
+                                              .mode = KEYBOARD_HEX},
+                         add_key_submit,
+                         NULL);
   }
 }
 
 void ui_nfc_keydict_open(void) {
+  const screen_id_t from = ui_current_screen();
+  if (from == SCREEN_NFC_READ || from == SCREEN_NFC_SAVED)
+    s_return = from;
+  else if (from == SCREEN_NFC_MENU || from == SCREEN_HOME || from == SCREEN_MENU)
+    s_return = SCREEN_NFC_MENU;
   mf_key_dict_init();
   s_count = mf_key_dict_count();
   s_selected = 0;
@@ -161,12 +174,7 @@ void ui_nfc_keydict_open(void) {
     s_screen = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
   ui_chrome_header(s_screen, "KEY DICTIONARY", "/assets/icons/key.bin");
 
   lv_obj_t *body = lv_obj_create(s_screen);

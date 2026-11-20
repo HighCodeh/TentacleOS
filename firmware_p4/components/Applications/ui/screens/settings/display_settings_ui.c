@@ -23,8 +23,9 @@
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_BRIGHTNESS 0
 #define ROW_ROTATION   1

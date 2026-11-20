@@ -25,7 +25,11 @@
 #include "msgbox_ui.h"
 #include "notify_ui.h"
 #include "subghz_receiver.h"
+#include "subghz_storage.h"
+#include "keyboard_ui.h"
+#include "led_control.h"
 #include "subghz_replay.h"
+#include "subghz_transmitter.h"
 #include "subghz_settings.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -125,6 +129,9 @@ static int s_mod = 0;
 static uint32_t s_scan_start = 0;
 static bool s_locked = false;
 static bool s_saved = false;
+static bool s_has_rx_error;
+static bool s_owns_rx;
+static bool s_is_sending;
 
 static subghz_rx_result_t s_result;
 static readout_row_t s_rows[ROW_MAX];
@@ -132,7 +139,7 @@ static int s_row_count = 0;
 static char s_freq_str[16];
 static char s_proto_str[24];
 static char s_mod_str[16];
-static char s_card_sub[40];
+static char s_card_sub[sizeof(s_proto_str) + sizeof(s_mod_str) + sizeof(" ()")];
 
 static void read_tick_cb(lv_timer_t *t);
 static void scope_tick_cb(lv_timer_t *t);
@@ -146,8 +153,15 @@ static void stop_timer(lv_timer_t **t) {
 }
 
 static void stop_rx(void) {
-  if (subghz_receiver_is_running())
+  if (s_owns_rx) {
     subghz_receiver_stop();
+    s_owns_rx = false;
+  }
+}
+
+static void screen_deleted_cb(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_subghz_read_stop();
 }
 
 static void fmt_mhz(uint32_t hz, char *out, size_t n) {
@@ -283,9 +297,7 @@ static void build_scope(void) {
 }
 
 void ui_subghz_read_open(void) {
-  stop_rx();
-  stop_timer(&s_scope_timer);
-  stop_timer(&s_tick_timer);
+  ui_subghz_read_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -301,16 +313,14 @@ void ui_subghz_read_open(void) {
   s_locked_at = 0;
   s_locked = false;
   s_saved = false;
+  s_has_rx_error = false;
+  s_is_sending = false;
   s_row_count = 0;
 
   subghz_settings_t cfg = subghz_settings_get();
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
 
   ui_chrome_header(s_screen, "READ", "/assets/icons/sensors.bin");
 
@@ -337,9 +347,18 @@ void ui_subghz_read_open(void) {
 
   ui_input_set_screen_handler(subghz_read_input, NULL);
 
-  esp_err_t rx = subghz_receiver_start(SUBGHZ_MODE_SCAN, cfg.preset, cfg.freq);
-  if (rx != ESP_OK)
-    ESP_LOGE(TAG, "subghz_receiver_start failed: %s", esp_err_to_name(rx));
+  esp_err_t rx = s_scope_timer != NULL && s_tick_timer != NULL
+                     ? subghz_receiver_start(SUBGHZ_MODE_SCAN, cfg.preset, cfg.freq)
+                     : ESP_ERR_NO_MEM;
+  s_owns_rx = rx == ESP_OK;
+  if (rx != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot start reception: %s", esp_err_to_name(rx));
+    led_signal_error();
+    s_has_rx_error = true;
+    stop_timer(&s_scope_timer);
+    lv_label_set_text(s_status, "Cannot start reception");
+    notify(NOTIFY_WARNING, "Cannot start reception");
+  }
 
   ui_screen_load_owned(&s_screen, s_screen);
 }
@@ -502,7 +521,24 @@ static void read_tick_cb(lv_timer_t *t) {
     return;
   }
 
+  if (s_is_sending) {
+    subghz_tx_status_t status;
+    subghz_tx_get_status(&status);
+    if (status.error != ESP_OK || !status.is_busy) {
+      s_is_sending = false;
+      subghz_tx_stop();
+      notify(status.error == ESP_OK ? NOTIFY_INFO : NOTIFY_WARNING,
+             status.error == ESP_OK ? "Signal sent" : "Transmission failed");
+    }
+  }
   if (!s_locked) {
+    if (!s_has_rx_error && subghz_receiver_get_error() != ESP_OK) {
+      s_has_rx_error = true;
+      stop_timer(&s_scope_timer);
+      lv_label_set_text(s_status, "Reception failed. BACK to exit");
+    }
+    if (s_has_rx_error)
+      return;
     if (s_status != NULL) {
       int dots = ((lv_tick_get() - s_scan_start) / DOT_CYCLE_MS) % 4;
       char buf[20];
@@ -529,18 +565,39 @@ static void read_tick_cb(lv_timer_t *t) {
 }
 
 static void send_current(void) {
+  if (s_is_sending)
+    return;
   ui_feedback(UI_FB_EMULATE);
   if (s_result.save_name[0] == '\0') {
     notify(NOTIFY_WARNING, "Nothing to send");
     return;
   }
   esp_err_t err = subghz_replay_file(s_result.save_name);
-  if (err == ESP_OK)
-    notify(NOTIFY_INFO, "Signal sent");
-  else if (err == ESP_ERR_NOT_SUPPORTED)
+  if (err == ESP_OK) {
+    s_is_sending = true;
+    notify(NOTIFY_INFO, "Transmitting...");
+  } else if (err == ESP_ERR_NOT_SUPPORTED)
     notify(NOTIFY_WARNING, "Replay not supported");
   else
     notify(NOTIFY_WARNING, "Send failed");
+}
+
+static void save_name_submit(const char *name, void *context) {
+  (void)context;
+  esp_err_t err = subghz_storage_rename(s_result.save_name, name);
+  if (err == ESP_OK) {
+    snprintf(s_result.save_name, sizeof(s_result.save_name), "%s", name);
+    s_saved = true;
+    capture_result_mark_saved(&s_cr);
+    ui_feedback(UI_FB_WRITE);
+    notify(NOTIFY_SAVED, "Saved to SD");
+  } else {
+    notify(NOTIFY_WARNING,
+           err == ESP_ERR_INVALID_STATE ? "Name exists; choose another"
+                                        : "Capture not saved; check SD");
+    keyboard_open_filename(
+        "Signal name (without .sub)", name, sizeof(s_result.save_name) - 1, save_name_submit);
+  }
 }
 
 static void subghz_read_input(const input_event_t *ev, void *ctx) {
@@ -579,12 +636,11 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
             send_current();
             break;
           case CAP_ACT_SAVE:
-            if (!s_saved) {
-              s_saved = true;
-              capture_result_mark_saved(&s_cr);
-              ui_feedback(UI_FB_WRITE);
-              notify(NOTIFY_SAVED, "Saved to SD");
-            }
+            if (!s_saved)
+              keyboard_open_filename("Signal name (without .sub)",
+                                     s_result.save_name,
+                                     sizeof(s_result.save_name) - 1,
+                                     save_name_submit);
             break;
           case CAP_ACT_AGAIN:
             ui_subghz_read_open();
@@ -601,4 +657,13 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
     default:
       break;
   }
+}
+
+void ui_subghz_read_stop(void) {
+  stop_rx();
+  if (s_is_sending)
+    subghz_tx_stop();
+  s_is_sending = false;
+  stop_timer(&s_tick_timer);
+  stop_timer(&s_scope_timer);
 }

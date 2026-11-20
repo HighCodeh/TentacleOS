@@ -1,6 +1,28 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # SubGhz Application
 
 This component implements the complete Sub-GHz RF application layer: signal reception (with protocol decoding and frequency hopping), raw/encoded transmission, spectrum analysis, signal analysis, and file serialization. It sits on top of the `cc1101` driver and uses the ESP-IDF RMT peripheral for precise pulse timing.
+
+Carrier validation and High Boy's four-branch antenna matching policy are shared
+through the [CC1101 driver](../cc1101/README.md#high-boy-v203-matching-network).
+The driver configures presets in IDLE and enters RX only after tuning and
+calibration succeed; the application does not override the switch GPIOs.
 
 ## Overview
 
@@ -8,7 +30,7 @@ This component implements the complete Sub-GHz RF application layer: signal rece
 - **Dependencies:** `cc1101`, `driver/rmt_rx`, `driver/rmt_tx`, `freertos`, `pin_def`
 - **RMT Resolution:** 1 MHz (1 us per tick)
 - **RX GPIO:** GPIO 8 (GDO0 via `GPIO_SDA_PIN`)
-- **TX GPIO:** GDO2 (via `GPIO_SCL_PIN`)
+- **TX GPIO:** GPIO 8 / CC1101 GDO0 (`GPIO_CC1101_GDO0_PIN`)
 
 ## Architecture
 
@@ -68,28 +90,43 @@ Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX periphera
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
 void subghz_receiver_stop(void);
 bool subghz_receiver_is_running(void);
+esp_err_t subghz_receiver_get_error(void);
 ```
 - `freq = 0` enables frequency hopping mode.
 - Returns `ESP_OK` on success, `ESP_ERR_INVALID_STATE` if already running, `ESP_ERR_NO_MEM` on task creation failure.
-- Task stack: 8192 bytes, priority 5, Core 1.
+- Task stack: 8192 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
 
 Shutdown is asynchronous: `subghz_receiver_stop()` requests cancellation and
 `subghz_receiver_is_running()` remains true through startup and hardware cleanup.
-The worker owns the resource grant until RMT disable and channel deletion succeed.
+The worker owns the resource grant until RMT disable, channel deletion and confirmed radio IDLE succeed.
 Failed cleanup retries while retaining the DMA buffer, callback queue and radio
 grant; callers cannot start another RX worker during this interval. A cancellation
 before the worker starts is preserved. Queue/result-mutex allocation failures
-abort without publishing an unusable receiver.
+abort without publishing an unusable receiver. The decoding buffer uses explicit
+PSRAM; the aligned DMA capture buffer remains internal. The worker stops on radio
+initialization, tuning, RX entry or RMT errors and exposes the first failure through
+`subghz_receiver_get_error()`. A new accepted start resets this error. Before a hop,
+RMT is disabled and old-channel queue events are discarded; the frequency is
+published only after successful tuning/RX entry, followed by fresh RMT capture.
 
 `python3 tools/highboy/test_subghz_lifecycle.py` exercises the production worker
 with explicit hardware/RTOS fakes and Address/UndefinedBehaviorSanitizer. It covers
-startup cancellation, competing starts, allocation/setup errors, and repeated
-disable/delete failures with a late callback. It does not prove physical RF or
+startup cancellation, competing starts, allocation/setup/radio errors, old-channel
+queue draining, and repeated disable/delete/IDLE failures with a late callback. It does not prove physical RF or
 DMA behavior on the board.
 
 ### Transmitter (`subghz_transmitter`)
 
-Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbols and transmits via CC1101 GDO2 in async mode.
+Asynchronous queue-based transmitter using CC1101 GDO0 in async mode.
+Each queued frame owns a copy of timings **and frequency/preset**. Radio configuration
+occurs in the worker with RMT disabled; both GDO outputs are high impedance before
+RMT resumes. Replay accepts up to 64 KiB text / 8192 pulses and preserves long gaps
+by splitting equal-level RMT halves, rather than truncating at 32767 us.
+Replay text, timings and symbols explicitly use PSRAM. The P4 profile keeps the
+RMT ISR cache-safe mode disabled; enabling that SDK option requires revisiting
+symbol storage/encoder memory. Allocation failure does not fall back to internal RAM.
+Stop is checked between bounded 50 ms RMT waits; buffers remain owned until channel
+cleanup succeeds. Native replay requests +10 dBm nominal; this is not measured EIRP.
 
 **Flow:** `subghz_tx_send_raw()` -> FreeRTOS Queue -> TX Task -> RMT TX -> CC1101
 
@@ -98,14 +135,19 @@ Asynchronous queue-based transmitter. Converts signed pulse timings to RMT symbo
 ```c
 esp_err_t subghz_tx_init(void);
 void subghz_tx_stop(void);
+void subghz_tx_get_status(subghz_tx_status_t *out_status);
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
+esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
+                                    const subghz_tx_config_t *config);
 ```
 - `subghz_tx_init` returns `ESP_OK` on success, `ESP_ERR_NO_MEM` on queue creation failure.
-- `subghz_tx_send_raw` returns `ESP_OK` on success, `ESP_ERR_INVALID_ARG` if not running or invalid params, `ESP_ERR_NO_MEM` on allocation failure, `ESP_ERR_TIMEOUT` if queue is full.
-- Queue depth: 10 items. Drops packets if full.
+- `subghz_tx_send_raw` returns `ESP_OK` when queued, `ESP_ERR_INVALID_STATE` if not running, `ESP_ERR_INVALID_ARG` for invalid pulses, `ESP_ERR_NO_MEM` on allocation failure, or `ESP_ERR_TIMEOUT` if the queue is full.
+- Queue depth: 10 items. Rejects new frames if full; zero-length pulses and total durations above 120 seconds are rejected before copying.
 - Timing data is copied internally; caller retains ownership of the original buffer.
-- Max RMT symbol duration: 32767 us per pulse.
-- Task stack: 4096 bytes, priority 5, Core 1.
+- RMT half-symbol limit: 32767 us; longer pulses are split without changing level.
+- Legacy raw jobs preserve radio settings applied after init (including diagnostic PA/rate); configured calls retain file metadata.
+- Read/Read RAW now default to fixed 433.92 MHz / OOK270. Config can enable hopping.
+- Task stack: 4096 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
 
 ### Spectrum Analyzer (`subghz_spectrum`)
 
@@ -132,12 +174,18 @@ typedef struct {
 #### API
 
 ```c
-void subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
+esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
 void subghz_spectrum_stop(void);
+esp_err_t subghz_spectrum_get_error(void);
 bool subghz_spectrum_get_line(subghz_spectrum_line_t *out_line);
 ```
-- Task stack: 4096 bytes, Core 1. Priority comes from `sys_prio.h`: the `SYS_PRIO_BACKGROUND_LO` band (lowest non-idle background work), so the sweep never contends with the renderer or latency-sensitive services.
+- Task stack: 4096 bytes, `SYS_CORE_RADIO`. Priority comes from `sys_prio.h`: the `SYS_PRIO_BACKGROUND_LO` band (lowest non-idle background work), so the sweep never contends with the renderer or latency-sensitive services.
 - Thread-safe reads via `subghz_spectrum_get_line`.
+- Start rejects zero steps, unsigned overflow and unsupported frequencies at any
+  sampled bin before acquiring the radio. Busy/allocation/task failures are returned.
+- Failed tuning, RX entry or RSSI reads stop the sweep without publishing partial
+  data. `subghz_spectrum_get_error()` retains the first worker error until the next
+  accepted start; a radio read failure cannot become a plausible RSSI sample.
 
 ### Signal Analyzer (`subghz_analyzer`)
 
@@ -420,16 +468,23 @@ Native TX now creates RMT hardware inside its worker and reports startup through
 a per-call signal. Stop waits up to 2500 ms for the worker; a timeout leaves the
 grant busy rather than freeing live RMT state. The worker waits for in-flight
 queue senders, retains its current symbols through transmit/cleanup failure,
-and retries disable/channel-delete/encoder-delete until successful. Only then
+and retries disable/channel-delete/encoder-delete and radio IDLE until successful. Only then
 are pending timings, queue and grant released. Concurrent reinitialization is
 rejected while starting/draining. Pulse conversion handles `INT32_MIN` without
-signed overflow, preserving the existing maximum-duration clamping.
+signed overflow; pulses exceeding the bounded total duration are rejected.
+
+`subghz_tx_get_status()` reports queued plus active jobs in `is_busy` and retains
+the first worker error in `error`. A job completes only after RMT finishes and the
+radio confirms IDLE. Configuration/SPI/RMT failures halt the worker and cannot be
+reported as success merely because enqueue succeeded. The status error clears on
+a new accepted initialization. Native RX/TX/spectrum worker failures emit one
+error log/LED signal per operation; screens also display the failed operation.
 
 Native spectrum now reserves `RES_SUBGHZ`, publishes its running state before
 spawning the task and preserves startup cancellation. Failed mutex/task setup
 releases the grant. A cancelled partial sweep is discarded instead of publishing
 uninitialized bins; the grant is released by the worker after its final radio
-access. UI/companion callers can encounter a busy radio and must retry after
+IDLE confirmation. UI/companion callers can encounter a busy radio and must retry after
 shutdown. These changes preserve the existing pins, presets and task priorities.
 
 ## Bounded app RX/TX (ABI 1.13)

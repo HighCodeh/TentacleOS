@@ -32,6 +32,7 @@ set(EXTRA_COMPONENT_DIRS
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_fatfs.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_spi.cmake")
 
 # Runtime opt-in USB headset; can be compiled out if a release cannot afford it.
 option(HIGH_BOY_USB_VOICE "Build experimental High Boy USB audio mode" OFF)
@@ -63,7 +64,24 @@ target_compile_options(${LED_STRIP_LIB} PRIVATE -include esp_heap_caps.h)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../tools/cmake/highboy_console.cmake")
 
-# APP-only: assets, SD, c5fw and boot metadata are untouched.
+# Generate filesystem assets with the existing converter on every assets build.
+set(HIGHBOY_ASSETS_DIR "${CMAKE_BINARY_DIR}/temp")
+if(CMAKE_HOST_WIN32)
+    set(CONVERT_COMMAND powershell.exe -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_LIST_DIR}/../tools/png_to_bin/png_conversor_to_bin.ps1")
+else()
+    set(CONVERT_COMMAND bash
+        "${CMAKE_CURRENT_LIST_DIR}/../tools/png_to_bin/png_conversor_to_bin.sh")
+endif()
+add_custom_target(highboy_prepare_assets
+    COMMAND ${CMAKE_COMMAND} -E env
+        "HIGHBOY_ASSETS_OUTPUT=${HIGHBOY_ASSETS_DIR}"
+        "HIGHBOY_ASSETS_PYTHON=${PYTHON}"
+        ${CONVERT_COMMAND}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+    VERBATIM)
+littlefs_create_partition_image(assets "${HIGHBOY_ASSETS_DIR}"
+    FLASH_IN_PROJECT DEPENDS highboy_prepare_assets)
 
 # Compact LVGL control/layout code while retaining optimized rasterizers.
 idf_component_get_property(HIGHBOY_LVGL_LIB lvgl__lvgl COMPONENT_LIB)

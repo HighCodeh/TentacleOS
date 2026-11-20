@@ -201,6 +201,11 @@ typedef enum {
   SPI_ID_SYSTEM_PROTO_VERSION = SPI_CMD(
       SPI_CAT_SYSTEM, 0x0D), // P4→C5: read the C5's SPI_PROTOCOL_VERSION. Response payload = u16.
 
+  SPI_ID_BOARD_NEGOTIATE = SPI_CMD(SPI_CAT_SYSTEM, 0x0E),
+  SPI_ID_BOARD_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x0F),
+  SPI_ID_BOARD_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x10),
+  SPI_ID_IR_REMOTE = SPI_CMD(SPI_CAT_SYSTEM, 0x11),
+
   // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
   // listed here only so the app and P4 share one id space. Never relayed to C5.
   SPI_ID_FILE_LIST = SPI_CMD(SPI_CAT_SYSTEM, 0x40),
@@ -233,6 +238,7 @@ typedef enum {
   // config (tos_config), applied live. Payload begins with a spi_config_section_t.
   SPI_ID_SYSTEM_CONFIG_GET = SPI_CMD(SPI_CAT_SYSTEM, 0x4B),
   SPI_ID_SYSTEM_CONFIG_SET = SPI_CMD(SPI_CAT_SYSTEM, 0x4D),
+  SPI_ID_SYSTEM_PC_MONITOR = SPI_CMD(SPI_CAT_SYSTEM, 0x4E),
 
   // P4-local app manager over the companion link (host_link). Payload is the app
   // name (bytes) unless noted; see docs/host_link/app-commands.md.
@@ -316,6 +322,14 @@ typedef enum {
   SPI_ID_WIFI_QUICK_STOP = SPI_CMD(SPI_CAT_WIFI, 0x53),
   SPI_ID_WIFI_QUICK_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x54),
   SPI_ID_WIFI_QUICK_WHITELIST = SPI_CMD(SPI_CAT_WIFI, 0x55),
+  SPI_ID_WIFI_WARD_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x59),
+  SPI_ID_WIFI_WARD_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5A),
+  SPI_ID_WIFI_WARD_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x5B),
+  SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
+  SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
+  SPI_ID_WIFI_SCAN_STEP_RECORD =
+      SPI_CMD(SPI_CAT_WIFI, 0x58), // [index u16] -> spi_wifi_scan_record_t
+
   SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN = SPI_CMD(SPI_CAT_WIFI, 0xA0),
   SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK = SPI_CMD(SPI_CAT_WIFI, 0xA1),
 
@@ -610,6 +624,129 @@ typedef struct __attribute__((packed)) {
   uint32_t size;     ///< Image size in bytes.
   uint8_t transport; ///< spi_ota_transport_t
 } spi_ota_begin_t;
+
+// V2.03 board extension: fixed-width little-endian fields, reserved bytes zero.
+// IR backend revision 1. Integers are little-endian; symbol words are explicitly
+// encoded as two u16 values: duration_us bits 0..14, level bit 15.
+#define SPI_IR_REVISION      1
+#define SPI_IR_HEADER_SIZE   24
+#define SPI_IR_SYMBOL_BYTES  4
+#define SPI_IR_CHUNK_SYMBOLS 56
+#define SPI_IR_TX_SYMBOLS    4096
+#define SPI_IR_RX_SYMBOLS    512
+#define SPI_IR_MAX_US        900000
+#define SPI_IR_CARRIER_MIN   10000
+#define SPI_IR_CARRIER_MAX   100000
+#define SPI_IR_LEASE_MS      2000
+#define SPI_IR_TORCH_MS      1000
+#define SPI_IR_RX_TIMEOUT_MS 60000
+#define SPI_IR_DURATION_MASK 0x7fff
+#define SPI_IR_LEVEL_SHIFT   15
+
+typedef enum {
+  SPI_IR_OPEN = 0,
+  SPI_IR_STATUS,
+  SPI_IR_BEGIN,
+  SPI_IR_UPLOAD,
+  SPI_IR_COMMIT,
+  SPI_IR_CAPTURE,
+  SPI_IR_FETCH,
+  SPI_IR_CANCEL,
+  SPI_IR_CLOSE,
+  SPI_IR_TORCH,
+  SPI_IR_ACTION_COUNT,
+} spi_ir_action_t;
+
+typedef enum {
+  SPI_IR_CLOSED = 0,
+  SPI_IR_IDLE,
+  SPI_IR_UPLOADING,
+  SPI_IR_TX_PENDING,
+  SPI_IR_TX_RUNNING,
+  SPI_IR_RX_PENDING,
+  SPI_IR_RX_RUNNING,
+  SPI_IR_TORCH_PENDING,
+  SPI_IR_TORCH_RUNNING,
+  SPI_IR_STOPPING,
+  SPI_IR_DONE,
+  SPI_IR_STATE_COUNT,
+} spi_ir_state_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch; // OPEN: client nonce; other actions: server epoch
+  uint32_t operation;
+  uint8_t action;
+  uint8_t revision;
+  uint16_t count;  // BEGIN: total; UPLOAD/FETCH: chunk size
+  uint16_t offset; // symbols, not bytes
+  uint16_t reserved;
+  uint32_t value; // BEGIN: carrier Hz; CAPTURE: timeout ms
+} spi_ir_request_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint32_t operation;
+  int32_t result; // operation esp_err_t, NOT_FINISHED until teardown completes
+  uint8_t state;
+  uint8_t revision;
+  uint16_t count;  // captured/expected total symbols
+  uint16_t offset; // uploaded symbols, or FETCH chunk offset
+  uint16_t reserved;
+} spi_ir_reply_t;
+
+#define SPI_BOARD_REVISION          2
+#define SPI_BOARD_MODEL_V203        0x0203
+#define SPI_BOARD_LEASE_MS          5000
+#define SPI_BOARD_CAP_AMP           (1U << 0)
+#define SPI_BOARD_CAP_HAPTIC        (1U << 1)
+#define SPI_BOARD_CAP_USB           (1U << 2)
+#define SPI_BOARD_CAP_HAPTIC_INPUT  (1U << 3)
+#define SPI_BOARD_OUTPUT_MASK       (SPI_BOARD_CAP_AMP | SPI_BOARD_CAP_HAPTIC | SPI_BOARD_CAP_USB)
+#define SPI_BOARD_CAPS              (SPI_BOARD_OUTPUT_MASK | SPI_BOARD_CAP_HAPTIC_INPUT)
+#define SPI_BOARD_SAFE_VALUES       SPI_BOARD_CAP_USB
+#define SPI_BOARD_AMP               0
+#define SPI_BOARD_HAPTIC            1
+#define SPI_BOARD_USB               2
+#define SPI_BOARD_CONTROL_COUNT     3
+#define SPI_BOARD_INPUT_INT_HIGH    1
+#define SPI_BOARD_INPUT_IRQ_PENDING 2
+
+typedef struct __attribute__((packed)) {
+  uint16_t protocol;
+  uint16_t revision;
+  uint16_t model;
+  uint16_t reserved;
+  uint64_t client;
+} spi_board_negotiate_t;
+
+typedef struct __attribute__((packed)) {
+  uint16_t protocol;
+  uint16_t revision;
+  uint16_t model;
+  uint16_t reserved;
+  uint32_t capabilities;
+  uint32_t lease_ms;
+  uint64_t epoch;
+} spi_board_caps_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+} spi_board_query_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint16_t revision;
+  uint8_t control;
+  uint8_t value;
+} spi_board_set_t;
+
+typedef struct __attribute__((packed)) {
+  uint64_t epoch;
+  uint8_t values;
+  uint8_t valid;
+  uint8_t inputs;
+  uint8_t reserved;
+} spi_board_state_t;
 
 /** @brief SPI_ID_SYSTEM_INFO response payload: C5 chip identity. */
 typedef struct __attribute__((packed)) {
@@ -947,14 +1084,45 @@ typedef struct {
   // The P4 derives live rates from consecutive cumulative snapshots.
   uint32_t channel_packets[SPI_WIFI_SPECTRUM_BIN_COUNT];
   int8_t channel_peak_rssi[SPI_WIFI_SPECTRUM_BIN_COUNT];
+  uint16_t capture_attempts;
+  uint16_t capture_failures;
+  uint8_t capture_hold_seconds;
+  uint8_t capture_ap_attempt;
 } __attribute__((packed)) spi_sniffer_stats_t;
 
 #define SPI_WIFI_SNIFFER_MAX_DATA (SPI_MAX_PAYLOAD - 4)
 
 /** Band selector shared by survey and passive monitor commands. */
+#define SPI_WARD_MAX_RECORDS 128
+/** Dedicated scan snapshot; raw SSID bytes, independent of the generic result pipe. */
+typedef struct {
+  uint32_t generation;
+  int32_t error;
+  uint16_t count, total;
+  uint8_t busy, band;
+} __attribute__((packed)) spi_ward_status_t;
+typedef struct {
+  uint32_t generation;
+  uint16_t index;
+} __attribute__((packed)) spi_ward_request_t;
+typedef struct {
+  uint8_t bssid[6], ssid[33], channel, authmode;
+  int8_t rssi;
+} __attribute__((packed)) spi_ward_record_t;
+
 #define SPI_WIFI_BAND_DUAL 0u
 #define SPI_WIFI_BAND_2G   1u
 #define SPI_WIFI_BAND_5G   2u
+
+#define SPI_WIFI_SCAN_2G_SLOTS   14u
+#define SPI_WIFI_SCAN_5G_SLOTS   28u
+#define SPI_WIFI_SCAN_SLOT_COUNT (SPI_WIFI_SCAN_2G_SLOTS + SPI_WIFI_SCAN_5G_SLOTS)
+
+typedef struct {
+  uint32_t error;
+  uint16_t count;
+  uint8_t busy;
+} __attribute__((packed)) spi_wifi_scan_step_status_t;
 
 /**
  * Optional payload for SPI_ID_WIFI_SCAN. Older callers may send no payload,
@@ -971,7 +1139,8 @@ typedef struct {
  * @brief Compact WiFi scan result, served by SPI_ID_WIFI_APP_SCAN_AP through the
  * generic data pipe. Fixed-size and explicit (unlike the raw wifi_ap_record_t)
  * so the companion app parses it without depending on the IDF struct layout.
- * ssid is sanitized printable ASCII, null-terminated, empty for hidden networks.
+ * STEP_RECORD uses this layout with raw, null-terminated SSID bytes.
+ * APP_SCAN_AP sanitizes SSID to printable ASCII; empty means hidden.
  */
 typedef struct {
   uint8_t bssid[6]; // AP MAC

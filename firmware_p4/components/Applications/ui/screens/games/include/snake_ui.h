@@ -22,6 +22,8 @@ extern "C" {
 
 /** @brief Open the Snake mini-game. */
 void ui_snake_open(void);
+/** @brief Stop gameplay before navigation or screen reconstruction. */
+void ui_snake_stop(void);
 
 #ifdef __cplusplus
 }

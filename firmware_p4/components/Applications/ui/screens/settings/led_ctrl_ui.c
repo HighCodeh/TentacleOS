@@ -27,18 +27,19 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define MX        8
-#define CONTENT_W (ui_screen_w() - 2 * MX)
+#define MX            8
+#define LED_WIDE_VIEW (ui_screen_w() > ui_screen_h())
+#define CONTENT_W     (ui_screen_w() - 2 * MX - (LED_WIDE_VIEW ? PREVIEW_D + MX : 0))
 
 #define PREVIEW_Y      50
 #define PREVIEW_D      72
 #define CTRL_Y         134
 #define CTRL_GAP       8
-#define CARD_LABEL_W   66
+#define CARD_LABEL_W   48
 #define SWATCH_CARD_H  46
 #define BRIGHT_CARD_H  42
 #define STEALTH_CARD_H 40
-#define SWATCH_D       22
+#define SWATCH_D       18
 #define BAR_H          12
 #define PILL_W         52
 #define PILL_H         24
@@ -195,7 +196,10 @@ static void build_preview(void) {
   lv_obj_remove_flag(s_preview, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(s_preview, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(s_preview, PREVIEW_D, PREVIEW_D);
-  lv_obj_align(s_preview, LV_ALIGN_TOP_MID, 0, PREVIEW_Y);
+  lv_obj_align(s_preview,
+               LED_WIDE_VIEW ? LV_ALIGN_TOP_LEFT : LV_ALIGN_TOP_MID,
+               LED_WIDE_VIEW ? MX : 0,
+               LED_WIDE_VIEW ? 86 : PREVIEW_Y);
   lv_obj_set_style_radius(s_preview, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_pad_all(s_preview, 0, 0);
 }
@@ -211,7 +215,7 @@ static void build_color_card(lv_obj_t *parent) {
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
-  lv_obj_set_style_pad_column(row, 6, 0);
+  lv_obj_set_style_pad_column(row, 3, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_flex_grow(row, 1);
@@ -285,11 +289,9 @@ static void build_controls(void) {
   lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(col, CONTENT_W, LV_SIZE_CONTENT);
   lv_obj_align(col,
-               LV_ALIGN_TOP_MID,
-               0,
-               LV_MIN(CTRL_Y,
-                      ui_screen_h() - UI_CHROME_FOOTER_H -
-                          (SWATCH_CARD_H + BRIGHT_CARD_H + STEALTH_CARD_H + 2 * CTRL_GAP)));
+               LED_WIDE_VIEW ? LV_ALIGN_TOP_RIGHT : LV_ALIGN_TOP_MID,
+               LED_WIDE_VIEW ? -MX : 0,
+               LED_WIDE_VIEW ? PREVIEW_Y : CTRL_Y);
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(col, 0, 0);
   lv_obj_set_style_pad_all(col, 0, 0);
@@ -450,7 +452,8 @@ void ui_led_ctrl_open(void) {
   update_preview();
   update_focus();
 
-  ui_chrome_footer(s_screen, "UP/DOWN pick   L/R adjust   BACK save");
+  ui_chrome_footer(
+      s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Pick  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Set  BACK");
 
   ui_input_set_screen_handler(led_ctrl_input, NULL);
 

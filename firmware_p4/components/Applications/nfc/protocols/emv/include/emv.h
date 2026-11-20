@@ -37,10 +37,15 @@ extern "C" {
  * @brief EMV application descriptor (AID + label).
  */
 typedef struct {
-  uint8_t aid[EMV_AID_MAX_LEN];       /**< Application Identifier bytes. */
+  uint8_t aid[EMV_AID_MAX_LEN]; /**< Application Identifier bytes. */
+  uint8_t priority;
+  uint16_t pdol_size;
   uint8_t aid_len;                    /**< Length of AID in bytes. */
   char label[EMV_APP_LABEL_MAX + 1U]; /**< Null-terminated application label. */
 } emv_app_t;
+
+/** Validate selected FCI and extract label/PDOL size, without requesting GPO. */
+hb_nfc_err_t emv_describe_app(const uint8_t *fci, size_t len, emv_app_t *app);
 
 /**
  * @brief Single entry from the Application File Locator (AFL).
@@ -51,6 +56,55 @@ typedef struct {
   uint8_t record_last;          /**< Last record number. */
   uint8_t offline_auth_records; /**< Number of records for offline auth. */
 } emv_afl_entry_t;
+
+#define EMV_FIELD_BYTES 27U
+#define EMV_PDOL_BYTES  247U
+
+typedef enum {
+  EMV_FIELD_PAN,
+  EMV_FIELD_AIP,
+  EMV_FIELD_NAME,
+  EMV_FIELD_LABEL,
+  EMV_FIELD_HOLDER,
+  EMV_FIELD_EXPIRY,
+  EMV_FIELD_EFFECTIVE,
+  EMV_FIELD_COUNTRY,
+  EMV_FIELD_CURRENCY,
+  EMV_FIELD_PIN_TRIES,
+  EMV_FIELD_ATC,
+  EMV_FIELD_LAST_ATC,
+  EMV_FIELD_PRIORITY,
+  EMV_FIELD_LOG_ENTRY,
+  EMV_FIELD_COUNT
+} emv_field_t;
+
+#define EMV_LOG_COUNT        16U
+#define EMV_LOG_FIELDS       6U
+#define EMV_LOG_FORMAT_BYTES 50U
+typedef struct {
+  uint8_t value[EMV_LOG_FIELDS][6];
+  uint8_t length[EMV_LOG_FIELDS];
+} emv_log_t;
+
+typedef struct {
+  emv_app_t app;
+  uint8_t value[EMV_FIELD_COUNT][EMV_FIELD_BYTES];
+  uint8_t length[EMV_FIELD_COUNT];
+  uint16_t records_read;
+  uint16_t status;
+  bool is_complete;
+  uint8_t log_count;
+  emv_log_t logs[EMV_LOG_COUNT];
+} emv_profile_t;
+
+hb_nfc_err_t emv_decode_metadata(const uint8_t *data, size_t length, emv_profile_t *profile);
+hb_nfc_err_t emv_prepare_pdol(
+    const uint8_t *dol, size_t length, uint8_t *out, size_t capacity, size_t *out_length);
+hb_nfc_err_t emv_read_application(hb_nfc_protocol_t proto,
+                                  const void *ctx,
+                                  emv_profile_t *profile,
+                                  bool (*should_cancel)(void),
+                                  int timeout_ms);
 
 /**
  * @brief Callback invoked for each EMV record read.

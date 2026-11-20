@@ -23,10 +23,11 @@
 #include "tos_storage_paths.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
 
 static const char *TAG = "INTERFACE_SETTINGS_UI";
 
-#define ENTRY_FADE_MS 200
+#define ENTRY_FADE_MS UI_CONTENT_FADE_MS
 
 #define ROW_HAPTICS 0
 #define ROW_THEME   1
@@ -34,6 +35,7 @@ static const char *TAG = "INTERFACE_SETTINGS_UI";
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
+static int s_selected;
 static bool s_changed = false;
 
 static void interface_settings_input(const input_event_t *ev, void *ctx) {
@@ -53,6 +55,7 @@ static void interface_settings_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_OK:
       if (press) {
         int sel = menu_component_get_selected(&s_menu);
+        s_selected = sel;
         if (sel == ROW_THEME) {
           ui_switch_screen(SCREEN_THEME_SELECTOR);
         } else if (sel == ROW_LED) {
@@ -106,13 +109,14 @@ void ui_interface_settings_open(void) {
 
   s_menu = menu_component_create(s_screen, "INTERFACE", "/assets/icons/tune.bin");
   menu_component_add_toggle(
-      &s_menu, "/assets/icons/vibration.bin", "Haptics", g_config_system.vibration);
+      &s_menu, "/assets/icons/vibration.bin", "Menu vibration", g_config_system.vibration);
   menu_component_add_item(&s_menu, "/assets/icons/palette.bin", "Theme");
   menu_component_add_item(&s_menu, "/assets/icons/sensors.bin", "LED / Notify");
 
   if (s_menu.items_cont != NULL)
     lv_obj_fade_in(s_menu.items_cont, ENTRY_FADE_MS, 0);
 
+  menu_component_select(&s_menu, s_selected);
   ui_input_set_screen_handler(interface_settings_input, NULL);
 
   ui_screen_load_owned(&s_screen, s_screen);

@@ -59,10 +59,17 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "wardrive/wardrive.c"
+  "wardrive/wardrive_gps.c"
+  "imu/imu_motion.c"
+  "imu/imu_orientation.c"
+  "board_service/board_service.c"
+  "haptic/haptic.c"
   ${SCRIPT_ENGINE_SRCS}
   "font/font.c"
   "icons/icons.c"
   "wifi/wifi_service.c"
+  "wifi/wifi_capture_queue.c"
   "wifi/mac_vendor.c"
   "boot_report/boot_report.c"
   "boot_sound/boot_sound.c"
@@ -112,6 +119,9 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "wardrive/include"
+  "imu/include"
+  "board_service/include"
   "script_engine/include"
   "font/include"
   "icons/include"
@@ -122,6 +132,7 @@ idf_component_register(SRCS
   "sys_time/include"
   "power_manager/include"
   "ir/include"
+  "haptic/include"
   "storage_api/include"
   "storage_vfs/include"
   "storage_assets/include"

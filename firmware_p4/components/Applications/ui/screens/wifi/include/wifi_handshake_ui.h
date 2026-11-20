@@ -26,6 +26,7 @@ extern "C" {
  *        light green as the 4-way handshake completes.
  */
 void ui_wifi_handshake_open(void);
+void ui_wifi_handshake_stop(void);
 
 #ifdef __cplusplus
 }

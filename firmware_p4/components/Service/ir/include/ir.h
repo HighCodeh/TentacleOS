@@ -28,29 +28,20 @@ extern "C" {
 #include "driver/rmt_types.h"
 
 #include "ir_protocol.h"
-#include "pin_def.h" // GPIO_IR_TX_PIN / GPIO_IR_RX_PIN — board pin map (was hardcoded 5/6 here,
-                     // which fought the schematic remap in pin_def.h: TX=0, RX=1)
 
-#define IR_RMT_RESOLUTION_HZ 1000000
-#define IR_RMT_MEM_SYMBOLS   128
-#define IR_MAX_SYMBOLS       512
-// Non-DMA RX FIFO depth: 2x the P4's 48-word-per-channel block. Long frames
-// ping-pong into the IR_MAX_SYMBOLS user buffer. (DMA RX on this board failed at
-// rmt_receive() and the old error paths leaked the channel — see ir_rx_init.)
-#define IR_RX_MEM_BLOCK_SYMBOLS 96
-// TX channel FIFO: 64 symbols = 2 P4 channels (was 128 = 3, which nearly
-// exhausts the 4 TX channels alongside the WS2812 LED strip). rmt_transmit()
-// ping-pongs longer frames; the encode buffer stays IR_RMT_MEM_SYMBOLS.
-#define IR_TX_MEM_BLOCK_SYMBOLS 64
-#define IR_RX_MIN_NS            1250
-#define IR_RX_MAX_NS            12000000
-#define IR_TX_QUEUE_DEPTH       4
-#define IR_CARRIER_DUTY_CYCLE   0.33f
-#define IR_TX_WAIT_MS           1000
-#define IR_PRINT_MAX_SYMBOLS    40
+// Physical channels belong to C5; codecs retain local RMT symbol containers.
+#define IR_RMT_RESOLUTION_HZ  1000000
+#define IR_RMT_MEM_SYMBOLS    128
+#define IR_MAX_SYMBOLS        512
+#define IR_RX_MIN_NS          1250
+#define IR_RX_MAX_NS          12000000
+#define IR_TX_QUEUE_DEPTH     4
+#define IR_CARRIER_DUTY_CYCLE 0.33f
+#define IR_TX_WAIT_MS         1000
+#define IR_PRINT_MAX_SYMBOLS  40
 
 /**
- * @brief Initialize the IR RX channel.
+ * @brief Acquire an exclusive remote RX session for the calling task.
  *
  * @return
  *   - ESP_OK on success
@@ -59,13 +50,11 @@ extern "C" {
  */
 esp_err_t ir_rx_init(void);
 
+// Release the calling task's remote session; retain ownership on an uncertain result.
+esp_err_t ir_close(void);
+
 /**
- * @brief Prepare the RX channel for a fresh capture: drop any stale/ambient frame
- *        and re-arm the one-shot receive if a previous frame left it idle.
- *
- * Call this at the start of every capture. Without it, a frame arriving between
- * captures (e.g. an NEC repeat frame) consumes the armed receive without re-arming,
- * so the next ir_receive() would wait forever.
+ * @brief Compatibility entry point; each ir_receive starts a fresh remote capture.
  */
 void ir_rx_prime(void);
 
@@ -79,7 +68,7 @@ void ir_rx_prime(void);
 void ir_rx_deinit(void);
 
 /**
- * @brief Initialize the IR TX channel.
+ * @brief Acquire an exclusive remote TX session for the calling task.
  *
  * @return
  *   - ESP_OK on success
@@ -97,20 +86,16 @@ esp_err_t ir_tx_init(void);
 void ir_tx_deinit(void);
 
 /**
- * @brief Drive the IR emitter fully on (DC, no carrier) at maximum power.
+ * @brief Activate confirmed DC torch on C5, limited to 1000 ms without renewal.
  *
- * Torch mode: bypasses the RMT carrier and holds GPIO_IR_TX_PIN high so the LED
- * stays continuously lit instead of pulsing at the 38 kHz carrier duty. Releases
- * the RMT TX channel first (ir_tx_deinit) so it does not fight for the pin. The
- * emitter is infrared, so it is invisible to the eye - verify with a phone camera.
- * Continuous full-power drive: use for tests/short bursts, do not leave on for long.
- *
- * @return ESP_OK on success, or an ESP_ERR code from the GPIO driver.
+ * The software limit is not a validated electrical continuous-current rating.
+ * Call ir_flash_off to release ownership after expiry or failure.
+ * @return ESP_OK on confirmed activation; transport/backend error otherwise.
  */
 esp_err_t ir_flash_on(void);
 
 /**
- * @brief Turn the IR emitter off after ir_flash_on() (drives GPIO_IR_TX_PIN low).
+ * @brief Turn the IR emitter off after ir_flash_on() (drives C5 emitter low).
  *
  * @return ESP_OK on success, or an ESP_ERR code from the GPIO driver.
  */

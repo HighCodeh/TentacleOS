@@ -100,7 +100,15 @@ static void wifi_names_input(const input_event_t *ev, void *ctx) {
         int count = wifi_names_count();
         if (sel >= 0 && sel <= count && !(sel == count && count >= WIFI_NAMES_MAX)) {
           s_edit_index = sel;
-          keyboard_open(NULL, on_kb_submit, NULL);
+          keyboard_open_config(
+              &(keyboard_config_t){.title = sel < count ? "Edit network (empty deletes)"
+                                                        : "New network name",
+                                   .initial = sel < count ? wifi_names_get(sel) : NULL,
+                                   .max_chars = 32,
+                                   .min_chars = 0,
+                                   .mode = KEYBOARD_TEXT},
+              on_kb_submit,
+              NULL);
         }
       }
       break;

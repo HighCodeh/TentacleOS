@@ -3,7 +3,7 @@
   "idf_version": "v6.1",
   "idf_commit": "fff9895c82d744c7237be8847347bdd1b07c6643",
   "sdk_version_sha256": "09228291a5c5ee860c432c782a79bb2abd24e6989254d5d5614de7a8d822b747",
-  "patch_sha256": "f4b463f6327e13e25ee4e509669d949115e96fc07a8169b6dc43a0cfe5d40cb2",
+  "patch_sha256": "5b5c0ea95136bb709038d8b114932afb07e098c4af7c11b0ea0b07dd906ad6e3",
   "files": {
     "CMakeLists.txt": "bb7cd308b388a8817f87f326db7779490af2591dff928b197616e94f8b411826",
     "Kconfig": "fc3cd3cc2c23329a7932bb7b2dedf46f9ccc04787d207e2fdf2b27a9c87f7e7d",
@@ -55,7 +55,10 @@
   },
   "patched_files": {
     "src/ffconf.h": "54718b1ca8d1d5fb1c7807b3aef9d8b78d746ef138d27749047666b00acc6006",
-    "vfs/vfs_fat_sdmmc.c": "12ac15a18a61d5c71ee1f2756a8aa7241c4a3e640d2acad6fbd427bfee5b7439",
-    "vfs/esp_vfs_fat.h": "0d02d2be949239148f7f5e6fbdd468dea07d9bfa90c946ecd050f22d4addf30d"
+    "vfs/esp_vfs_fat.h": "e9f4c16754ae7e9f884536eacb8cbb1f243bb7e9baf7cf8263ed14e4f499773f",
+    "vfs/vfs_fat.c": "2222a3e3b69db74dc9e1c280c0dd2650c98e3954fa9bd0d2bf027e39464341b4",
+    "vfs/vfs_fat_sdmmc.c": "462570d303a45d4dc78819c55826f3810aeb27c87bf604c0d2d629c315895b04",
+    "src/ff.c": "f3736cf9b73feab96fe03aec9e39ef449361d096f9e24557f2a228a2e7d4289c",
+    "src/ff.h": "f28cd49a6efd5394b82f99c7ef4674898f3a1994cdb021c5ad2e1c606fc7960d"
   }
 }

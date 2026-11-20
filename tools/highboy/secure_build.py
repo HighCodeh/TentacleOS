@@ -93,7 +93,7 @@ def audit_artifacts(target, config_path, baseline_path, images):
     chip = target.upper()
     for name in ('app', 'bootloader'):
         recovery.verify_image(images[name], chip)
-    expected, by_name = partition_table(ROOT/'integration/security'/f'partitions-{target}.csv')
+    expected, by_name = partition_table(ROOT/'tools/highboy/security_profiles'/f'partitions-{target}.csv')
     require(images['partitions'] == expected, 'Factory partition map differs from reviewed source')
     _, installed = partition_table(ROOT/f'firmware_{target}/partitions.csv')
     for name, original in installed.items():

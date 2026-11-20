@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-/** @brief Open the haptic test menu (pick a DRV2605L effect; OK plays it). */
+/** @brief Configure main-menu vibration and intensity. */
 void ui_haptic_open(void);
 
 #ifdef __cplusplus

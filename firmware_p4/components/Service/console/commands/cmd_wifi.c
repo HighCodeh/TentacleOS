@@ -238,12 +238,13 @@ static int subcmd_deauth(int argc, char **argv) {
 
   if (s_deauth_args.stop->count > 0) {
     wifi_deauther_stop();
-    printf("Deauther stopped.\n");
+    ESP_LOGI(TAG, "Deauther stopped");
     return 0;
   }
 
   if (s_deauth_args.mac->count == 0) {
-    printf("Error: Target MAC required.\n");
+    ESP_LOGE(TAG, "Target MAC required");
+    led_signal_error();
     return 1;
   }
 
@@ -259,7 +260,8 @@ static int subcmd_deauth(int argc, char **argv) {
                       &mac[5]);
 
   if (parsed != 6) {
-    printf("Error: Invalid MAC format. Use XX:XX:XX:XX:XX:XX\n");
+    ESP_LOGE(TAG, "Invalid MAC format. Use XX:XX:XX:XX:XX:XX");
+    led_signal_error();
     return 1;
   }
 
@@ -270,12 +272,11 @@ static int subcmd_deauth(int argc, char **argv) {
   memcpy(target_ap.bssid, mac, 6);
   target_ap.primary = channel;
 
-  if (wifi_deauther_start(&target_ap, WIFI_DEAUTHER_TYPE_INVALID_AUTH, true)) {
-    printf("Deauth Attack Started on %s (Ch %d)\n", mac_str, channel);
-  } else {
-    printf("Failed to start Deauth (Is Wi-Fi running?).\n");
+  if (!wifi_deauther_start(&target_ap, WIFI_DEAUTHER_TYPE_INVALID_AUTH, true)) {
+    ESP_LOGE(TAG, "Failed to start deauth session");
+    return 1;
   }
-
+  ESP_LOGI(TAG, "Deauth session started for %s (channel %d)", mac_str, channel);
   return 0;
 }
 
@@ -518,7 +519,7 @@ static int subcmd_portscan(int argc, char **argv) {
   }
 
   int count = common ? port_scan_target_list(ip, ports, nports, results, 32)
-                      : port_scan_target_range(ip, min, max, results, 32);
+                     : port_scan_target_range(ip, min, max, results, 32);
 
   printf("Scan finished. Found %d open ports:\n", count);
   for (int i = 0; i < count; i++) {

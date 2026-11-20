@@ -182,3 +182,8 @@ All ops here are handled today (C5 `spi_bridge.c` for the relayed ones; P4
 host-link modules for the P4-local ones). Verify against `spi_protocol.h` and the
 C5 `Service/spi_bridge/spi_bridge.c` if in doubt.
 </content>
+
+## PC Monitor (`0x4E`)
+
+Authenticated P4-local snapshot update; 180-byte versioned payload and status-only response.
+See [PC Monitor wire contract](../pc_monitor/README.md#wire-contract). Reserved in both SPI headers.

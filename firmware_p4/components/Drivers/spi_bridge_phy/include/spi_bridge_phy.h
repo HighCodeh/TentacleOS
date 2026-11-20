@@ -39,6 +39,8 @@ extern "C" {
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t spi_bridge_phy_init(void);
+// Only under bridge exclusion, after draining its blocking transaction.
+bool spi_bridge_phy_is_idle(void);
 
 /**
  * @brief Initialize the SPI bridge physical layer, optionally without the IRQ.

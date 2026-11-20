@@ -41,6 +41,10 @@ static const char *TAG = "BLE_MOUSE_UI";
 #define DOT_CYCLE_US          350000
 #define RIGHT_CLICK_HOLD_US   700000
 #define SCROLL_REPEAT_US      140000
+#define MOUSE_WIDE_VIEW       (ui_screen_w() > ui_screen_h())
+#define MOUSE_PAD_HEIGHT      (MOUSE_WIDE_VIEW ? 40 : 84)
+#define MOUSE_CLICK_HEIGHT    (MOUSE_WIDE_VIEW ? 30 : 44)
+#define MOUSE_SCROLL_HEIGHT   (MOUSE_WIDE_VIEW ? 26 : 40)
 #define MOUSE_MOVE_STEP       7
 
 #define COL_RAISE 0x170A28
@@ -98,6 +102,12 @@ static void pair_reveal(void) {
   ui_feedback(UI_FB_EMULATE);
 }
 
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->button == INPUT_BTN_BACK && ev->action == INPUT_ACTION_PRESS)
+    ui_switch_screen(SCREEN_BLE_MENU);
+}
+
 static void pair_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_pair_screen) {
     lv_timer_delete(t);
@@ -110,11 +120,6 @@ static void pair_timer_cb(lv_timer_t *t) {
   }
 
   bool back = back_button_is_down();
-  if (back && !s_pair_back_last) {
-    ble_hid_deinit();
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
-  }
   s_pair_back_last = back;
 
   int64_t now = esp_timer_get_time();
@@ -168,6 +173,7 @@ void ui_ble_mouse_pairing_open(void) {
   if (s_pair_timer == NULL)
     s_pair_timer = lv_timer_create(pair_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_pair_screen, s_pair_screen);
 }
 
@@ -284,13 +290,6 @@ static void mouse_timer_cb(lv_timer_t *t) {
     return;
   }
 
-  if (back && !s_m_back_last) {
-    ble_hid_send_mouse(0, 0, 0, 0);
-    ble_hid_deinit();
-    ui_switch_screen(SCREEN_BLE_MENU);
-    return;
-  }
-
   if (now - s_last_conn_query >= 1000000) {
     s_last_conn_query = now;
     if (!ble_hid_is_connected()) {
@@ -381,7 +380,7 @@ void ui_ble_mouse_open(void) {
 
   lv_obj_t *pad = lv_obj_create(body);
   lv_obj_remove_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(pad, 200, 84);
+  lv_obj_set_size(pad, 200, MOUSE_PAD_HEIGHT);
   lv_obj_set_style_radius(pad, 14, 0);
   lv_obj_set_style_bg_color(pad, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(pad, LV_OPA_COVER, 0);
@@ -403,7 +402,7 @@ void ui_ble_mouse_open(void) {
   lv_obj_t *row = lv_obj_create(body);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 44);
+  lv_obj_set_height(row, MOUSE_CLICK_HEIGHT);
   lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
@@ -412,14 +411,14 @@ void ui_ble_mouse_open(void) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
   s_mouse_objs[M_LCLICK] = mouse_make_button(row, MOUSE_BTNS[M_LCLICK].text);
-  lv_obj_set_size(s_mouse_objs[M_LCLICK], lv_pct(48), 44);
+  lv_obj_set_size(s_mouse_objs[M_LCLICK], lv_pct(48), MOUSE_CLICK_HEIGHT);
   s_mouse_objs[M_RCLICK] = mouse_make_button(row, MOUSE_BTNS[M_RCLICK].text);
-  lv_obj_set_size(s_mouse_objs[M_RCLICK], lv_pct(48), 44);
+  lv_obj_set_size(s_mouse_objs[M_RCLICK], lv_pct(48), MOUSE_CLICK_HEIGHT);
 
   s_mouse_objs[M_SCRL_UP] = mouse_make_button(body, MOUSE_BTNS[M_SCRL_UP].text);
-  lv_obj_set_size(s_mouse_objs[M_SCRL_UP], lv_pct(100), 40);
+  lv_obj_set_size(s_mouse_objs[M_SCRL_UP], lv_pct(100), MOUSE_SCROLL_HEIGHT);
   s_mouse_objs[M_SCRL_DN] = mouse_make_button(body, MOUSE_BTNS[M_SCRL_DN].text);
-  lv_obj_set_size(s_mouse_objs[M_SCRL_DN], lv_pct(100), 40);
+  lv_obj_set_size(s_mouse_objs[M_SCRL_DN], lv_pct(100), MOUSE_SCROLL_HEIGHT);
 
   s_mouse_focus = M_LCLICK;
   mouse_apply_focus(s_mouse_objs[s_mouse_focus], true);
@@ -429,5 +428,18 @@ void ui_ble_mouse_open(void) {
   if (s_mouse_timer == NULL)
     s_mouse_timer = lv_timer_create(mouse_timer_cb, NAV_TIMER_INTERVAL_MS, NULL);
 
+  ui_input_set_screen_handler(handle_input, NULL);
   ui_screen_load_owned(&s_mouse_screen, s_mouse_screen);
+}
+
+void ui_ble_mouse_stop(void) {
+  if (s_pair_timer != NULL) {
+    lv_timer_delete(s_pair_timer);
+    s_pair_timer = NULL;
+  }
+  if (s_mouse_timer != NULL) {
+    lv_timer_delete(s_mouse_timer);
+    s_mouse_timer = NULL;
+  }
+  ble_hid_deinit();
 }

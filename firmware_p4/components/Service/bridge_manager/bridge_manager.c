@@ -18,132 +18,167 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "sys_prio.h"
 
+#include "board_pins.h"
+#include "board_service.h"
 #include "c5_flasher.h"
 #include "led_control.h"
 #include "ota_version.h"
 #include "spi_bridge.h"
+#include "spi_session.h"
+#include "sys_prio.h"
+
+#define VERSION_BUF_SIZE       32
+#define C5_MONITOR_PERIOD_MS   1500
+#define C5_PROBE_TIMEOUT_MS    500
+#define C5_DRAIN_TIMEOUT_MS    500
+#define C5_BOOT_WAIT_MS        2000
+#define C5_RESET_INTERVAL_MS   30000
+#define C5_FAILURE_LIMIT       3
+#define C5_RESET_LIMIT         2
+#define C5_MONITOR_STACK_BYTES 6144
+#define C5_BOARD_RETRY_MS      50
+#define C5_BOARD_RETRIES       10
+#define C5_US_PER_MS           1000
 
 static const char *TAG = "BRIDGE_MGR";
+static TaskHandle_t s_monitor;
+static uint8_t s_failures;
+static uint8_t s_resets;
+static int64_t s_next_reset_us;
 
-#define VERSION_BUF_SIZE   32
-#define VERSION_TIMEOUT_MS 1000
-
-// Link monitor: how often to re-probe the C5 while the bridge is marked dead,
-// and the per-probe timeout. Lets the P4 pick up a C5 that booted late (or
-// rebooted, e.g. after an OTA) instead of latching "no C5" forever.
-#define C5_MONITOR_PERIOD_MS 1500
-#define C5_PROBE_TIMEOUT_MS  500
-
-// Verify the C5's wire-protocol version matches ours. A drifted spi_protocol.h
-// (an id or struct changed on one side only) is NOT caught by the CRC (SPI-1):
-// the bytes are intact, but the two ends assign them different meaning. Detection
-// only - log loudly + LED error, keep the bridge up. Call once the C5 is alive.
-static void check_c5_protocol(void) {
-  spi_header_t hdr;
-  uint16_t c5_ver = 0;
-  esp_err_t r = spi_bridge_send_command(SPI_ID_SYSTEM_PROTO_VERSION,
-                                        NULL,
-                                        0,
-                                        &hdr,
-                                        (uint8_t *)&c5_ver,
-                                        sizeof(c5_ver),
-                                        C5_PROBE_TIMEOUT_MS);
-  if (r != ESP_OK) {
-    // An older C5 predates this op and answers UNSUPPORTED - itself a mismatch.
-    ESP_LOGE(TAG,
-             "C5 SPI protocol version unavailable (P4=v%u) - headers out of sync, reflash both",
-             (unsigned)SPI_PROTOCOL_VERSION);
-    led_signal_error();
-    return;
+static esp_err_t check_c5_protocol(void) {
+  spi_header_t header = {0};
+  uint8_t reply[sizeof(uint16_t) + 1] = {0};
+  esp_err_t ret = spi_bridge_send_command(
+      SPI_ID_SYSTEM_PROTO_VERSION, NULL, 0, &header, reply, sizeof(reply), C5_PROBE_TIMEOUT_MS);
+  if (ret != ESP_OK)
+    return ret;
+  uint16_t version;
+  memcpy(&version, reply, sizeof(version));
+  if (header.length != sizeof(version) || version != SPI_PROTOCOL_VERSION) {
+    ESP_LOGE(TAG, "C5 protocol mismatch; update the firmware pair");
+    return ESP_ERR_NOT_SUPPORTED;
   }
-  if (c5_ver != SPI_PROTOCOL_VERSION) {
-    ESP_LOGE(TAG,
-             "SPI protocol MISMATCH: P4=v%u C5=v%u - spi_protocol.h copies drifted, reflash both",
-             (unsigned)SPI_PROTOCOL_VERSION,
-             (unsigned)c5_ver);
-    led_signal_error();
-    return;
-  }
-  ESP_LOGI(TAG, "SPI protocol v%u OK", (unsigned)SPI_PROTOCOL_VERSION);
+  return ESP_OK;
 }
 
-// Background task: while the bridge is dead, keep probing; revive it the moment
-// the C5 answers. Idle (no bus traffic) once the link is up, so it never
-// competes with real commands.
+static esp_err_t establish_link(void) {
+  esp_err_t ret = check_c5_protocol();
+  if (ret != ESP_OK)
+    return ret;
+  for (uint8_t attempt = 0; attempt < C5_BOARD_RETRIES; attempt++) {
+    ret = board_service_reconcile();
+    if (ret != ESP_ERR_INVALID_STATE)
+      break;
+    vTaskDelay(pdMS_TO_TICKS(C5_BOARD_RETRY_MS));
+  }
+  return ret;
+}
+
+static void restore_link(bool reset) {
+  esp_err_t ret = spi_bridge_recovery_begin(C5_DRAIN_TIMEOUT_MS);
+  if (ret != ESP_OK)
+    return; // No drain confirmation: no GPIO reset.
+  spi_session_link_lost();
+  if (spi_bridge_recovery_is_disabled())
+    ret = ESP_ERR_INVALID_STATE;
+  if (reset && ret == ESP_OK) {
+    // Budget belongs to P4 uptime, never to C5 epochs or successful probes.
+    ++s_resets;
+    s_next_reset_us = esp_timer_get_time() + (int64_t)C5_RESET_INTERVAL_MS * C5_US_PER_MS;
+    ESP_LOGW(TAG, "Physical C5 reset %u/%u", s_resets, C5_RESET_LIMIT);
+    ret = board_pins_reset_c5();
+    if (ret == ESP_OK)
+      vTaskDelay(pdMS_TO_TICKS(C5_BOOT_WAIT_MS));
+  }
+  if (ret == ESP_OK)
+    ret = establish_link();
+  spi_bridge_recovery_finish(ret == ESP_OK);
+  s_failures = 0;
+  if (ret == ESP_OK) {
+    ESP_LOGI(TAG, "C5 link negotiated; previous operations discarded");
+    led_signal_info();
+  } else {
+    ESP_LOGW(TAG, "C5 recovery incomplete: %s", esp_err_to_name(ret));
+    led_signal_error();
+  }
+}
+
+static void monitor_once(void) {
+  if (!spi_bridge_recovery_permitted()) {
+    s_failures = 0;
+    return;
+  }
+  spi_header_t header = {0};
+  esp_err_t ret =
+      spi_bridge_send_command(SPI_ID_SYSTEM_PING, NULL, 0, &header, NULL, 0, C5_PROBE_TIMEOUT_MS);
+  if (ret == ESP_OK && header.length == 0) {
+    s_failures = 0;
+    if (!spi_bridge_is_alive())
+      restore_link(false);
+    return;
+  }
+  if (ret != ESP_OK && ret != ESP_ERR_TIMEOUT && ret != ESP_ERR_INVALID_RESPONSE &&
+      ret != ESP_ERR_INVALID_CRC && ret != ESP_FAIL) {
+    s_failures = 0;
+    return;
+  }
+  if (s_failures < C5_FAILURE_LIMIT)
+    ++s_failures;
+  if (s_failures < C5_FAILURE_LIMIT)
+    return;
+  spi_bridge_set_alive(false);
+  if (s_resets >= C5_RESET_LIMIT || esp_timer_get_time() < s_next_reset_us)
+    return;
+  restore_link(true);
+}
+
 static void c5_link_monitor(void *arg) {
   (void)arg;
-  spi_header_t hdr;
-  uint8_t ver[VERSION_BUF_SIZE];
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(C5_MONITOR_PERIOD_MS));
-    if (spi_bridge_is_alive()) {
-      continue; // link already up - don't poke the bus
-    }
-    // Optimistically allow one probe (nothing else touches the bus while dead).
-    spi_bridge_set_alive(true);
-    memset(ver, 0, sizeof(ver));
-    esp_err_t r = spi_bridge_send_command(
-        SPI_ID_SYSTEM_VERSION, NULL, 0, &hdr, ver, sizeof(ver), C5_PROBE_TIMEOUT_MS);
-    if (r == ESP_OK) {
-      ESP_LOGI(TAG, "C5 link established (detected after boot), version: %s", ver);
-      led_signal_info(); // C5 back: clear the degraded (warning) indicator
-      check_c5_protocol();
-    } else {
-      spi_bridge_set_alive(false); // still absent - stay dead, try again later
-    }
+    monitor_once();
   }
 }
 
 esp_err_t bridge_manager_init(void) {
-  ESP_LOGI(TAG, "Initializing bridge manager");
-  ESP_LOGI(TAG, "Expected C5 version: %s", FIRMWARE_VERSION);
-
-  // The HighBoy V2 PCB has no bridge IRQ trace (GPIO_BRIDGE_IRQ_PIN = -1), so
-  // the master polls the bus instead of waiting on an IRQ. Must match the C5.
-  if (spi_bridge_master_init_mode(SPI_BRIDGE_MODE_POLL) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to init SPI bridge");
-    return ESP_FAIL;
-  }
-
-  // Background link monitor: idles while the bridge is alive, and re-detects the
-  // C5 whenever it appears if the boot-time check marks the bridge dead (late
-  // C5 boot, or a C5 reboot after an OTA). Started once here.
-  // 6 KB: the probe calls spi_bridge_send_command (which puts two SPI_FRAME_SIZE
-  // buffers on the stack) and logs via vfprintf on timeout - 3 KB overflowed.
-  xTaskCreatePinnedToCore(
-      c5_link_monitor, "c5_link_mon", 6144, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
-
-  spi_header_t resp_header;
-  uint8_t resp_ver[VERSION_BUF_SIZE];
-  memset(resp_ver, 0, sizeof(resp_ver));
-
-  ESP_LOGI(TAG, "Checking C5 version");
-  esp_err_t ret = spi_bridge_send_command(
-      SPI_ID_SYSTEM_VERSION, NULL, 0, &resp_header, resp_ver, sizeof(resp_ver), VERSION_TIMEOUT_MS);
-
-  // Detection only - never flash automatically. If the C5 is silent or on a
-  // different version, just report it; the user updates explicitly with the
-  // 'c5' console command. The link monitor keeps re-probing while it is down.
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "C5 not responding - bridge marked down (run 'c5 ota' to flash the C5)");
-    spi_bridge_set_alive(false);
+  if (s_monitor != NULL)
     return ESP_OK;
+  esp_err_t ret = spi_bridge_master_init_mode(SPI_BRIDGE_MODE_POLL);
+  if (ret != ESP_OK)
+    return ret;
+  ret = board_service_init();
+  if (ret != ESP_OK)
+    return ret;
+  spi_header_t header = {0};
+  uint8_t version[VERSION_BUF_SIZE] = {0};
+  ret = spi_bridge_send_command(
+      SPI_ID_SYSTEM_VERSION, NULL, 0, &header, version, sizeof(version) - 1, C5_PROBE_TIMEOUT_MS);
+  if (ret == ESP_OK) {
+    ESP_LOGI(TAG, "C5 version: %s (expected %s)", version, FIRMWARE_VERSION);
+    ret = check_c5_protocol();
   }
-
-  ESP_LOGI(TAG, "C5 version: %s (expected: %s)", resp_ver, FIRMWARE_VERSION);
-  if (strcmp((char *)resp_ver, FIRMWARE_VERSION) != 0) {
-    ESP_LOGW(TAG, "C5 version differs - update available (run 'c5 ota' to apply)");
+  spi_bridge_set_alive(ret == ESP_OK);
+  if (xTaskCreatePinnedToCore(c5_link_monitor,
+                              "c5_link_mon",
+                              C5_MONITOR_STACK_BYTES,
+                              NULL,
+                              SYS_PRIO_SERVICE_LO,
+                              &s_monitor,
+                              SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "C5 supervisor allocation failed");
+    return ESP_ERR_NO_MEM;
   }
-  check_c5_protocol();
-  ESP_LOGI(TAG, "C5 bridge alive");
   return ESP_OK;
 }
 
 esp_err_t bridge_manager_force_update(void) {
-  c5_flasher_init();
+  esp_err_t ret = c5_flasher_init();
+  if (ret != ESP_OK)
+    return ret;
   return c5_flasher_update(NULL, 0, SPI_OTA_TRANSPORT_SPI);
 }

@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Bluetooth Service Component Documentation
 
 This component manages the Bluetooth Low Energy (BLE) functionality of the device using the Apache NimBLE stack. It provides a high-level API for initialization, lifecycle management, scanning, advertising, connection handling, and address randomization.
@@ -75,6 +92,25 @@ Starts a passive BLE sniffer (raw advertisement capture). `cb` is invoked for ea
 void bluetooth_service_stop_sniffer(void);
 ```
 Stops the BLE sniffer.
+
+On the integrated P4 build, the service proxies stream callbacks from the C5
+through the SPI polling task. C5 receives advertisements through the NimBLE host
+task; neither callback runs in an ISR. Both application sniffers use
+`xTaskCreatePinnedToCoreWithCaps`: their stack and packet storage are in
+PSRAM while the SDK task control block and queue control are internal.
+Allocation, task creation and service-start failure unwind all acquired
+resources. Stop detaches late packet producers before releasing queue storage
+and uses the matching SDK task deletion API. The Exposure view permits reset
+and empty-result queries before initialization, checks mutex allocation, and
+leaves a failed start retryable. These are covered by
+`tools/highboy/tests/test_ble_ui_lifecycle.py`, including the C5 path that formerly
+passed a PSRAM TCB to `xTaskCreateStatic` and asserted on the device. Mocks do not establish RF capture
+quality. UI BACK uses the router's close hook once for detection screens.
+
+C5 enables the advertisement stream when binding a valid session and disables
+it on stop, session loss or failed startup. A running NimBLE scan alone does not
+enable the bridge stream; omitting this gate left the P4 frame count at zero.
+The lifecycle test checks stream ownership through repeated session cleanup.
 
 #### `bluetooth_service_start_tracker`
 ```c
@@ -209,3 +245,35 @@ on its NimBLE queue, rejects competing radio operations while owned, expires the
 connection lease and releases NPL resources before port deinitialization.
 The previous static reference catalog and C5 JSON-only result path are replaced.
 Device interoperability and the physical integration matrix remain unverified.
+
+## BLE advertising device catalogs
+
+The existing BLE advertising generators use the [device catalog](DEVICE_CATALOG.md)
+for Fast Pair, Samsung Watch/Buds and Apple Proximity Pair. The catalog documents
+upstream attribution, packet compatibility and the offline regression command.
+
+## Screen shutdown on High Boy
+
+Sniffer, tracker, skimmer, exposure, device tracking, spam, flood and keyboard
+screens register their stop functions with the UI manager. Stop now runs on
+normal navigation, shutdown and application handover, rather than relying only
+on BACK or a later timer tick. The affected passive/session screens remove their
+timers, stop their operation and request BLE deinitialization; a failed shutdown
+is logged. Keyboard shutdown also removes both UI timers.
+
+The standalone scanner releases a stack it initialized after copying the scan
+results, including startup failure. A stack already initialized by another user
+is retained. C5 refuses generic STOP/DEINIT during an active session or async
+scan, preventing late cleanup from tearing down an operation that now owns BLE.
+HID DEINIT stops advertising/connections and releases the generic stack/service
+table when idle. The P4 cached running indicator is cleared after successful
+deinitialization. Radio settings remain an explicit persistent control.
+
+The advertiser waits for its startup worker to finish before teardown; it no
+longer launches an independent stop task that can race the next screen. Mouse
+cleanup removes both timers and releases HID, except when moving between its
+pairing and control screens, which intentionally share the connection. C5
+clears advertising intent and old scan callbacks during deinit. Routine BLE
+startup/result-list diagnostics are DEBUG to preserve P4 flash space.
+Run `python3 tools/bluetooth/test_screen_cleanup.py` for timer/operation cleanup
+and repeated-stop regression checks.

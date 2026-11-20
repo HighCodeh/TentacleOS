@@ -37,7 +37,7 @@ def is_first_party(path):
 
 def main():
     names = subprocess.check_output(["git", "diff", "--cached", "--name-only", "-z",
-                                     "--diff-filter=ACM"]).decode().split("\0")
+                                     "--diff-filter=ACMR"]).decode().split("\0")
     names = [name for name in names if is_first_party(name)]
     if not names:
         return
@@ -47,6 +47,8 @@ def main():
         if staged != Path(name).read_bytes():
             raise SystemExit("Stage the complete file before formatting: " + name)
     version = subprocess.check_output(["clang-format", "--version"], text=True).strip()
+    if "version 22.1.5" not in version:
+        raise SystemExit("Use clang-format 22.1.5, matching CI: pip install clang-format==22.1.5")
     before = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in names}
     for start in range(0, len(names), 100):
         subprocess.run(["clang-format", "-i", *names[start:start + 100]], check=True)

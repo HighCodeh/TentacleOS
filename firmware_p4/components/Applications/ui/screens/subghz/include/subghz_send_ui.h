@@ -25,6 +25,7 @@ extern "C" {
  *        and replay it over the CC1101 transmitter.
  */
 void ui_subghz_send_open(void);
+void ui_subghz_send_stop(void);
 
 #ifdef __cplusplus
 }

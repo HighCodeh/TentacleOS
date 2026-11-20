@@ -15,10 +15,10 @@
 
 /**
  * @file game_fx.h
- * @brief Shared sound and haptic cues for the mini-games.
+ * @brief Shared sound cues for the mini-games.
  *
- * Each cue plays a short melody on the speaker (off-thread, self-contained I2S)
- * and fires a DRV2605L haptic effect. Safe to call from the LVGL/game-loop
+ * Each cue plays a short melody on the speaker (off-thread, self-contained I2S).
+ * Safe to call from the LVGL/game-loop
  * thread.
  */
 
@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Sound and haptic cue kinds for the mini-games.
+ * @brief Sound cue kinds for the mini-games.
  */
 typedef enum {
   GFX_FLAP,   ///< Wing flap / move
@@ -42,7 +42,7 @@ typedef enum {
 } game_fx_t;
 
 /**
- * @brief Play the sound and haptic effect for a cue.
+ * @brief Play the sound effect for a cue.
  *
  * @param kind  The cue to play.
  */

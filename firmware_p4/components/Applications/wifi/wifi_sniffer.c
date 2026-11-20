@@ -18,11 +18,16 @@
 #include "led_control.h"
 
 #include <string.h>
+#include <stdatomic.h>
 #include <sys/time.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #include "pcap_serializer.h"
+#include "wifi_ap_capture.h"
+#include "wifi_capture_queue.h"
 #include "spi_bridge.h"
 #include "spi_session.h"
 #include "storage_mkdir.h"
@@ -71,10 +76,15 @@ static uint16_t channel_to_freq(uint8_t channel) {
 }
 
 static spi_sniffer_stats_t s_cached_stats;
-static wifi_sniffer_cb_t s_stream_cb = NULL;
+static _Atomic(wifi_sniffer_cb_t) s_stream_cb = NULL;
 static storage_stream_t s_capture_stream = NULL;
+static StaticSemaphore_t s_capture_mutex_storage;
+static SemaphoreHandle_t s_capture_mutex;
+static esp_err_t s_capture_error = ESP_OK;
+static atomic_bool s_is_ap_capture;
 static char s_capture_path[WIFI_SNIFFER_PATH_MAX];
-static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
+static atomic_uint s_session_id = SPI_SESSION_INVALID_ID;
+static uint32_t s_reasm_session_id = SPI_SESSION_INVALID_ID;
 
 static uint8_t s_reasm_buf[SPI_WIFI_SNIFFER_FRAME_MAX];
 static uint16_t s_reasm_total;
@@ -119,8 +129,33 @@ static void reasm_reset(void) {
   s_reasm_have = 0;
 }
 
+static esp_err_t write_ap_frame(const wifi_capture_queue_frame_t *frame) {
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  if (s_capture_error == ESP_OK)
+    s_capture_error = wifi_ap_capture_frame_at(frame->data, frame->len, &frame->received_at);
+  esp_err_t result = s_capture_error;
+  xSemaphoreGive(s_capture_mutex);
+  return result;
+}
+
 static void emit_frame(const uint8_t *data, uint16_t len, int8_t rssi, uint8_t channel) {
-  if (s_capture_stream != NULL) {
+  if (spi_session_callback_id() != atomic_load(&s_session_id))
+    return;
+  if (atomic_load(&s_is_ap_capture)) {
+    wifi_capture_queue_push(data, len);
+    wifi_sniffer_cb_t cb = atomic_load(&s_stream_cb);
+    if (cb != NULL)
+      cb(data, len, rssi, channel);
+    return;
+  }
+  if (s_capture_mutex == NULL)
+    return;
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  if (spi_session_callback_id() != atomic_load(&s_session_id)) {
+    xSemaphoreGive(s_capture_mutex);
+    return;
+  }
+  if (s_capture_stream != NULL && s_capture_error == ESP_OK) {
     const radiotap_header_t radiotap = {
         .version = 0,
         .pad = 0,
@@ -142,25 +177,40 @@ static void emit_frame(const uint8_t *data, uint16_t len, int8_t rssi, uint8_t c
         .incl_len = total_len,
         .orig_len = total_len,
     };
-    storage_stream_write(s_capture_stream, &rec, sizeof(rec));
-    storage_stream_write(s_capture_stream, &radiotap, sizeof(radiotap));
-    storage_stream_write(s_capture_stream, data, len);
+    s_capture_error = storage_stream_write(s_capture_stream, &rec, sizeof(rec));
+    if (s_capture_error == ESP_OK)
+      s_capture_error = storage_stream_write(s_capture_stream, &radiotap, sizeof(radiotap));
+    if (s_capture_error == ESP_OK)
+      s_capture_error = storage_stream_write(s_capture_stream, data, len);
+    if (s_capture_error != ESP_OK)
+      ESP_LOGE(TAG, "PCAP write failed; capture is incomplete");
   }
 
-  if (s_stream_cb != NULL) {
-    s_stream_cb(data, len, rssi, channel);
-  }
+  xSemaphoreGive(s_capture_mutex);
+
+  wifi_sniffer_cb_t cb = atomic_load(&s_stream_cb);
+  if (cb != NULL)
+    cb(data, len, rssi, channel);
 }
 
 static void session_stream_cb(const uint8_t *payload, uint8_t len) {
+  uint32_t session_id = spi_session_callback_id();
+  if (session_id == SPI_SESSION_INVALID_ID || session_id != atomic_load(&s_session_id))
+    return;
+  if (s_reasm_session_id != session_id) {
+    reasm_reset();
+    s_reasm_session_id = session_id;
+  }
   if (payload == NULL || len < sizeof(spi_wifi_sniffer_frame_t))
     return;
   const spi_wifi_sniffer_frame_t *frag = (const spi_wifi_sniffer_frame_t *)payload;
 
   uint16_t avail = (uint16_t)(len - sizeof(spi_wifi_sniffer_frame_t));
   uint16_t frag_len = frag->frag_len;
-  if (frag_len > avail)
-    frag_len = avail; // never read past what actually arrived
+  if (frag_len == 0 || frag_len > avail) {
+    reasm_reset();
+    return;
+  }
 
   if (frag->frag_off == 0) {
     // Start of a new frame; abandon any partial one still in the buffer.
@@ -218,7 +268,8 @@ static bool start_internal(wifi_sniffer_type_t type,
                            bool monitor_mode,
                            wifi_analysis_band_t band,
                            wifi_sniffer_cb_t cb) {
-  if (band > WIFI_ANALYSIS_BAND_5G)
+  if (band > WIFI_ANALYSIS_BAND_5G || type >= WIFI_SNIFFER_TYPE_COUNT ||
+      s_session_id != SPI_SESSION_INVALID_ID || s_is_ap_capture)
     return false;
   uint8_t payload[4];
   payload[0] = (uint8_t)type;
@@ -227,7 +278,6 @@ static bool start_internal(wifi_sniffer_type_t type,
   payload[3] = (uint8_t)band;
   memset(&s_cached_stats, 0, sizeof(s_cached_stats));
   s_stream_cb = cb;
-  reasm_reset();
 
   // Ask the C5 for the whole frame; fragments are reassembled on our side.
   wifi_sniffer_set_snaplen(SPI_WIFI_SNIFFER_FRAME_MAX);
@@ -236,10 +286,36 @@ static bool start_internal(wifi_sniffer_type_t type,
   // ...). A caller that already opened an explicit file keeps its own path.
   if (monitor_mode) {
     s_capture_path[0] = '\0';
+  } else if (s_capture_stream == NULL &&
+             (type == WIFI_SNIFFER_TYPE_EAPOL || type == WIFI_SNIFFER_TYPE_PMKID)) {
+    if (s_capture_mutex == NULL)
+      s_capture_mutex = xSemaphoreCreateMutexStatic(&s_capture_mutex_storage);
+    xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+    s_capture_error = wifi_ap_capture_start();
+    s_is_ap_capture = s_capture_error == ESP_OK;
+    if (s_is_ap_capture) {
+      s_capture_error = wifi_capture_queue_start(write_ap_frame);
+      if (s_capture_error != ESP_OK) {
+        wifi_ap_capture_stop();
+        s_is_ap_capture = false;
+      }
+    }
+    if (s_is_ap_capture) {
+      strncpy(s_capture_path, TOS_PATH_WIFI_LOOT_HS, sizeof(s_capture_path) - 1);
+      s_capture_path[sizeof(s_capture_path) - 1] = '\0';
+    }
+    xSemaphoreGive(s_capture_mutex);
+    if (!s_is_ap_capture) {
+      s_stream_cb = NULL;
+      return false;
+    }
   } else if (s_capture_stream == NULL) {
     char path[WIFI_SNIFFER_PATH_MAX];
     auto_capture_path(type, monitor_mode, path, sizeof(path));
-    wifi_sniffer_start_capture(path);
+    if (!wifi_sniffer_start_capture(path)) {
+      s_stream_cb = NULL;
+      return false;
+    }
   }
 
   s_session_id = spi_session_start(
@@ -275,12 +351,10 @@ bool wifi_sniffer_start_monitor_band(uint8_t channel, wifi_analysis_band_t band)
 }
 
 void wifi_sniffer_stop(void) {
-  if (s_session_id != SPI_SESSION_INVALID_ID) {
-    spi_session_stop(s_session_id);
-    s_session_id = SPI_SESSION_INVALID_ID;
-  }
+  uint32_t session_id = atomic_exchange(&s_session_id, SPI_SESSION_INVALID_ID);
+  if (session_id != SPI_SESSION_INVALID_ID)
+    spi_session_stop(session_id);
   wifi_sniffer_stop_capture();
-  reasm_reset();
   s_stream_cb = NULL;
 }
 
@@ -309,6 +383,10 @@ bool wifi_sniffer_get_stats(wifi_sniffer_stats_t *out) {
       .last_rssi = s_cached_stats.last_rssi,
       .handshake_captured = s_cached_stats.handshake_captured,
       .pmkid_captured = s_cached_stats.pmkid_captured,
+      .capture_attempts = s_cached_stats.capture_attempts,
+      .capture_failures = s_cached_stats.capture_failures,
+      .capture_hold_seconds = s_cached_stats.capture_hold_seconds,
+      .capture_ap_attempt = s_cached_stats.capture_ap_attempt,
   };
   memcpy(out->channel_packets, s_cached_stats.channel_packets, sizeof(out->channel_packets));
   memcpy(out->channel_peak_rssi, s_cached_stats.channel_peak_rssi, sizeof(out->channel_peak_rssi));
@@ -323,6 +401,10 @@ uint32_t wifi_sniffer_get_buffer_usage(void) {
   return s_cached_stats.buffer_usage;
 }
 
+// Recognition runs on C5 using handshake logic adapted from Gutem and contributors.
+// https://github.com/Gutem/pwnagotchi-esp32
+// P4 exposes the result received over SPI; the upstream copyright and GPL-3.0-only
+// notice are beside C5 track_handshake. See docs/wifi/README.md for attribution.
 bool wifi_sniffer_handshake_captured(void) {
   return s_cached_stats.handshake_captured;
 }
@@ -332,20 +414,25 @@ bool wifi_sniffer_pmkid_captured(void) {
 }
 
 bool wifi_sniffer_start_capture(const char *path) {
+  bool is_ok = false;
   if (path == NULL)
     return false;
-  if (s_capture_stream != NULL) {
-    storage_stream_close(s_capture_stream);
-    s_capture_stream = NULL;
+  if (s_capture_mutex == NULL)
+    s_capture_mutex = xSemaphoreCreateMutexStatic(&s_capture_mutex_storage);
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  if (s_capture_stream != NULL || s_is_ap_capture) {
+    xSemaphoreGive(s_capture_mutex);
+    return false;
   }
+  s_capture_error = ESP_OK;
+  s_capture_path[0] = '\0';
   ensure_parent_dir(path);
-
   s_capture_stream = storage_stream_open(path, "wb");
   if (s_capture_stream == NULL) {
     ESP_LOGE(TAG, "Failed to open capture file: %s", path);
-    return false;
+    s_capture_error = ESP_FAIL;
+    goto cleanup;
   }
-
   const pcap_global_header_t header = {
       .magic_number = PCAP_MAGIC_NUMBER,
       .version_major = PCAP_VERSION_MAJOR,
@@ -355,13 +442,37 @@ bool wifi_sniffer_start_capture(const char *path) {
       .snaplen = WIFI_SNIFFER_PCAP_SNAPLEN,
       .network = PCAP_LINK_TYPE_802_11_RADIOTAP,
   };
-  storage_stream_write(s_capture_stream, &header, sizeof(header));
-
+  s_capture_error = storage_stream_write(s_capture_stream, &header, sizeof(header));
+  if (s_capture_error == ESP_OK)
+    s_capture_error = storage_stream_flush(s_capture_stream);
+  if (s_capture_error != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to initialize PCAP: %s", path);
+    storage_stream_close(s_capture_stream);
+    s_capture_stream = NULL;
+    goto cleanup;
+  }
   strncpy(s_capture_path, path, sizeof(s_capture_path) - 1);
   s_capture_path[sizeof(s_capture_path) - 1] = '\0';
-
   ESP_LOGI(TAG, "Capture started: %s", path);
-  return true;
+cleanup:
+  is_ok = s_capture_error == ESP_OK;
+  xSemaphoreGive(s_capture_mutex);
+  return is_ok;
+}
+
+esp_err_t wifi_sniffer_flush_capture(void) {
+  if (s_capture_mutex == NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  esp_err_t result = s_capture_error;
+  if (result == ESP_OK && !s_is_ap_capture) {
+    if (s_capture_stream == NULL)
+      result = ESP_ERR_INVALID_STATE;
+    else
+      result = s_capture_error = storage_stream_flush(s_capture_stream);
+  }
+  xSemaphoreGive(s_capture_mutex);
+  return result;
 }
 
 const char *wifi_sniffer_get_capture_path(void) {
@@ -369,17 +480,44 @@ const char *wifi_sniffer_get_capture_path(void) {
 }
 
 bool wifi_sniffer_stop_capture(void) {
-  if (s_capture_stream == NULL)
+  if (atomic_load(&s_is_ap_capture))
+    wifi_capture_queue_stop();
+  if (s_capture_mutex == NULL)
     return false;
-  storage_stream_flush(s_capture_stream);
-  storage_stream_close(s_capture_stream);
-  s_capture_stream = NULL;
-  ESP_LOGI(TAG, "Capture stopped");
-  return true;
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  bool is_ok = false;
+  if (s_is_ap_capture) {
+    wifi_ap_capture_stop();
+    s_is_ap_capture = false;
+    is_ok = s_capture_error == ESP_OK;
+    if (is_ok)
+      ESP_LOGI(TAG, "Per-AP capture stopped");
+    else
+      ESP_LOGE(TAG, "Per-AP capture stopped with error: %s", esp_err_to_name(s_capture_error));
+  } else if (s_capture_stream != NULL) {
+    esp_err_t flush_error = storage_stream_flush(s_capture_stream);
+    esp_err_t close_error = storage_stream_close(s_capture_stream);
+    s_capture_stream = NULL;
+    if (s_capture_error == ESP_OK)
+      s_capture_error = flush_error != ESP_OK ? flush_error : close_error;
+    is_ok = s_capture_error == ESP_OK;
+    if (!is_ok)
+      ESP_LOGE(TAG, "Capture closed with error: %s", esp_err_to_name(s_capture_error));
+    else
+      ESP_LOGI(TAG, "Capture stopped");
+  }
+  xSemaphoreGive(s_capture_mutex);
+  return is_ok;
 }
 
 size_t wifi_sniffer_get_capture_size(void) {
-  return storage_stream_bytes_written(s_capture_stream);
+  if (s_capture_mutex == NULL)
+    return 0;
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  size_t size =
+      s_is_ap_capture ? wifi_ap_capture_bytes() : storage_stream_bytes_written(s_capture_stream);
+  xSemaphoreGive(s_capture_mutex);
+  return size;
 }
 
 void wifi_sniffer_free_buffer(void) {
@@ -439,4 +577,22 @@ void wifi_sniffer_get_handshake_bssid(uint8_t out_bssid[6]) {
   } else {
     memset(out_bssid, 0, 6);
   }
+}
+
+esp_err_t wifi_sniffer_capture_snapshot(wifi_ap_capture_snapshot_t *out_snapshot) {
+  if (out_snapshot == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (s_capture_mutex == NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTake(s_capture_mutex, portMAX_DELAY);
+  wifi_ap_capture_snapshot(out_snapshot);
+  wifi_capture_queue_stats_t queue;
+  wifi_capture_queue_get_stats(&queue);
+  out_snapshot->pending = queue.pending;
+  out_snapshot->queue_peak = queue.peak;
+  out_snapshot->dropped = queue.dropped;
+  out_snapshot->discarded = queue.discarded;
+  esp_err_t result = s_capture_error;
+  xSemaphoreGive(s_capture_mutex);
+  return result;
 }

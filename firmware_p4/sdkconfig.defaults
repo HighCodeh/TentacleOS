@@ -36,13 +36,14 @@ CONFIG_PARTITION_TABLE_OFFSET=0x8000
 # OTA rollback support in bootloader
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# Chip revision — this silicon is v1.3, so target the <v3.0 P4 family
-# (rev <3.0 and >=3.0 are mutually exclusive in IDF). Range becomes v1.0–v1.99.
-CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
-CONFIG_ESP32P4_REV_MIN_100=y
+# V2.03 uses P4 silicon v3.2. IDF v6.1 exposes v3.1 as the latest minimum;
+# this selects the compatible v3.1-v3.99 family (no support for pre-v3 chips).
+# CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
+CONFIG_ESP32P4_REV_MIN_301=y
 
 # CPU 360MHz (P4 maximum)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_HIGHBOY_BOARD_V203=y
 
 # Build the whole app + IDF at -O2 (perf) instead of the -Og default. The LVGL
 # software renderer is fully CPU-bound, so this is the biggest transparent speed
@@ -91,11 +92,25 @@ CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 
-# LVGL tuning: clib malloc routes blocks above SPIRAM_MALLOC_ALWAYSINTERNAL (512 B)
-# to PSRAM, so the decoded image cache (menu icons ~3 KB, frames ~150 KB) lands in
-# PSRAM instead of starving the internal DMA RAM the SPI bridge and LCD need.
+# The physical-button editor uses buttonmatrix; stock keyboard maps are unused.
+# CONFIG_LV_USE_KEYBOARD is not set
+# Calendar/window widgets have no firmware or app-runtime consumers.
+# CONFIG_LV_USE_CALENDAR is not set
+# CONFIG_LV_USE_WIN is not set
+# Unused stock widgets: native menus and editors provide these controls.
+# CONFIG_LV_USE_DROPDOWN is not set
+# CONFIG_LV_USE_ROLLER is not set
+# CONFIG_LV_USE_SPINBOX is not set
+# CONFIG_LV_USE_SCALE is not set
+# Firmware uses its own applications, not bundled LVGL examples or demos.
+# CONFIG_LV_BUILD_EXAMPLES is not set
+# CONFIG_LV_BUILD_DEMOS is not set
+
+# LVGL objects, strings and caches use PSRAM, including small allocations.
+# Keep internal DMA RAM available for the display, radios and hardware crypto.
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
-CONFIG_LV_USE_CLIB_MALLOC=y
+# CONFIG_LV_USE_CLIB_MALLOC is not set
+CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_CACHE_DEF_SIZE=1048576
 CONFIG_LV_USE_FS_POSIX=y
 CONFIG_LV_FS_POSIX_LETTER=65
@@ -157,3 +172,6 @@ CONFIG_MBEDTLS_HARDWARE_AES=n
 
 # DES/3DES is isolated in NFC; TF-PSA-Crypto rejects the SDK legacy option.
 CONFIG_MBEDTLS_DES_C=n
+
+# Name formatted SD volumes for USB storage hosts.
+CONFIG_FATFS_USE_LABEL=y

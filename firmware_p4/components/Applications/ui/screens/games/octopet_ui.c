@@ -28,7 +28,6 @@
 
 static const char *TAG = "OCTOPET";
 
-#define NAV_MS      50
 #define LIFE_MS     1500
 #define PET_ASSET   "/assets/img/octobit.bin"
 #define FAINT_TICKS 10
@@ -58,7 +57,6 @@ static int s_level = 1;
 static bool s_poop = false;
 
 static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_nav_timer = NULL;
 static lv_timer_t *s_life_timer = NULL;
 static lv_obj_t *s_pet = NULL;
 static lv_obj_t *s_mood = NULL;
@@ -74,9 +72,7 @@ static lv_obj_t *s_cell[ACT_COUNT];
 static int32_t s_pet_rest_y = 0;
 static uint32_t s_rng = 0x1234abcd;
 
-static bool s_l_last, s_r_last, s_ok_last, s_back_last;
-
-static void nav_timer_cb(lv_timer_t *t);
+static void handle_input(const input_event_t *ev, void *ctx);
 static void life_tick_cb(lv_timer_t *t);
 static void refresh_pet_look(void);
 
@@ -654,45 +650,28 @@ static void life_tick_cb(lv_timer_t *t) {
     show_faint();
 }
 
-static void nav_timer_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_nav_timer = NULL;
+static void handle_input(const input_event_t *ev, void *ctx) {
+  (void)ctx;
+  if (ev->action != INPUT_ACTION_PRESS)
     return;
-  }
-  if (ui_input_is_locked())
-    return;
-
-  bool left = ui_btn_left(), right = ui_btn_right();
-  bool ok = ok_button_is_down(), back = back_button_is_down();
-
-  if (back && !s_back_last) {
+  if (ev->button == INPUT_BTN_BACK) {
     ui_switch_screen(SCREEN_GAMES_MENU);
-    goto edges;
+    return;
   }
-
   if (s_fainted) {
-    if (ok && !s_ok_last)
+    if (ev->button == INPUT_BTN_OK)
       revive();
-    goto edges;
+    return;
   }
-
-  if (left && !s_l_last) {
+  if (ev->button == INPUT_BTN_LEFT) {
     s_sel = (s_sel - 1 + ACT_COUNT) % ACT_COUNT;
     update_action_focus();
-  }
-  if (right && !s_r_last) {
+  } else if (ev->button == INPUT_BTN_RIGHT) {
     s_sel = (s_sel + 1) % ACT_COUNT;
     update_action_focus();
-  }
-  if (ok && !s_ok_last)
+  } else if (ev->button == INPUT_BTN_OK) {
     do_action(s_sel);
-
-edges:
-  s_l_last = left;
-  s_r_last = right;
-  s_ok_last = ok;
-  s_back_last = back;
+  }
 }
 
 void ui_octopet_open(void) {
@@ -708,7 +687,6 @@ void ui_octopet_open(void) {
   s_zzz = NULL;
   s_poop_obj = NULL;
   s_faint_ov = NULL;
-  s_l_last = s_r_last = s_ok_last = s_back_last = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
@@ -841,8 +819,7 @@ void ui_octopet_open(void) {
   if (s_fainted)
     show_faint();
 
-  if (s_nav_timer == NULL)
-    s_nav_timer = lv_timer_create(nav_timer_cb, NAV_MS, NULL);
+  ui_input_set_screen_handler(handle_input, NULL);
   if (s_life_timer == NULL)
     s_life_timer = lv_timer_create(life_tick_cb, LIFE_MS, NULL);
 

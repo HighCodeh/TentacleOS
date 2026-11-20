@@ -14,6 +14,9 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "tos_config.h"
+#include "haptic.h"
+#include "battery_service.h"
+#include "power_profile.h"
 #include "storage_atomic.h"
 #include "tos_storage_paths.h"
 #include "esp_log.h"
@@ -72,7 +75,9 @@ tos_config_system_t g_config_system = {
     .locale = "pt-BR",
     .timezone_offset = -3,
     .volume = 50,
+    .battery_capacity_mah = POWER_PROFILE_CAPACITY_MAH,
     .vibration = true,
+    .vibration_intensity = HAPTIC_FEEDBACK_INTENSITY,
     .ui_sound_fx = true,
     .log_level = "info",
     .first_boot_done = false,
@@ -219,6 +224,13 @@ static void parse_lora(cJSON *root) {
 }
 
 static void parse_system(cJSON *root) {
+  cJSON *capacity = cJSON_GetObjectItemCaseSensitive(root, "battery_capacity_mah");
+  uint16_t capacity_mah = POWER_PROFILE_CAPACITY_MAH;
+  if (cJSON_IsNumber(capacity) && (capacity->valuedouble == POWER_PROFILE_CAPACITY_SMALL_MAH ||
+                                   capacity->valuedouble == POWER_PROFILE_CAPACITY_MAH))
+    capacity_mah = (uint16_t)capacity->valueint;
+  g_config_system.battery_capacity_mah = capacity_mah;
+  battery_service_set_capacity(capacity_mah);
   json_get_str(root, "name", g_config_system.name, sizeof(g_config_system.name));
   json_get_str(root, "locale", g_config_system.locale, sizeof(g_config_system.locale));
   json_get_str(root, "log_level", g_config_system.log_level, sizeof(g_config_system.log_level));
@@ -226,6 +238,13 @@ static void parse_system(cJSON *root) {
       json_get_int(root, "timezone_offset", g_config_system.timezone_offset);
   g_config_system.volume = json_get_int(root, "volume", g_config_system.volume);
   g_config_system.vibration = json_get_bool(root, "vibration", g_config_system.vibration);
+  g_config_system.vibration_intensity =
+      json_get_int(root, "vibration_intensity", HAPTIC_FEEDBACK_INTENSITY);
+  if (g_config_system.vibration_intensity < 20)
+    g_config_system.vibration_intensity = 20;
+  if (g_config_system.vibration_intensity > 100)
+    g_config_system.vibration_intensity = 100;
+  haptic_set_feedback_intensity(g_config_system.vibration_intensity);
   g_config_system.ui_sound_fx = json_get_bool(root, "ui_sound_fx", g_config_system.ui_sound_fx);
   g_config_system.first_boot_done =
       json_get_bool(root, "first_boot_done", g_config_system.first_boot_done);
@@ -309,7 +328,9 @@ static cJSON *serialize_system(void) {
   cJSON_AddStringToObject(root, "locale", g_config_system.locale);
   cJSON_AddNumberToObject(root, "timezone_offset", g_config_system.timezone_offset);
   cJSON_AddNumberToObject(root, "volume", g_config_system.volume);
+  cJSON_AddNumberToObject(root, "battery_capacity_mah", g_config_system.battery_capacity_mah);
   cJSON_AddBoolToObject(root, "vibration", g_config_system.vibration);
+  cJSON_AddNumberToObject(root, "vibration_intensity", g_config_system.vibration_intensity);
   cJSON_AddBoolToObject(root, "ui_sound_fx", g_config_system.ui_sound_fx);
   cJSON_AddStringToObject(root, "log_level", g_config_system.log_level);
   cJSON_AddBoolToObject(root, "first_boot_done", g_config_system.first_boot_done);
@@ -408,4 +429,18 @@ esp_err_t tos_config_save(const char *sd_path, const char *module) {
   }
 
   return ret;
+}
+
+esp_err_t tos_config_set_battery_capacity(uint16_t capacity_mah) {
+  if (capacity_mah != POWER_PROFILE_CAPACITY_SMALL_MAH &&
+      capacity_mah != POWER_PROFILE_CAPACITY_MAH)
+    return ESP_ERR_INVALID_ARG;
+  uint16_t previous_mah = g_config_system.battery_capacity_mah;
+  g_config_system.battery_capacity_mah = capacity_mah;
+  esp_err_t result = tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
+  if (result != ESP_OK) {
+    g_config_system.battery_capacity_mah = previous_mah;
+    return result;
+  }
+  return battery_service_set_capacity(capacity_mah);
 }

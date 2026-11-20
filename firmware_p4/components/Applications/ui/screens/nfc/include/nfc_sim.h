@@ -35,8 +35,10 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #define NFC_SIM_MAX_SAVED 16
-#define NFC_SIM_NAME_LEN  20
+#define NFC_SIM_NAME_LEN  32
 #define NFC_SIM_TYPE_LEN  24
 
 /**
@@ -55,6 +57,12 @@ typedef struct {
  * @brief Initialise the real NFC vault (idempotent).
  */
 void nfc_sim_init(void);
+
+/** Match full UID and protocol family, independent of the display name. */
+bool nfc_sim_same_card(const nfc_sim_card_t *a, const nfc_sim_card_t *b);
+
+/** Copy an unambiguous library name from the current saved-card snapshot. */
+bool nfc_sim_resolve_name(nfc_sim_card_t *card);
 
 /**
  * @brief Get the number of cards currently in the saved library.
@@ -84,7 +92,7 @@ bool nfc_sim_add(const nfc_sim_card_t *card);
  *
  * @param index  Zero-based index of the card to remove.
  */
-void nfc_sim_remove(int index);
+esp_err_t nfc_sim_remove(int index);
 
 /**
  * @brief Create an unsaved card template with a random UID.

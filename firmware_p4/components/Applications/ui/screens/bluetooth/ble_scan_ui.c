@@ -52,11 +52,11 @@ static const char *TAG = "BLE_SCAN_UI";
 
 #define RADAR_BOX    LV_MIN(190, ui_screen_h() - RADAR_TOP_Y - (CHIP_H + 10) - UI_CHROME_FOOTER_H)
 #define RADAR_TOP_Y  (UI_CHROME_HEADER_H + 4)
-#define RADAR_RING_1 28
-#define RADAR_RING_2 55
-#define RADAR_RING_3 82
+#define RADAR_RING_1 (RADAR_RING_3 / 3)
+#define RADAR_RING_2 (RADAR_RING_3 * 2 / 3)
+#define RADAR_RING_3 LV_MIN(82, RADAR_BOX / 2 - 5)
 #define RADAR_BLIP_RMIN 14
-#define RADAR_BLIP_RMAX 72
+#define RADAR_BLIP_RMAX (RADAR_RING_3 - RADAR_BLIP_SZ)
 #define RADAR_BLIP_SZ   10
 #define RADAR_YOU_SZ    10
 #define RADAR_START_DEG 234
@@ -175,7 +175,7 @@ static void build_scan_hero(void) {
   lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
   lv_obj_align(s_status, LV_ALIGN_CENTER, 0, 70);
 
-  ui_chrome_footer(s_screen, "BACK  Cancel");
+  ui_chrome_footer(s_screen, "BACK leave scan");
 
   s_scan_start = lv_tick_get();
 }
@@ -231,7 +231,7 @@ static void build_empty_hero(const char *title, const char *sub) {
 
   ui_chrome_footer(s_screen, "RIGHT Rescan   BACK Back");
 
-  lv_obj_fade_in(card, 240, 0);
+  lv_obj_fade_in(card, UI_CONTENT_FADE_MS, 0);
 }
 
 static void update_selection(void) {
@@ -322,8 +322,8 @@ static void build_radar(void) {
   ui_chrome_footer(s_screen, "L/R Select   OK Info   BACK");
 
   update_selection();
-  lv_obj_fade_in(cont, 240, 0);
-  lv_obj_fade_in(s_chip, 280, 0);
+  lv_obj_fade_in(cont, UI_CONTENT_FADE_MS, 0);
+  lv_obj_fade_in(s_chip, UI_CONTENT_FADE_MS, 0);
 }
 
 static void build_results(void) {
@@ -351,12 +351,7 @@ static void build_screen(void) {
   for (int i = 0; i < BLE_MAX_DEVS; i++)
     s_blip_dot[i] = NULL;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   if (s_scan_state == SCAN_RUNNING)
     build_scan_hero();
@@ -392,7 +387,7 @@ static void scan_done_cb(void *unused) {
   build_screen();
   if (s_scan_state == SCAN_DONE && s_dev_count > 0)
     ui_feedback(UI_FB_READ);
-  ESP_LOGI(TAG, "scan finished: state=%d, %d device(s)", (int)s_scan_state, s_dev_count);
+  ESP_LOGD(TAG, "scan finished: state=%d, %d device(s)", (int)s_scan_state, s_dev_count);
 }
 
 static void collect_results(void) {
@@ -539,6 +534,10 @@ static void ble_scan_input(const input_event_t *ev, void *ctx) {
 }
 
 void ui_ble_scan_open(void) {
+  if (s_scanning) {
+    build_screen();
+    return;
+  }
   s_scan_state = SCAN_RUNNING;
   s_dev_count = 0;
   build_screen();
@@ -559,5 +558,5 @@ void ui_ble_scan_open(void) {
     }
   }
 
-  ESP_LOGI(TAG, "BLE scan screen opened");
+  ESP_LOGD(TAG, "BLE scan screen opened");
 }

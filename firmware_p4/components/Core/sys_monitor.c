@@ -226,7 +226,7 @@ static bool check_heap(void) {
                "Low heap: %lu B free, largest block %lu B (min ever %lu B)",
                (unsigned long)free_int,
                (unsigned long)largest,
-               (unsigned long)esp_get_minimum_free_heap_size());
+               (unsigned long)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
       if (atomic_load(&s_is_ui_expected)) {
         assets_manager_evict_cache();
       }
@@ -259,7 +259,8 @@ static bool check_heap(void) {
 static void check_storage_health(void) {
   if (!storage_is_mounted())
     return;
-  if (storage_check_health() != ESP_OK) {
+  esp_err_t ret = storage_check_health();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
     ESP_LOGW(TAG, "SD health check failed; requesting remount");
     header_ui_request_sd_remount();
   }

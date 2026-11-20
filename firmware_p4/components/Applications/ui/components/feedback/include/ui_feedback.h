@@ -21,19 +21,18 @@ extern "C" {
 #endif
 
 /**
- * @brief UI audio + haptic feedback cue identifiers.
+ * @brief UI sound and result-indicator cue identifiers.
  *
- * Sound plays on navigation and on every function read/write/emulate;
- * vibration is added only on function results (read/write/emulate), never on
- * plain button presses. Cues run on a short-lived worker task so UI callers
- * never block, and overlapping cues are dropped while one is still playing.
+ * A shared worker plays sound cues and signals completed operations with the LED.
+ * Calls are nonblocking; overlapping cues are dropped. The main coverflow owns
+ * its vibration separately.
  */
 typedef enum {
-  UI_FB_NAV = 0,       ///< Menu item changed: short tick, no vibration.
-  UI_FB_SELECT,        ///< Open/confirm: soft blip, no vibration.
-  UI_FB_READ,          ///< Function READ succeeded: rising tone + vibration.
-  UI_FB_WRITE,         ///< Function WRITE/SAVE succeeded: two-tone + vibration.
-  UI_FB_EMULATE,       ///< Function is EMULATING: pulse + vibration.
+  UI_FB_NAV = 0,       ///< Menu item changed: short tick.
+  UI_FB_SELECT,        ///< Open/confirm: soft blip.
+  UI_FB_READ,          ///< Function READ succeeded: rising tone.
+  UI_FB_WRITE,         ///< Function WRITE/SAVE succeeded: two-tone.
+  UI_FB_EMULATE,       ///< Function is EMULATING: pulse.
   UI_FB_BOOT,          ///< Startup chime, no vibration.
   UI_FB_SD_CONNECT,    ///< SD card inserted: ascending chime + click.
   UI_FB_SD_DISCONNECT, ///< SD card removed: descending chime.

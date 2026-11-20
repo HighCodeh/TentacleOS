@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # BadUSB Application
 
 This component implements a modular HID injection tool capable of emulating keyboard and mouse input to execute automated payloads. It features a 3-layer architecture that decouples script parsing, keyboard layouts, and hardware transport.
@@ -53,8 +70,8 @@ esp_err_t bad_usb_deinit(void);
 void bad_usb_wait_for_connection(void);
 bool bad_usb_wait_for_connection_ex(bad_usb_abort_cb_t should_abort);
 ```
-- `bad_usb_init` initializes TinyUSB (via `busb_init`) and registers USB HID callbacks (keyboard, mouse, wait, report-ready) into the HAL.
-- `bad_usb_deinit` unregisters callbacks and uninstalls the TinyUSB driver.
+- `bad_usb_init` explicitly enables the keyboard/mouse USB profile and initializes TinyUSB (via `busb_init`) and registers USB HID callbacks (keyboard, mouse, wait, report-ready) into the HAL.
+- `bad_usb_deinit` unregisters callbacks, hides the HID profile and releases its resource. The shared TinyUSB driver remains installed for CDC/MSC.
 - `bad_usb_wait_for_connection` blocks until the USB host mounts the device, then waits 2 seconds (`USB_SETTLE_DELAY_MS`) for the host OS to enumerate.
 - `bad_usb_wait_for_connection_ex` is the abortable variant. It polls `tud_mounted()` with an **8 second mount timeout** (`USB_MOUNT_TIMEOUT_MS`), calling `should_abort` (a `bad_usb_abort_cb_t`) between polls and during the post-mount settle. It returns `true` if the host mounted and settled, `false` if the timeout elapsed or the abort predicate fired. `bad_usb_wait_for_connection` is just `_ex(NULL)`, which never times out on the abort path but still stops after the mount timeout. Use `_ex` so a run waiting for a host that never arrives can be cancelled.
 

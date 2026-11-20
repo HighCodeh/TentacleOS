@@ -64,11 +64,6 @@ static int do_toexfat(void) {
   }
 
   const char *type = vfs_sdcard_fs_type();
-  if (strcmp(type, "exFAT") == 0) {
-    printf("SD is already exFAT, nothing to do\n");
-    return 0;
-  }
-
   if (s_sd_args.yes->count == 0) {
     printf("SD is %s. Reformatting to exFAT ERASES ALL DATA.\n", type);
     printf("Re-run to confirm:  sd toexfat --yes\n");
@@ -107,15 +102,14 @@ static int cmd_sd(int argc, char **argv) {
 }
 
 void register_sd_commands(void) {
-  s_sd_args.action =
-      arg_str0(NULL, NULL, "<status|toexfat>", "action (default: status)");
+  s_sd_args.action = arg_str0(NULL, NULL, "<status|toexfat>", "action (default: status)");
   s_sd_args.yes = arg_lit0("y", "yes", "confirm the destructive reformat");
   s_sd_args.end = arg_end(2);
 
   const esp_console_cmd_t cmd_sd_def = {
       .command = "sd",
       .help = "SD card: 'sd' shows the current format, 'sd toexfat --yes' "
-              "reformats FAT32 to exFAT (erases all data)",
+              "reformats as exFAT, including existing exFAT (erases all data)",
       .hint = NULL,
       .func = &cmd_sd,
       .argtable = &s_sd_args,

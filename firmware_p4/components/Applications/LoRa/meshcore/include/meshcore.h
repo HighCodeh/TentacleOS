@@ -331,6 +331,10 @@ esp_err_t meshcore_send_advert_throttled(void);
  * @param idx  0..MESHCORE_MAX_CHANNELS-1.
  * @return Read-only pointer or NULL if idx invalid or slot empty.
  */
+#define MESHCORE_FAST_SF_MAX   8
+#define MESHCORE_FAST_PREAMBLE 32
+#define MESHCORE_SLOW_PREAMBLE 16
+
 const meshcore_channel_t *meshcore_channel_get(uint8_t idx);
 
 /**

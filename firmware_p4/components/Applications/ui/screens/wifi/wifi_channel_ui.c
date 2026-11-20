@@ -31,6 +31,7 @@
 #include "ui_theme.h"
 #include "waves_ui.h"
 #include "wifi_service.h"
+#include "wifi_live_scan_ui.h"
 
 static const char *TAG = "WIFI_CHAN_UI";
 
@@ -293,22 +294,22 @@ static void scan_done_cb(void *unused) {
 static void wifi_channel_task(void *arg) {
   (void)arg;
 
-  wifi_service_start();
-  esp_err_t err = wifi_service_scan_ex(s_band, false, 45, 90);
-  if (err != ESP_OK) {
+  wifi_live_scan_status_t status;
+  wifi_live_scan_get_status(&status);
+  if (status.error != ESP_OK && status.count == 0) {
     s_row_count = 0;
     s_scan_state = SCAN_FAIL;
     s_scanning = false;
-    ui_async_call(scan_done_cb, NULL);
-    vTaskDelete(NULL);
+    scan_done_cb(NULL);
     return;
   }
 
   int rows = 0;
-  uint16_t count = wifi_service_get_ap_count();
+  uint16_t count = status.count;
   for (uint16_t i = 0; i < count; i++) {
-    wifi_ap_record_t *rec = wifi_service_get_ap_record(i);
-    if (rec == NULL)
+    wifi_ap_record_t record;
+    wifi_ap_record_t *rec = &record;
+    if (wifi_live_scan_get_record(i, &record) != ESP_OK)
       continue;
     uint8_t ch = rec->primary;
     if ((s_band == 1 && (ch < 1 || ch > 14)) || (s_band == 2 && ch < 15))
@@ -353,8 +354,7 @@ static void wifi_channel_task(void *arg) {
   s_row_count = rows;
   s_scan_state = SCAN_DONE;
   s_scanning = false;
-  ui_async_call(scan_done_cb, NULL);
-  vTaskDelete(NULL);
+  scan_done_cb(NULL);
 }
 
 static void wifi_channel_input(const input_event_t *ev, void *ctx) {
@@ -398,13 +398,7 @@ void ui_wifi_channel_open(void) {
 
   if (!s_scanning) {
     s_scanning = true;
-    if (xTaskCreatePinnedToCore(wifi_channel_task,
-                                "wifi_chan",
-                                TASK_STACK_SIZE,
-                                NULL,
-                                SYS_PRIO_SERVICE_LO,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
+    if (wifi_live_scan_ui_open(s_band, wifi_channel_task, NULL) != ESP_OK) {
       s_scanning = false;
       s_scan_state = SCAN_FAIL;
       build_screen();

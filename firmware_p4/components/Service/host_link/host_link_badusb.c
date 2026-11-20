@@ -67,11 +67,11 @@ static void badusb_run_task(void *arg) {
         run_current_path();
       bad_ble_deinit();
     }
-  } else {
-    bad_usb_init();
+  } else if (bad_usb_init() == ESP_OK) {
     ducky_set_output_mode(DUCKY_OUTPUT_USB);
     if (bad_usb_wait_for_connection_ex(badusb_should_abort) && !s_abort)
       run_current_path();
+    bad_usb_deinit();
   }
 
   ESP_LOGI(TAG, "run finished: %s", s_path);

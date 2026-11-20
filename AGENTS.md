@@ -113,6 +113,49 @@ project `CMakeLists.txt`. Existing examples: `Applications/gameboy`,
 `<build>/components/Service/fatfs`; its tracked patch metadata remains in
 `firmware_p4/components/Service/fatfs`.
 
+## Subsystem boundaries and lifecycle review
+
+- Keep peripheral access in `Drivers/`, acquisition/calibration and reusable
+  background workflows in `Service/`, and presentation/input in
+  `Applications/ui/screens/<feature>/`. Do not place a sensor service or its
+  mathematics inside a screen directory merely because one screen consumes it.
+  Acquisition/calibration services must not depend on UI/LVGL headers. Use
+  synchronized snapshots or messages; dedicated rendering adapters remain separate.
+- A screen owning a worker, peripheral, timer or power lease must register its
+  stop hook in `screen_close_fn()`. Deletion callbacks are an idempotent fallback,
+  not a replacement for releasing ownership before navigation. Check Back,
+  programmatic navigation, repeated entry/exit and partial initialization failure.
+- Check task/timer/buffer creation. Start dependent hardware only after required
+  UI resources exist, or unwind acquired resources on failure. Keep BACK usable
+  on error screens; never retain a power lease solely because initialization failed.
+- Use `ui_metrics` and chrome/content bounds for layout. Verify both 240x320 and
+  320x240, including raw-data/error states. Fixed render buffers may have a bounded
+  size, but must not dictate off-screen label positions or unscaled projection.
+- Every screen and shared UI component must follow the selected theme. Use
+  `current_theme` and theme APIs for backgrounds, text, borders, selections and
+  accents instead of hardcoded palette colors. Apply theme changes to existing
+  screens/components or rebuild them through the supported UI lifecycle; do not
+  leave cached styles or canvases using the previous palette. Keep any deliberate
+  fixed-color policy centralized in the theme layer, not scattered across screens.
+  Verify theme switching preserves contrast, especially for labels without a
+  filled box, disabled controls and selected items, including themes loaded from SD.
+- On file moves, update source registration, exported include directories, host
+  tests and documentation links together. Reconfigure and build affected targets;
+  do not rely on an old build's source glob or a successful compile alone.
+
+## Memory placement
+
+Prefer PSRAM for buffers, tables and other bulk data whenever the access context
+and hardware permit it. Use explicit PSRAM allocation capabilities and check
+failures before starting dependent workers or peripherals. Keep internal RAM for
+objects that require it, including cache-disabled/ISR paths, synchronization
+primitives, task control blocks and hardware-specific DMA constraints. Verify the
+actual peripheral/SDK requirements; DMA support in PSRAM is target-dependent.
+Do not silently fall back to internal RAM for bulk allocations merely to hide a
+PSRAM failure. Document justified exceptions and bounded storage lifetimes.
+Preserve the C5 memory policy and CI RAM budgets; validate linker reservations
+separately from runtime heap/stack measurements on hardware.
+
 ## Third-party dependencies
 
 Use the IDF Component Manager for third-party libraries. Declare dependencies
@@ -150,6 +193,19 @@ decision, or the project, consult its `docs/<component>/README.md` first (each
 component's in-tree README points back to it) instead of guessing from the code.
 Always keep it up to date: when you change a subsystem's behavior, contract, or
 interface, update its doc in the same change.
+
+### Documentation organization checks
+
+- Maintain one canonical component document and an in-tree README pointer. Use
+  the component's name for driver documentation (for example `docs/qmi8658a/`);
+  document the service separately and link UI controls/lifecycle from `docs/ui/`.
+- Add new components to the existing index table, not an unrelated trailing list.
+- Update behavior in its existing subsystem section. Do not append a sequence of
+  commit summaries as a substitute for maintaining the current contract. Keep
+  historical validation explicitly labeled and distinguish host mocks from tests
+  on hardware. Update capability comparisons when their stated scope changes.
+- Check moved/new relative links and required assets. Document which deployment
+  installs an asset; an app-only build or flash does not prove the asset is present.
 
 ## License headers — mandatory for every file
 
@@ -205,6 +261,15 @@ Key points an agent must not miss:
 - **Fixed-width types** from `<stdint.h>` for all hardware code. Never rely on implicit `int`.
 - **Error handling**: public functions return `esp_err_t` when they can fail. Every `malloc` must be checked for `NULL`, logged with `ESP_LOGE`, and handled via `goto cleanup`. Use `goto cleanup` for functions with multiple resources.
 - **Logging**: every `.c` file defines `static const char *TAG = "MODULE_NAME";` at the top. Use `ESP_LOGx` macros, never `printf`.
+- **User-visible event feedback**: pair INFO/success, warning and error events with
+  both `ESP_LOGI/W/E` and the corresponding `led_signal_info/warning/error()` on P4.
+  INFO/success defaults to purple, warning to yellow and error to red; respect
+  configured signal colors/brightness. Report successful saves only after checked
+  write/close or flush completion. Deduplicate/rate-limit repeated events together
+  so packet-level logs do not hold the LED on. Never call blocking blink helpers
+  or I2C LED operations from ISRs/radio callbacks; forward events to task context.
+  User-facing operations must also expose progress/results/errors on their screen,
+  rather than requiring a serial console to understand the outcome.
 - **File layout order**: license, own header, C stdlib, ESP-IDF/FreeRTOS, project headers, defines, static types, static vars, forward decls, public funcs, static funcs.
 - **Headers**: `#ifndef` guards, `extern "C"` blocks, include order separated by blank lines.
 - **Source file layout**: `^[0-9a-z_]+\.[ch]$`, filename is a prefix for its content.

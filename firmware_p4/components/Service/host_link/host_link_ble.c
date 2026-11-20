@@ -79,7 +79,7 @@ static void reconcile_transports(void);
 
 esp_err_t host_link_ble_init(void) {
   if (s_is_initialized) {
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
   }
   esp_err_t core_err = host_link_start_worker();
   if (core_err != ESP_OK)
@@ -182,6 +182,8 @@ static void status_task(void *pvParameters) {
       // New BLE companion: claim the single session for the BLE writer.
       if (!host_link_session_acquire(ble_write)) {
         ESP_LOGW(TAG, "BLE connect but session busy (other transport active)");
+      } else {
+        ESP_LOGI(TAG, "BLE session acquired");
       }
     } else if (!is_connected && s_was_connected) {
       host_link_session_release(ble_write);
@@ -261,6 +263,7 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
     // SPI RX chunks must not resurrect ownership after a disconnect/USB take.
     s_rx.generation = host_link_session_generation(ble_write);
     if (s_rx.generation == 0) {
+      ESP_LOGW(TAG, "RX dropped: BLE session not owned");
       s_rx.is_active = false;
       return;
     }
@@ -290,7 +293,14 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
   s_rx.next_chunk_idx++;
 
   if (s_rx.next_chunk_idx >= s_rx.total_chunks) {
-    host_link_feed(ble_write, s_rx.generation, s_rx.buf, s_rx.accumulated_len);
+    static uint32_t s_logged_generation;
+    bool is_queued = host_link_feed(ble_write, s_rx.generation, s_rx.buf, s_rx.accumulated_len);
+    if (!is_queued) {
+      ESP_LOGW(TAG, "RX queue rejected bytes=%u", (unsigned)s_rx.accumulated_len);
+    } else if (s_logged_generation != s_rx.generation) {
+      s_logged_generation = s_rx.generation;
+      ESP_LOGI(TAG, "First RX queued to Host Link bytes=%u", (unsigned)s_rx.accumulated_len);
+    }
     s_rx.is_active = false;
   }
 }

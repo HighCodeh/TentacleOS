@@ -29,9 +29,9 @@ are logged without audio, token or account contents.
 
 C5 setup, runtime and account tasks use `SYS_PRIO_SERVICE_LO`; token-UART work
 uses `SYS_PRIO_BACKGROUND`. All are pinned to `SYS_CORE_MAIN`, retaining the
-explicit internal-stack capability requirements. The scheduling header is a
-private include of the standalone Muse component, avoiding a new component
-requirement cycle.
+explicit internal-stack capability requirements. On C5, the scheduling header
+is supplied through a private dependency on `Drivers`, which exports
+`sys_prio/include`; Muse does not inject another component's include directory.
 
 Pairing requires the existing physical confirmation flow. Voice notes receive
 text replies; spoken speaker replies are not implemented. USB voice remains

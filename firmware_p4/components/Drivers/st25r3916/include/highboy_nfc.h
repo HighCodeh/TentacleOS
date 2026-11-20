@@ -106,6 +106,11 @@ esp_err_t highboy_nfc_field_off(void);
  */
 uint8_t highboy_nfc_measure_amplitude(void);
 
+/** Raw, uncalibrated ADC sample. Returns bus failures; zero output on failure.
+ * Caller owns the NFC frontend and field lifecycle. Does not change RF power.
+ */
+esp_err_t highboy_nfc_measure_amplitude_checked(uint8_t *out_amplitude);
+
 /**
  * @brief Detect if an external RF field is present (External Field Detector).
  *
@@ -113,6 +118,14 @@ uint8_t highboy_nfc_measure_amplitude(void);
  * @return true if field detected, false otherwise.
  */
 bool highboy_nfc_field_detected(uint8_t *out_aux_display);
+
+/** Sample the passive-target external-field detector without generating RF.
+ * Caller must have frontend access and no active polling/listening operation.
+ * Enables the detector for a bounded sample, then returns to field-off/EN-only.
+ * out_detected is required; both outputs are cleared on failure.
+ * Bus/cleanup failures are returned separately from an absent field.
+ */
+esp_err_t highboy_nfc_detect_external_field(bool *out_detected, uint8_t *out_aux_display);
 
 /** Configure the 3.3 V-mode RF regulator manually (2400..3400 mV, 100 mV steps). */
 esp_err_t highboy_nfc_set_regulator_mv(uint16_t millivolts);

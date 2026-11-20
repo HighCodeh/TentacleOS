@@ -188,8 +188,7 @@ void ui_player_play_index(int i, int return_screen) {
 }
 
 static void track_duration(int i, char *out, size_t n) {
-  int total = DUR_BASE_S + i * DUR_STEP_S;
-  snprintf(out, n, "%d:%02d", total / 60, total % 60);
+  snprintf(out, n, "%s", name_is_mp3(s_paths[i]) ? "MP3" : "WAV");
 }
 
 static void build_empty_card(void) {
@@ -510,12 +509,7 @@ void ui_wav_library_open(void) {
   }
   s_resume = false;
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   if (s_count <= 0) {
     s_empty = true;

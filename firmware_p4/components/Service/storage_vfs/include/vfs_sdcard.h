@@ -22,11 +22,17 @@
 
 #include "esp_err.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Non-blocking lifecycle exclusion. Release only after a successful acquire.
+// Hold across multi-call health probes; busy is not a media failure.
+bool vfs_sdcard_try_acquire(void);
+void vfs_sdcard_release(void);
 
 esp_err_t vfs_sdcard_init(void);
 esp_err_t vfs_sdcard_deinit(void);
@@ -43,6 +49,10 @@ void vfs_sdcard_print_info(void);
  */
 bool vfs_sdcard_get_name(char *out, size_t n);
 
+// Worker-context callback; false requests cancellation between disk operations.
+// Percent is weighted filesystem-stage completion, not elapsed time or card capacity.
+typedef bool (*vfs_sdcard_format_cb_t)(const char *stage, uint8_t percent, void *ctx);
+esp_err_t vfs_sdcard_format_with_progress(bool exfat, vfs_sdcard_format_cb_t cb, void *ctx);
 esp_err_t vfs_sdcard_format(void);
 
 /**
@@ -84,19 +94,15 @@ esp_err_t vfs_register_sd_backend(void);
 esp_err_t vfs_unregister_sd_backend(void);
 
 /**
- * @brief Give up the app's FAT mount and hand back the SD as a RAW, still-powered
- *        block device for USB Mass Storage. The card is re-initialized (never
- *        formatted). There is no restore path — exit USB-MSC mode via reboot.
- * @param out_card receives an @c sdmmc_card_t* (as @c void*) on success.
- * @return ESP_OK, or an error (the app FAT mount is left detached on failure).
+ * @brief Suspend FatFS while retaining the initialized SDMMC card and VFS context.
+ * Open files/directories reject the handoff. On failure the app retains ownership.
+ * @param out_card receives the retained sdmmc_card_t pointer on success.
  */
 esp_err_t vfs_sdcard_detach_for_msc(void **out_card);
 
 /**
- * @brief Undo vfs_sdcard_detach_for_msc(): release the raw SDMMC card+host that
- *        was handed to USB MSC and remount the app FAT at /sdcard. Call AFTER the
- *        MSC storage layer is torn down. Lets the firmware resume without a reboot.
- * @param card the handle returned by vfs_sdcard_detach_for_msc() (may be NULL).
+ * @brief Resume FatFS after all USB I/O has stopped. Never reinitialize or format.
+ * One CMD12 and one remount retry are allowed. Failure retains the suspended card.
  */
 esp_err_t vfs_sdcard_reattach_after_msc(void *card);
 

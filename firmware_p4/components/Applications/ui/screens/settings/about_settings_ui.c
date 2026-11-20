@@ -26,16 +26,23 @@
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
+#include "ui_metrics.h"
+#include "menu_component_ui.h"
+#include "esp_attr.h"
 
 static const char *TAG = "ABOUT_SETTINGS_UI";
 
-#define ENTRY_FADE_MS  240
+#define ENTRY_FADE_MS  UI_CONTENT_FADE_MS
 #define HERO_IMG       56
 #define CHIP_RADIUS    10
-#define CONTENT_WIDTH  214
-#define CHIP_ROW_WIDTH 210
+#define CONTENT_MARGIN 4
+#define CONTENT_GUTTER 20
+#define CONTENT_WIDTH  (ui_screen_w() - CONTENT_GUTTER)
+#define CHIP_ROW_WIDTH (CONTENT_WIDTH - 8)
+#define SCROLL_STEP    60
 
 static lv_obj_t *s_screen = NULL;
+EXT_RAM_BSS_ATTR static menu_component_t s_scroll;
 static lv_font_t *s_title_font = NULL;
 
 static void add_chip(lv_obj_t *parent, const char *text, bool accent) {
@@ -57,7 +64,14 @@ static void about_settings_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
 
+  const bool nav = press || ev->action == INPUT_ACTION_REPEAT;
   switch (ev->button) {
+    case INPUT_BTN_UP:
+    case INPUT_BTN_DOWN:
+      if (nav)
+        menu_component_scroll_content(&s_scroll,
+                                      ev->button == INPUT_BTN_UP ? -SCROLL_STEP : SCROLL_STEP);
+      break;
     case INPUT_BTN_BACK:
       if (press)
         ui_switch_screen(SCREEN_SETTINGS);
@@ -83,15 +97,17 @@ void ui_about_settings_open(void) {
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
   ui_chrome_header(s_screen, "ABOUT", "/assets/icons/info.bin");
-  ui_chrome_footer(s_screen, "BACK: EXIT");
+  ui_chrome_footer(s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " Scroll   BACK Exit");
 
   lv_obj_t *col = lv_obj_create(s_screen);
   lv_obj_remove_style_all(col);
-  lv_obj_set_size(col, CONTENT_WIDTH, LV_SIZE_CONTENT);
-  lv_obj_align(col, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 14);
-  lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(col, CONTENT_WIDTH, ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_align(col, LV_ALIGN_TOP_LEFT, CONTENT_MARGIN, UI_CHROME_HEADER_H);
+  lv_obj_add_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(col, LV_DIR_VER);
+  lv_obj_set_style_pad_ver(col, 8, 0);
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(col, 4, 0);
 
   lv_image_dsc_t *octobit = assets_get("/assets/img/octobit_portrait.bin");
@@ -112,6 +128,9 @@ void ui_about_settings_open(void) {
   snprintf(fwbuf, sizeof(fwbuf), "FW %s", ota_get_current_version());
   lv_obj_t *fw = lv_label_create(col);
   lv_label_set_text(fw, fwbuf);
+  lv_obj_set_width(fw, lv_pct(100));
+  lv_label_set_long_mode(fw, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_style_text_align(fw, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(fw, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(fw, current_theme.border_accent, 0);
   lv_obj_set_style_pad_bottom(fw, 4, 0);
@@ -126,17 +145,19 @@ void ui_about_settings_open(void) {
   lv_obj_set_style_pad_column(chips, 6, 0);
 
   uint8_t mac[6] = {0};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  const esp_err_t mac_result = esp_efuse_mac_get_default(mac);
   char macbuf[32];
   snprintf(macbuf,
            sizeof(macbuf),
-           "MAC %02X:%02X:%02X:%02X:%02X:%02X",
+           "ID %02X:%02X:%02X:%02X:%02X:%02X",
            mac[0],
            mac[1],
            mac[2],
            mac[3],
            mac[4],
            mac[5]);
+  if (mac_result != ESP_OK)
+    snprintf(macbuf, sizeof(macbuf), "Device ID unavailable");
 
   uint32_t up_s = (uint32_t)(esp_timer_get_time() / 1000000);
   char upbuf[32];
@@ -152,6 +173,7 @@ void ui_about_settings_open(void) {
   add_chip(chips, upbuf, false);
   add_chip(chips, LV_SYMBOL_COPY " 2025 HIGH CODE", true);
 
+  menu_component_attach_scroll(&s_scroll, s_screen, col);
   lv_obj_fade_in(col, ENTRY_FADE_MS, 0);
 
   ui_input_set_screen_handler(about_settings_input, NULL);

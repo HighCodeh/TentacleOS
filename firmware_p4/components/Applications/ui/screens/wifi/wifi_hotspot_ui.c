@@ -15,441 +15,167 @@
 
 #include "wifi_hotspot_ui.h"
 
-#include <stdio.h>
-
+#include "esp_attr.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
-#include "sys_prio.h"
-#include "lvgl.h"
-#include "st7789.h"
 
+#include "led_control.h"
+#include "menu_component_ui.h"
+#include "sys_prio.h"
 #include "ui_chrome.h"
-#include "ui_feedback.h"
 #include "ui_manager.h"
-#include "ui_metrics.h"
-#include "ui_semantic.h"
-#include "ui_theme.h"
 #include "wifi_service.h"
 
-#define UPTIME_TICK_MS 1000
+#define AP_NAME            "HighBoy_AP"
+#define AP_IP              "192.168.4.1"
+#define AP_MAX_CONNECTIONS 8
+#define TASK_STACK_SIZE    4096
+#define REFRESH_MS         250
 
-#define HDR_TITLE   "HOTSPOT (AP)"
-#define HDR_ICON    NULL
-#define FOOTER_HINT "UP/DOWN  OK TOGGLE  BACK"
+static const char *TAG = "HOTSPOT_UI";
+static lv_obj_t *s_screen;
+static lv_timer_t *s_timer;
+static EXT_RAM_BSS_ATTR menu_component_t s_menu;
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_requested, s_busy, s_online;
+static esp_err_t s_error;
 
-#define MX        8
-#define CONTENT_W (ui_screen_w() - 2 * MX)
-#define BODY_TOP  UI_CHROME_HEADER_H
-#define BODY_H    (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H)
-#define STACK_GAP 9
-
-#define STATUS_H      54
-#define STATUS_RADIUS 11
-#define STATUS_PAD_H  10
-#define STATUS_PAD_V  8
-#define STATUS_GAP    8
-#define DOT_SIZE      11
-#define TOGGLE_W      38
-#define TOGGLE_H      18
-#define TOGGLE_RADIUS 10
-#define KNOB_SIZE     14
-#define KNOB_INSET    3
-
-#define RING_H       92
-#define RING_GAP     12
-#define ARC_SIZE     76
-#define ARC_WIDTH    6
-#define ARC_ROTATION 270
-#define ARC_MIN      0
-#define ARC_MAX      8
-#define ARC_VAL      0
-#define ARC_TRACK    0x241F31
-
-#define TILE_H      43
-#define TILE_RADIUS 8
-#define TILE_PAD_H  8
-#define TILE_PAD_V  4
-#define TILE_GAP    6
-#define RCOL_GAP    6
-
-#define COL_CYAN 0x37E0A8
-#define COL_ACC2 0xB89AFF
-
-#define AP_NAME           "HighBoy_AP"
-#define AP_PASSWORD       NULL
-#define AP_MAX_CONN       8
-#define AP_IP             "192.168.4.1"
-#define UPTIME_ONLINE_FMT "AP ONLINE - %02d:%02d"
-#define TXT_OFFLINE       "AP OFFLINE"
-#define UPTIME_BUF        40
-#define START_SECS        0
-
-#define TASK_STACK_SIZE 4096
-
-#define VAL_PLACEHOLDER "--"
-
-#define LBL_CHANNEL "CHANNEL"
-#define VAL_CHANNEL "-"
-#define LBL_GATEWAY "GATEWAY"
-#define VAL_GATEWAY AP_IP
-#define LBL_TX      "SSID"
-#define LBL_RX      "SECURITY"
-#define ARC_CENTER  "-"
-#define ARC_SUB     "/ 8"
-
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_dot = NULL;
-static lv_obj_t *s_toggle = NULL;
-static lv_obj_t *s_knob = NULL;
-static lv_obj_t *s_uptime = NULL;
-static lv_timer_t *s_uptime_timer = NULL;
-
-static int s_secs = START_SECS;
-static bool s_online = true;
-
-static volatile bool s_ap_busy = false;
-static volatile bool s_ap_desired = false;
-static volatile bool s_ap_dirty = false;
-static volatile esp_err_t s_ap_result = ESP_OK;
-
-static void apply_online(void);
-
-static void ap_apply_done(void *arg) {
-  (void)arg;
-  if (s_ap_result == ESP_OK) {
-    s_online = s_ap_desired;
-    if (s_online)
-      s_secs = 0;
-  }
-  if (ui_current_screen() == SCREEN_WIFI_HOTSPOT)
-    apply_online();
-}
-
-static void ap_apply_task(void *arg) {
-  (void)arg;
-  esp_err_t err = ESP_OK;
-  do {
-    bool want = s_ap_desired;
-    s_ap_dirty = false;
-    if (want) {
-      err = wifi_service_save_ap_config(AP_NAME, AP_PASSWORD, AP_MAX_CONN, AP_IP, true);
+static void apply_task(void *unused) {
+  (void)unused;
+  for (;;) {
+    portENTER_CRITICAL(&s_lock);
+    bool requested = s_requested;
+    portEXIT_CRITICAL(&s_lock);
+    esp_err_t error =
+        requested ? wifi_service_save_ap_config(AP_NAME, NULL, AP_MAX_CONNECTIONS, AP_IP, true)
+                  : wifi_service_set_enabled(false);
+    portENTER_CRITICAL(&s_lock);
+    s_error = error;
+    if (error == ESP_OK)
+      s_online = requested;
+    bool again = s_requested != requested;
+    if (!again)
+      s_busy = false;
+    portEXIT_CRITICAL(&s_lock);
+    if (error != ESP_OK) {
+      ESP_LOGE(TAG, "Hotspot change failed: %s", esp_err_to_name(error));
+      led_signal_error();
     } else {
-      err = wifi_service_set_enabled(false);
+      ESP_LOGI(TAG, "Hotspot %s", requested ? "enabled" : "disabled");
+      led_signal_info();
     }
-  } while (s_ap_dirty);
-  s_ap_result = err;
-  s_ap_busy = false;
-  ui_async_call(ap_apply_done, NULL);
-  vTaskDelete(NULL);
-}
-
-static void ap_request(bool enabled) {
-  s_ap_desired = enabled;
-  s_ap_dirty = true;
-  if (!s_ap_busy) {
-    s_ap_busy = true;
-    if (xTaskCreatePinnedToCore(ap_apply_task,
-                                "ap_ctl",
-                                TASK_STACK_SIZE,
-                                NULL,
-                                SYS_PRIO_SERVICE_LO,
-                                NULL,
-                                SYS_CORE_RADIO) != pdPASS) {
-      s_ap_busy = false;
-    }
-  }
-}
-
-static lv_obj_t *
-make_label(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t color) {
-  lv_obj_t *l = lv_label_create(parent);
-  lv_label_set_text(l, txt);
-  lv_obj_set_style_text_font(l, font, 0);
-  lv_obj_set_style_text_color(l, color, 0);
-  return l;
-}
-
-static lv_obj_t *make_tile(
-    lv_obj_t *parent, const char *lbl, const char *val, lv_color_t vcol, const lv_font_t *vfont) {
-  lv_obj_t *tile = lv_obj_create(parent);
-  lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_radius(tile, TILE_RADIUS, 0);
-  lv_obj_set_style_bg_color(tile, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(tile, current_theme.border_inactive, 0);
-  lv_obj_set_style_border_width(tile, 1, 0);
-  lv_obj_set_style_pad_hor(tile, TILE_PAD_H, 0);
-  lv_obj_set_style_pad_ver(tile, TILE_PAD_V, 0);
-  lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(tile, 1, 0);
-
-  make_label(tile, lbl, &lv_font_montserrat_12, current_theme.text_secondary);
-  make_label(tile, val, vfont, vcol);
-  return tile;
-}
-
-static void update_uptime_label(void) {
-  if (s_uptime == NULL)
-    return;
-  if (s_online) {
-    char buf[UPTIME_BUF];
-    snprintf(buf, sizeof(buf), UPTIME_ONLINE_FMT, s_secs / 60, s_secs % 60);
-    lv_label_set_text(s_uptime, buf);
-    lv_obj_set_style_text_color(s_uptime, lv_color_hex(UI_COL_SUCCESS), 0);
-  } else {
-    lv_label_set_text(s_uptime, TXT_OFFLINE);
-    lv_obj_set_style_text_color(s_uptime, current_theme.text_secondary, 0);
-  }
-}
-
-static void apply_online(void) {
-  lv_color_t c = s_online ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_secondary;
-
-  if (s_dot != NULL)
-    lv_obj_set_style_bg_color(s_dot, c, 0);
-
-  if (s_toggle != NULL) {
-    lv_obj_set_style_bg_color(s_toggle, c, 0);
-    lv_obj_set_style_bg_opa(s_toggle, s_online ? LV_OPA_20 : LV_OPA_10, 0);
-    lv_obj_set_style_border_color(s_toggle, c, 0);
-  }
-  if (s_knob != NULL) {
-    lv_obj_set_style_bg_color(s_knob, c, 0);
-    lv_obj_align(s_knob,
-                 s_online ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID,
-                 s_online ? -KNOB_INSET : KNOB_INSET,
-                 0);
-  }
-  update_uptime_label();
-}
-
-static void stop_uptime_timer(void) {
-  if (s_uptime_timer != NULL) {
-    lv_timer_delete(s_uptime_timer);
-    s_uptime_timer = NULL;
-  }
-}
-
-static void uptime_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_uptime_timer = NULL;
-    return;
-  }
-  if (!s_online)
-    return;
-  s_secs++;
-  update_uptime_label();
-}
-
-static void build_status_card(lv_obj_t *parent) {
-  lv_obj_t *card = lv_obj_create(parent);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(card, LV_PCT(100), STATUS_H);
-  lv_obj_set_style_radius(card, STATUS_RADIUS, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_grad_color(card, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_pad_hor(card, STATUS_PAD_H, 0);
-  lv_obj_set_style_pad_ver(card, STATUS_PAD_V, 0);
-  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(card, STATUS_GAP, 0);
-
-  s_dot = lv_obj_create(card);
-  lv_obj_remove_flag(s_dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(s_dot, DOT_SIZE, DOT_SIZE);
-  lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(s_dot, 0, 0);
-  lv_obj_set_style_bg_opa(s_dot, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(s_dot, lv_color_hex(UI_COL_SUCCESS), 0);
-
-  lv_obj_t *txt = lv_obj_create(card);
-  lv_obj_remove_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(txt, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_height(txt, LV_SIZE_CONTENT);
-  lv_obj_set_flex_grow(txt, 1);
-  lv_obj_set_style_bg_opa(txt, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(txt, 0, 0);
-  lv_obj_set_style_pad_all(txt, 0, 0);
-  lv_obj_set_flex_flow(txt, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(txt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(txt, 2, 0);
-
-  make_label(txt, AP_NAME, &lv_font_montserrat_14, current_theme.text_main);
-  s_uptime = make_label(txt, "", &lv_font_montserrat_12, lv_color_hex(UI_COL_SUCCESS));
-
-  s_toggle = lv_obj_create(card);
-  lv_obj_remove_flag(s_toggle, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(s_toggle, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(s_toggle, TOGGLE_W, TOGGLE_H);
-  lv_obj_set_style_radius(s_toggle, TOGGLE_RADIUS, 0);
-  lv_obj_set_style_pad_all(s_toggle, 0, 0);
-  lv_obj_set_style_bg_color(s_toggle, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_bg_opa(s_toggle, LV_OPA_20, 0);
-  lv_obj_set_style_border_color(s_toggle, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_set_style_border_width(s_toggle, 1, 0);
-
-  s_knob = lv_obj_create(s_toggle);
-  lv_obj_remove_flag(s_knob, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(s_knob, KNOB_SIZE, KNOB_SIZE);
-  lv_obj_set_style_radius(s_knob, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(s_knob, 0, 0);
-  lv_obj_set_style_bg_opa(s_knob, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(s_knob, lv_color_hex(UI_COL_SUCCESS), 0);
-  lv_obj_align(s_knob, LV_ALIGN_RIGHT_MID, -KNOB_INSET, 0);
-}
-
-static void build_arc(lv_obj_t *parent) {
-  lv_obj_t *arc = lv_arc_create(parent);
-  lv_obj_set_size(arc, ARC_SIZE, ARC_SIZE);
-  lv_arc_set_rotation(arc, ARC_ROTATION);
-  lv_arc_set_bg_angles(arc, 0, 360);
-  lv_arc_set_range(arc, ARC_MIN, ARC_MAX);
-  lv_arc_set_value(arc, ARC_VAL);
-  lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
-  lv_obj_set_style_arc_width(arc, ARC_WIDTH, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(arc, lv_color_hex(ARC_TRACK), LV_PART_MAIN);
-  lv_obj_set_style_arc_width(arc, ARC_WIDTH, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(arc, current_theme.border_accent, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
-
-  lv_obj_t *center = make_label(arc, ARC_CENTER, &lv_font_montserrat_14, current_theme.text_main);
-  lv_obj_align(center, LV_ALIGN_CENTER, 0, -6);
-  lv_obj_t *sub = make_label(arc, ARC_SUB, &lv_font_montserrat_12, current_theme.text_secondary);
-  lv_obj_align(sub, LV_ALIGN_CENTER, 0, 11);
-}
-
-static void build_ring_row(lv_obj_t *parent) {
-  lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(row, LV_PCT(100), RING_H);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 0, 0);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(row, RING_GAP, 0);
-
-  build_arc(row);
-
-  lv_obj_t *rcol = lv_obj_create(row);
-  lv_obj_remove_flag(rcol, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(rcol, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_height(rcol, RING_H);
-  lv_obj_set_flex_grow(rcol, 1);
-  lv_obj_set_style_bg_opa(rcol, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(rcol, 0, 0);
-  lv_obj_set_style_pad_all(rcol, 0, 0);
-  lv_obj_set_flex_flow(rcol, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(rcol, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(rcol, RCOL_GAP, 0);
-
-  lv_obj_t *ch =
-      make_tile(rcol, LBL_CHANNEL, VAL_CHANNEL, current_theme.text_main, &lv_font_montserrat_14);
-  lv_obj_set_size(ch, LV_PCT(100), TILE_H);
-  lv_obj_t *gw =
-      make_tile(rcol, LBL_GATEWAY, VAL_GATEWAY, current_theme.text_main, &lv_font_montserrat_12);
-  lv_obj_set_size(gw, LV_PCT(100), TILE_H);
-}
-
-static void build_traffic_row(lv_obj_t *parent) {
-  lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(row, LV_PCT(100), TILE_H);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 0, 0);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_column(row, TILE_GAP, 0);
-
-  lv_obj_t *tx = make_tile(row, LBL_TX, AP_NAME, lv_color_hex(COL_CYAN), &lv_font_montserrat_14);
-  lv_obj_set_height(tx, TILE_H);
-  lv_obj_set_flex_grow(tx, 1);
-  lv_obj_t *rx = make_tile(row, LBL_RX, "OPEN", lv_color_hex(COL_ACC2), &lv_font_montserrat_14);
-  lv_obj_set_height(rx, TILE_H);
-  lv_obj_set_flex_grow(rx, 1);
-}
-
-static void wifi_hotspot_input(const input_event_t *ev, void *ctx) {
-  (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-      if (press) {
-        stop_uptime_timer();
-        ap_request(false);
-        ui_switch_screen(SCREEN_WIFI_MENU);
-      }
-      break;
-    case INPUT_BTN_OK:
-      if (press) {
-        bool desired = s_ap_busy ? !s_ap_desired : !s_online;
-        ap_request(desired);
-        ui_feedback(UI_FB_SELECT);
-      }
-      break;
-    default:
+    if (!again)
       break;
   }
+  vTaskDeleteWithCaps(NULL);
+}
+
+static void request(bool enabled) {
+  portENTER_CRITICAL(&s_lock);
+  s_requested = enabled;
+  bool start = !s_busy;
+  s_busy = true;
+  portEXIT_CRITICAL(&s_lock);
+  if (start && xTaskCreatePinnedToCoreWithCaps(apply_task,
+                                               "ap_ctl",
+                                               TASK_STACK_SIZE,
+                                               NULL,
+                                               SYS_PRIO_SERVICE_LO,
+                                               NULL,
+                                               SYS_CORE_RADIO,
+                                               MALLOC_CAP_SPIRAM) != pdPASS) {
+    portENTER_CRITICAL(&s_lock);
+    s_busy = false;
+    s_error = ESP_ERR_NO_MEM;
+    portEXIT_CRITICAL(&s_lock);
+    ESP_LOGE(TAG, "Hotspot task allocation failed");
+    led_signal_error();
+  }
+}
+
+static void refresh(lv_timer_t *timer) {
+  (void)timer;
+  portENTER_CRITICAL(&s_lock);
+  bool busy = s_busy, online = s_online;
+  esp_err_t error = s_error;
+  portEXIT_CRITICAL(&s_lock);
+  menu_component_set_selector_value(&s_menu, 0, busy ? "Please wait" : online ? "Stop" : "Start");
+  menu_component_set_selector_value(&s_menu,
+                                    1,
+                                    busy              ? "Applying..."
+                                    : error != ESP_OK ? "Failed - retry"
+                                    : online          ? "Online"
+                                                      : "Offline");
+  menu_component_set_hint(&s_menu,
+                          menu_component_get_selected(&s_menu) == 0 ? "OK start/stop   BACK exit"
+                                                                    : "UP/DOWN view   BACK exit");
+}
+
+void ui_wifi_hotspot_stop(void) {
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+  portENTER_CRITICAL(&s_lock);
+  bool active = s_requested || s_online;
+  portEXIT_CRITICAL(&s_lock);
+  if (active)
+    request(false);
+}
+
+static void deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  ui_wifi_hotspot_stop();
+  s_screen = NULL;
+}
+
+static void input(const input_event_t *event, void *context) {
+  (void)context;
+  bool press = event->action == INPUT_ACTION_PRESS;
+  bool nav = press || event->action == INPUT_ACTION_REPEAT;
+  if (event->button == INPUT_BTN_BACK && press) {
+    ui_switch_screen(SCREEN_WIFI_MENU);
+    return;
+  }
+  if (event->button == INPUT_BTN_UP && nav)
+    menu_component_prev(&s_menu);
+  if (event->button == INPUT_BTN_DOWN && nav)
+    menu_component_next(&s_menu);
+  if (event->button == INPUT_BTN_OK && press && menu_component_get_selected(&s_menu) == 0) {
+    portENTER_CRITICAL(&s_lock);
+    bool busy = s_busy, enabled = !s_online;
+    portEXIT_CRITICAL(&s_lock);
+    if (!busy && s_timer != NULL)
+      request(enabled);
+  }
+  refresh(NULL);
 }
 
 void ui_wifi_hotspot_open(void) {
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
+  ui_wifi_hotspot_stop();
+  if (s_screen != NULL)
+    lv_obj_delete(s_screen);
+  s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
+  s_menu = menu_component_create(s_screen, "Hotspot", "/assets/icons/wifi_tethering.bin");
+  menu_component_add_selector(&s_menu, NULL, "Hotspot", "Start");
+  menu_component_add_selector(&s_menu, NULL, "Status", "Offline");
+  menu_component_add_selector(&s_menu, NULL, "Network", AP_NAME);
+  menu_component_add_selector(&s_menu, NULL, "Security", "Open");
+  menu_component_add_selector(&s_menu, NULL, "Gateway", AP_IP);
+  menu_component_select(&s_menu, 0);
+  s_timer = lv_timer_create(refresh, REFRESH_MS, NULL);
+  if (s_timer == NULL) {
+    ESP_LOGE(TAG, "Hotspot refresh allocation failed");
+    led_signal_error();
+    menu_component_set_hint(&s_menu, "Unavailable - BACK to retry");
+  } else {
+    refresh(NULL);
   }
-  stop_uptime_timer();
-  s_dot = NULL;
-  s_toggle = NULL;
-  s_knob = NULL;
-  s_uptime = NULL;
-  s_secs = START_SECS;
-  s_online = false;
-
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
-
-  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
-  ui_chrome_footer(s_screen, FOOTER_HINT);
-
-  lv_obj_t *stack = lv_obj_create(s_screen);
-  lv_obj_add_flag(stack, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(stack, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(stack, LV_SCROLLBAR_MODE_AUTO);
-  lv_obj_remove_flag(stack, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(stack, CONTENT_W, BODY_H);
-  lv_obj_align(stack, LV_ALIGN_TOP_MID, 0, BODY_TOP);
-  lv_obj_set_style_bg_opa(stack, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(stack, 0, 0);
-  lv_obj_set_style_pad_all(stack, 0, 0);
-  lv_obj_set_flex_flow(stack, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(stack, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(stack, STACK_GAP, 0);
-
-  build_status_card(stack);
-  build_ring_row(stack);
-  build_traffic_row(stack);
-
-  apply_online();
-  ap_request(true);
-
-  ui_input_set_screen_handler(wifi_hotspot_input, NULL);
-  s_uptime_timer = lv_timer_create(uptime_tick_cb, UPTIME_TICK_MS, NULL);
-
+  ui_input_set_screen_handler(input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

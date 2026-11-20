@@ -15,348 +15,105 @@
 
 #include "subghz_config_ui.h"
 
-#include <stdlib.h>
+#include <stdio.h>
 
-#include "lvgl.h"
-#include "st7789.h"
-
-#include "cc1101.h"
+#include "esp_log.h"
+#include "led_control.h"
+#include "menu_component_ui.h"
 #include "notify_ui.h"
 #include "subghz_settings.h"
-#include "ui_chrome.h"
-#include "ui_feedback.h"
 #include "ui_manager.h"
-#include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define HDR_TITLE "RADIO CONFIG"
-#define HDR_ICON  "/assets/icons/tune.bin"
-#define FOOTER    "UP/DN pick   L/R adjust   OK set"
-
-#define MX        8
-#define CONTENT_W (ui_screen_w() - 2 * MX)
-
-#define CARD1_Y     50
-#define CARD1_H     84
-#define CARD_RADIUS 12
-#define CARD_GLOW_W 12
-
-#define FREQ_CAP_Y 8
-#define FREQ_VAL_Y 24
-#define FREQ_GAP   3
-
-#define BAND_Y      50
-#define BAND_W      200
-#define BAND_H      7
-#define BAND_RADIUS 4
-#define MARKER_PCT  21
-#define MARKER_W    3
-#define MARKER_H    13
-#define MARKER_GLOW 8
-#define SCALE_Y     62
-
-#define TILE_W   108
-#define TILE_H   52
-#define TILE_GAP 8
-#define TILE_X_L MX
-#define TILE_X_R (MX + TILE_W + TILE_GAP)
-#define GRID_Y   LV_MIN(CARD1_Y + CARD1_H + 8, ui_screen_h() - UI_CHROME_FOOTER_H - 2 * TILE_H - 8)
-#define ROW2_Y   (GRID_Y + TILE_H + 8)
-
-#define TILE_RADIUS 9
-#define TILE_PAD_L  9
-#define TILE_CAP_Y  7
-#define TILE_VAL_Y  25
-#define TILE_GLOW_W 12
-
-#define COL_BAND_A 0x221F2E
-#define COL_BAND_B 0x3A2F55
-
-#define FREQ_NUM  "433.920"
-#define FREQ_UNIT "MHz"
-
-#define FIELD_COUNT 4
-#define VAL_MAX     4
-
-typedef struct {
-  const char *name;
-  const char *unit;
-  const char *values[VAL_MAX];
-  int count;
-  int def;
-} rf_field_t;
-
-static const rf_field_t FIELDS[FIELD_COUNT] = {
-    {"MODULATION", NULL, {"2FSK", "OOK", "GFSK", "4FSK"}, 4, 0},
-    {"BANDWIDTH", "kHz", {"58", "135", "270", "812"}, 4, 1},
-    {"DATA RATE", "kb/s", {"2.4", "4.8", "9.6", "38.4"}, 4, 1},
-    {"PRESET", NULL, {"FM238", "FM476", "OOK270", "AM650"}, 4, 0},
-};
-
-static const int TILE_X[FIELD_COUNT] = {TILE_X_L, TILE_X_R, TILE_X_L, TILE_X_R};
-static int TILE_Y[FIELD_COUNT];
-
-static const char *SCALE_LABELS[4] = {"300", "433", "700", "928"};
-
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_tile[FIELD_COUNT];
-static lv_obj_t *s_tile_num[FIELD_COUNT];
-
-static int s_sel = 0;
-static int s_val_idx[FIELD_COUNT];
-
-static void build_freq_card(void) {
-  lv_obj_t *card = lv_obj_create(s_screen);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(card, CONTENT_W, CARD1_H);
-  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, CARD1_Y);
-  lv_obj_set_style_radius(card, CARD_RADIUS, 0);
-  lv_obj_set_style_pad_all(card, 0, 0);
-  lv_obj_set_style_bg_color(card, current_theme.bg_secondary, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(card, current_theme.border_accent, 0);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_shadow_width(card, CARD_GLOW_W, 0);
-  lv_obj_set_style_shadow_color(card, current_theme.border_accent, 0);
-  lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
-
-  lv_obj_t *cap = lv_label_create(card);
-  lv_label_set_text(cap, "TUNED FREQUENCY");
-  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
-  lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, FREQ_CAP_Y);
-
-  lv_obj_t *grp = lv_obj_create(card);
-  lv_obj_remove_flag(grp, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grp, CONTENT_W, 24);
-  lv_obj_align(grp, LV_ALIGN_TOP_MID, 0, FREQ_VAL_Y);
-  lv_obj_set_style_bg_opa(grp, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(grp, 0, 0);
-  lv_obj_set_style_pad_all(grp, 0, 0);
-  lv_obj_set_style_pad_column(grp, FREQ_GAP, 0);
-  lv_obj_set_flex_flow(grp, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(grp, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-  lv_obj_t *num = lv_label_create(grp);
-  lv_label_set_text(num, FREQ_NUM);
-  lv_obj_set_style_text_font(num, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(num, current_theme.text_main, 0);
-
-  lv_obj_t *unit = lv_label_create(grp);
-  lv_label_set_text(unit, FREQ_UNIT);
-  lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(unit, current_theme.border_accent, 0);
-
-  lv_obj_t *band = lv_obj_create(card);
-  lv_obj_remove_flag(band, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(band, BAND_W, BAND_H);
-  lv_obj_align(band, LV_ALIGN_TOP_MID, 0, BAND_Y);
-  lv_obj_set_style_radius(band, BAND_RADIUS, 0);
-  lv_obj_set_style_border_width(band, 0, 0);
-  lv_obj_set_style_pad_all(band, 0, 0);
-  lv_obj_set_style_bg_color(band, lv_color_hex(COL_BAND_A), 0);
-  lv_obj_set_style_bg_grad_color(band, lv_color_hex(COL_BAND_B), 0);
-  lv_obj_set_style_bg_grad_dir(band, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
-
-  lv_obj_t *marker = lv_obj_create(band);
-  lv_obj_remove_flag(marker, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(marker, MARKER_W, MARKER_H);
-  lv_obj_align(marker, LV_ALIGN_LEFT_MID, (BAND_W * MARKER_PCT) / 100, 0);
-  lv_obj_set_style_radius(marker, 2, 0);
-  lv_obj_set_style_border_width(marker, 0, 0);
-  lv_obj_set_style_pad_all(marker, 0, 0);
-  lv_obj_set_style_bg_color(marker, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
-  lv_obj_set_style_shadow_width(marker, MARKER_GLOW, 0);
-  lv_obj_set_style_shadow_color(marker, current_theme.border_accent, 0);
-  lv_obj_set_style_shadow_opa(marker, LV_OPA_COVER, 0);
-
-  lv_obj_t *scale = lv_obj_create(card);
-  lv_obj_remove_flag(scale, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(scale, BAND_W, 16);
-  lv_obj_align(scale, LV_ALIGN_TOP_MID, 0, SCALE_Y);
-  lv_obj_set_style_bg_opa(scale, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(scale, 0, 0);
-  lv_obj_set_style_pad_all(scale, 0, 0);
-  lv_obj_set_flex_flow(scale, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(
-      scale, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  for (int i = 0; i < 4; i++) {
-    lv_obj_t *lbl = lv_label_create(scale);
-    lv_label_set_text(lbl, SCALE_LABELS[i]);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(lbl, current_theme.text_secondary, 0);
-  }
+#define FREQUENCY_COUNT 5
+#define PRESET_COUNT    6
+#define FIELD_FREQUENCY 0
+#define FIELD_PRESET    1
+#define FIELD_APPLY     2
+#define MHZ             1000000U
+static const char *TAG = "SUBGHZ_CONFIG";
+static const uint32_t FREQUENCIES[] = {433920000, 868350000, 915000000, 315000000, 0};
+static const char *PRESET_NAMES[] = {
+    "OOK 270 kHz", "OOK 650 kHz", "OOK 812 kHz", "FSK 2.38 kHz", "FSK 47.6 kHz", "FSK 95.2 kHz"};
+static const cc1101_preset_t PRESETS[] = {CC1101_PRESET_OOK_270KHZ,
+                                          CC1101_PRESET_OOK_650KHZ,
+                                          CC1101_PRESET_OOK_800KHZ,
+                                          CC1101_PRESET_2FSK_2KHZ,
+                                          CC1101_PRESET_2FSK_47KHZ,
+                                          CC1101_PRESET_2FSK_95KHZ};
+static lv_obj_t *s_screen;
+static menu_component_t s_menu;
+static int s_frequency;
+static int s_preset;
+static void refresh(void) {
+  char text[32];
+  uint32_t hz = FREQUENCIES[s_frequency];
+  if (hz == 0)
+    snprintf(text, sizeof(text), "Hop bands");
+  else
+    snprintf(text,
+             sizeof(text),
+             "%lu.%03lu MHz",
+             (unsigned long)(hz / MHZ),
+             (unsigned long)(hz % MHZ / 1000));
+  menu_component_set_selector_value(&s_menu, FIELD_FREQUENCY, text);
+  menu_component_set_selector_value(&s_menu, FIELD_PRESET, PRESET_NAMES[s_preset]);
 }
-
-static lv_obj_t *build_tile(int i) {
-  lv_obj_t *tile = lv_obj_create(s_screen);
-  lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(tile, TILE_W, TILE_H);
-  lv_obj_set_pos(tile, TILE_X[i], TILE_Y[i]);
-  lv_obj_set_style_radius(tile, TILE_RADIUS, 0);
-  lv_obj_set_style_pad_all(tile, 0, 0);
-  lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(tile, 1, 0);
-
-  lv_obj_t *cap = lv_label_create(tile);
-  lv_label_set_text(cap, FIELDS[i].name);
-  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, current_theme.text_secondary, 0);
-  lv_obj_align(cap, LV_ALIGN_TOP_LEFT, TILE_PAD_L, TILE_CAP_Y);
-
-  lv_obj_t *grp = lv_obj_create(tile);
-  lv_obj_remove_flag(grp, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grp, TILE_W - 2 * TILE_PAD_L, 22);
-  lv_obj_align(grp, LV_ALIGN_TOP_LEFT, TILE_PAD_L, TILE_VAL_Y);
-  lv_obj_set_style_bg_opa(grp, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(grp, 0, 0);
-  lv_obj_set_style_pad_all(grp, 0, 0);
-  lv_obj_set_style_pad_column(grp, 3, 0);
-  lv_obj_set_flex_flow(grp, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(grp, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-  lv_obj_t *num = lv_label_create(grp);
-  lv_label_set_text(num, FIELDS[i].values[s_val_idx[i]]);
-  lv_obj_set_style_text_font(num, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(num, current_theme.text_main, 0);
-  s_tile_num[i] = num;
-
-  if (FIELDS[i].unit != NULL) {
-    lv_obj_t *unit = lv_label_create(grp);
-    lv_label_set_text(unit, FIELDS[i].unit);
-    lv_obj_set_style_text_font(unit, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(unit, current_theme.text_secondary, 0);
-  }
-
-  return tile;
-}
-
-static void refresh_selection(void) {
-  for (int i = 0; i < FIELD_COUNT; i++) {
-    bool sel = (i == s_sel);
-    lv_obj_set_style_bg_color(
-        s_tile[i], sel ? current_theme.bg_secondary : current_theme.bg_primary, 0);
-    lv_obj_set_style_border_color(
-        s_tile[i], sel ? current_theme.border_accent : current_theme.border_inactive, 0);
-    lv_obj_set_style_shadow_width(s_tile[i], sel ? TILE_GLOW_W : 0, 0);
-    lv_obj_set_style_shadow_color(s_tile[i], current_theme.border_accent, 0);
-    lv_obj_set_style_shadow_opa(s_tile[i], sel ? LV_OPA_40 : LV_OPA_TRANSP, 0);
-    lv_obj_set_style_shadow_spread(s_tile[i], sel ? -2 : 0, 0);
-    lv_obj_set_style_text_color(
-        s_tile_num[i], sel ? current_theme.border_accent : current_theme.text_main, 0);
-  }
-}
-
-static void adjust_value(int dir) {
-  int n = FIELDS[s_sel].count;
-  s_val_idx[s_sel] = (s_val_idx[s_sel] + dir + n) % n;
-  lv_label_set_text(s_tile_num[s_sel], FIELDS[s_sel].values[s_val_idx[s_sel]]);
-}
-
-#define CONFIG_FREQ_HZ 433920000
-
-static const uint8_t MOD_MAP[4] = {0, 2, 1, 3};
-static const cc1101_preset_t PRESET_MAP[4] = {
-    CC1101_PRESET_2FSK_47KHZ,
-    CC1101_PRESET_2FSK_95KHZ,
-    CC1101_PRESET_OOK_270KHZ,
-    CC1101_PRESET_OOK_650KHZ,
-};
-
-static void apply_config(void) {
-  cc1101_preset_t preset = PRESET_MAP[s_val_idx[3]];
-  cc1101_set_preset(preset, CONFIG_FREQ_HZ);
-  cc1101_set_modulation(MOD_MAP[s_val_idx[0]]);
-  cc1101_set_rx_bandwidth((float)atof(FIELDS[1].values[s_val_idx[1]]));
-  cc1101_set_data_rate((float)atof(FIELDS[2].values[s_val_idx[2]]) * 1000.0f);
-  cc1101_set_frequency(CONFIG_FREQ_HZ);
-
-  subghz_settings_set_preset(preset);
-  subghz_settings_set_freq(CONFIG_FREQ_HZ);
-}
-
-static void subghz_config_input(const input_event_t *ev, void *ctx) {
+static void input(const input_event_t *event, void *ctx) {
   (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
-
-  switch (ev->button) {
-    case INPUT_BTN_BACK:
-      if (press)
-        ui_switch_screen(SCREEN_SUBGHZ_MENU);
-      break;
-    case INPUT_BTN_DOWN:
-      if (nav) {
-        s_sel = (s_sel + 1) % FIELD_COUNT;
-        refresh_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_UP:
-      if (nav) {
-        s_sel = (s_sel - 1 + FIELD_COUNT) % FIELD_COUNT;
-        refresh_selection();
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_RIGHT:
-      if (nav) {
-        adjust_value(1);
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_LEFT:
-      if (nav) {
-        adjust_value(-1);
-        ui_feedback(UI_FB_NAV);
-      }
-      break;
-    case INPUT_BTN_OK:
-      if (press) {
-        apply_config();
-        notify(NOTIFY_SAVED, "Radio config applied");
-        ui_feedback(UI_FB_SELECT);
-      }
-      break;
-    default:
-      break;
+  bool press = event->action == INPUT_ACTION_PRESS;
+  bool nav = press || event->action == INPUT_ACTION_REPEAT;
+  if (press && event->button == INPUT_BTN_BACK) {
+    ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    return;
+  }
+  if (nav && event->button == INPUT_BTN_UP)
+    menu_component_prev(&s_menu);
+  if (nav && event->button == INPUT_BTN_DOWN)
+    menu_component_next(&s_menu);
+  int selected = menu_component_get_selected(&s_menu);
+  if (press && event->button == INPUT_BTN_OK && selected == FIELD_APPLY) {
+    subghz_settings_set_freq(FREQUENCIES[s_frequency]);
+    subghz_settings_set_preset(PRESETS[s_preset]);
+    ESP_LOGI(TAG,
+             "RX settings: hz=%lu preset=%u",
+             (unsigned long)FREQUENCIES[s_frequency],
+             PRESETS[s_preset]);
+    led_signal_info();
+    notify(NOTIFY_SAVED, "Ready for Read / Read RAW");
+    return;
+  }
+  if ((nav && (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT)) ||
+      (press && event->button == INPUT_BTN_OK)) {
+    int direction = event->button == INPUT_BTN_LEFT ? -1 : 1;
+    if (selected == FIELD_FREQUENCY)
+      s_frequency = (s_frequency + FREQUENCY_COUNT + direction) % FREQUENCY_COUNT;
+    if (selected == FIELD_PRESET)
+      s_preset = (s_preset + PRESET_COUNT + direction) % PRESET_COUNT;
+    refresh();
   }
 }
-
 void ui_subghz_config_open(void) {
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
-  s_sel = 0;
-  TILE_Y[0] = GRID_Y;
-  TILE_Y[1] = GRID_Y;
-  TILE_Y[2] = ROW2_Y;
-  TILE_Y[3] = ROW2_Y;
-  for (int i = 0; i < FIELD_COUNT; i++)
-    s_val_idx[i] = FIELDS[i].def;
-
+  subghz_settings_t config = subghz_settings_get();
+  s_frequency = s_preset = 0;
+  for (int i = 0; i < FREQUENCY_COUNT; ++i)
+    if (config.freq == FREQUENCIES[i])
+      s_frequency = i;
+  for (int i = 0; i < PRESET_COUNT; ++i)
+    if (config.preset == PRESETS[i])
+      s_preset = i;
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
-
-  ui_chrome_header(s_screen, HDR_TITLE, HDR_ICON);
-
-  build_freq_card();
-  for (int i = 0; i < FIELD_COUNT; i++)
-    s_tile[i] = build_tile(i);
-  refresh_selection();
-
-  ui_chrome_footer(s_screen, FOOTER);
-
-  ui_input_set_screen_handler(subghz_config_input, NULL);
-
+  lv_obj_set_style_border_width(s_screen, 0, 0);
+  s_menu = menu_component_create(s_screen, "SUB-GHZ / RADIO", "/assets/icons/tune.bin");
+  menu_component_add_section(&s_menu, "READ / READ RAW");
+  menu_component_add_selector(&s_menu, NULL, "Freq", "");
+  menu_component_add_selector(&s_menu, NULL, "Preset", "");
+  menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Apply RX settings");
+  menu_component_add_section(&s_menu, "RF1: 315/433 | RF2: 868/915");
+  menu_component_set_hint(&s_menu, "UP/DN select  L/R edit  OK apply");
+  refresh();
+  ui_input_set_screen_handler(input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
 }

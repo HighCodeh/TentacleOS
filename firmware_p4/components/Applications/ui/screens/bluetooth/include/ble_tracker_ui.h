@@ -23,6 +23,8 @@ extern "C" {
 /** @brief Open the tracker detector using observed BLE advertisements. */
 void ui_ble_tracker_open(void);
 
+void ui_ble_tracker_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

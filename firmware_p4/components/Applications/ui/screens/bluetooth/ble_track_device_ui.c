@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_track_device_ui.h"
+#include "bluetooth_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -73,13 +74,15 @@ static char s_target_name[NAME_LEN];
 static void ble_track_device_input(const input_event_t *ev, void *ctx);
 static void track_timer_cb(lv_timer_t *t);
 
-static void stop_all(void) {
+void ui_ble_track_device_stop(void) {
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
     s_timer = NULL;
   }
   if (s_phase == PHASE_TRACK)
     ble_tracker_stop();
+  if (bluetooth_service_deinit() != ESP_OK)
+    ESP_LOGW(TAG, "BLE shutdown failed");
 }
 
 static int rssi_to_pct(int rssi) {
@@ -136,18 +139,16 @@ void ui_ble_track_device_open(void) {
   s_timer = NULL;
   s_target_name[0] = '\0';
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "TRACK DEVICE", TRACK_ICON);
   ui_chrome_footer(s_screen, "BACK  Exit");
 
   s_target_lbl = lv_label_create(s_screen);
-  lv_label_set_text(s_target_lbl, "Scanning for target...");
+  lv_label_set_text(s_target_lbl, "Finding nearest signal...");
+  lv_obj_set_width(s_target_lbl, ui_screen_w() - 16);
+  lv_label_set_long_mode(s_target_lbl, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(s_target_lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(s_target_lbl, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(s_target_lbl, current_theme.text_main, 0);
   lv_obj_align(s_target_lbl, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 2);
@@ -168,6 +169,7 @@ void ui_ble_track_device_open(void) {
   lv_obj_set_style_arc_rounded(s_arc, true, LV_PART_INDICATOR);
 
   s_dbm_label = lv_label_create(s_screen);
+  lv_label_set_text(s_dbm_label, "-- dBm");
   lv_obj_set_style_text_font(s_dbm_label, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(s_dbm_label, current_theme.text_main, 0);
   lv_obj_align_to(s_dbm_label, s_arc, LV_ALIGN_CENTER, 0, -6);
@@ -177,7 +179,7 @@ void ui_ble_track_device_open(void) {
   lv_obj_align_to(s_caption, s_arc, LV_ALIGN_CENTER, 0, 16);
 
   lv_obj_t *tip = lv_label_create(s_screen);
-  lv_label_set_text(tip, "Move around to home in");
+  lv_label_set_text(tip, "Tracks strongest nearby signal");
   lv_obj_set_style_text_font(tip, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(tip, current_theme.text_secondary, 0);
   lv_obj_align(tip, LV_ALIGN_BOTTOM_MID, 0, -(UI_CHROME_FOOTER_H + 14));
@@ -186,7 +188,7 @@ void ui_ble_track_device_open(void) {
     lv_label_set_text(s_caption, "Finding devices...");
     lv_obj_set_style_text_color(s_caption, current_theme.text_secondary, 0);
   }
-  lv_obj_fade_in(s_screen, 240, 0);
+  lv_obj_fade_in(s_screen, UI_CONTENT_FADE_MS, 0);
 
   ui_input_set_screen_handler(ble_track_device_input, NULL);
 
@@ -223,7 +225,7 @@ static bool select_target(void) {
 
 static void track_timer_cb(lv_timer_t *t) {
   if (lv_screen_active() != s_screen) {
-    stop_all();
+    ui_ble_track_device_stop();
     return;
   }
 
@@ -273,7 +275,6 @@ static void ble_track_device_input(const input_event_t *ev, void *ctx) {
   switch (ev->button) {
     case INPUT_BTN_BACK:
       if (press) {
-        stop_all();
         ui_switch_screen(SCREEN_BLE_DETECT_MENU);
       }
       break;

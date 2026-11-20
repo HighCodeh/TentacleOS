@@ -68,6 +68,7 @@ typedef highboy_nfc_mf_key_type_t mf_key_type_t;
 #define HB_PROTO_MF_PLUS       HIGHBOY_NFC_PROTO_MF_PLUS
 #define HB_PROTO_MF_DESFIRE    HIGHBOY_NFC_PROTO_MF_DESFIRE
 #define HB_PROTO_ST25TB        HIGHBOY_NFC_PROTO_ST25TB
+#define HB_PROTO_TEXKOM        HIGHBOY_NFC_PROTO_TEXKOM
 #define HB_PROTO_SLIX          HIGHBOY_NFC_PROTO_SLIX
 
 /* ---- MIFARE key-type enum aliases ---- */

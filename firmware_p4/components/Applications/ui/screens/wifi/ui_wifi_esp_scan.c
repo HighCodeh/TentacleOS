@@ -25,6 +25,7 @@
 #include "ui_metrics.h"
 #include "waves_ui.h"
 #include "wifi_scan_view.h"
+#include "wifi_live_scan_ui.h"
 
 #define SCAN_ICON                "/assets/icons/wifi_find.bin"
 #define SCAN_REFRESH_MS          500
@@ -241,12 +242,29 @@ static void build(void) {
   add_text(hint, s_height - SCAN_FOOTER_OFFSET, SCAN_DIM, &lv_font_montserrat_12);
 }
 
+static void live_scan_done(void *ctx) {
+  (void)ctx;
+  (void)wifi_scan_view_load_live_results();
+  s_screen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
+  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  collect_results();
+  s_phase = UI_WIFI_ESP_SCAN_RESULT;
+  s_is_cancelling = false;
+  build();
+  ui_input_set_screen_handler(on_input, NULL);
+  ui_screen_load_owned(&s_screen, s_screen);
+  if (s_timer != NULL)
+    lv_timer_resume(s_timer);
+}
+
 static void start_scan(void) {
-  if (wifi_scan_view_start(SPI_WIFI_QUICK_DEFAULT_SECONDS) == ESP_OK) {
+  if (wifi_live_scan_ui_open(SPI_WIFI_BAND_DUAL, live_scan_done, NULL) == ESP_OK) {
     s_phase = UI_WIFI_ESP_SCAN_SEARCHING;
     s_is_cancelling = false;
+    if (s_timer != NULL)
+      lv_timer_pause(s_timer);
   }
-  build();
 }
 
 static void refresh(lv_timer_t *timer) {

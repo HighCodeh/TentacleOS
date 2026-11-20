@@ -1,3 +1,18 @@
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 cmake_minimum_required(VERSION 3.16)
 project(TentacleOS_HLE C CXX)
 
@@ -68,8 +83,19 @@ set(ENABLE_CJSON_UNINSTALL OFF CACHE BOOL "Create cJSON uninstall target" FORCE)
 set(ENABLE_TARGET_EXPORT OFF CACHE BOOL "Export cJSON CMake targets" FORCE)
 set(CJSON_OVERRIDE_BUILD_SHARED_LIBS ON CACHE BOOL "Override cJSON library type" FORCE)
 set(CJSON_BUILD_SHARED_LIBS OFF CACHE BOOL "Build cJSON as a shared library" FORCE)
-FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG v1.7.18)
+FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG c859b25da02955fef659d658b8f324b5cde87be3) # v1.7.19
+# cJSON 1.7.19 still declares a 3.0 minimum, predating CMake 4's removal of pre-3.5 compatibility.
+set(_hle_saved_policy_minimum "${CMAKE_POLICY_VERSION_MINIMUM}")
+if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM OR CMAKE_POLICY_VERSION_MINIMUM VERSION_LESS 3.5)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
 FetchContent_MakeAvailable(cjson)
+if(_hle_saved_policy_minimum STREQUAL "")
+    unset(CMAKE_POLICY_VERSION_MINIMUM)
+else()
+    set(CMAKE_POLICY_VERSION_MINIMUM "${_hle_saved_policy_minimum}")
+endif()
+unset(_hle_saved_policy_minimum)
 
 FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googletest.git GIT_TAG v1.14.0)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)

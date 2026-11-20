@@ -1,3 +1,22 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
+> Legacy driver, excluded from V2.03 builds. See [AW8623](../aw8623/README.md).
+
 # DRV2605L Haptic Driver
 
 This component is a minimal driver for the Texas Instruments DRV2605L haptic motor driver over I2C. It uses the chip's internal ROM waveform library for named effects and exposes RTP (real-time playback) for variable-intensity feedback. The driver is tuned for an ERM (eccentric rotating mass) actuator.

@@ -26,7 +26,7 @@ extern "C" {
  * @brief Synchronize P4 and C5 firmware versions and initialize the bridge.
  *
  * Queries the C5 firmware version over SPI. If it differs from the
- * expected version, triggers an OTA update via c5_flasher.
+ * expected version, reports it without automatic OTA. Starts bounded recovery.
  *
  * @return ESP_OK on success, ESP_FAIL if synchronization fails.
  */

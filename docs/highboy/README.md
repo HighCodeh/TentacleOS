@@ -27,7 +27,11 @@ The former sources and packaged binaries remain unchanged outside this checkout.
 This is an editable source repository, not another generated `integrated_*/source`
 snapshot. Edit these files directly. Do not run the old Muse `prepare.py --refresh`
 against this checkout. `integration/import.json` records the one-time import,
-source hashes, upstream hashes and relocated paths; it is provenance, not a claim
+source hashes, upstream hashes and relocated paths. The entire `integration/`
+directory is local and ignored by Git; a fresh clone does not contain this audit
+history, device backups or release artifacts. Build and guarded flash routing do
+not depend on its presence. Factory security inputs are versioned under
+`tools/highboy/security_profiles/`. The local import history is provenance, not a claim
 that subsequent edits are identical to the import. Libraries migrated to the
 Component Manager are no longer part of the local source-preservation inventory;
 their versions are declared in the firmware manifests.
@@ -43,6 +47,9 @@ their versions are declared in the firmware manifests.
 
 Only the four upstream architecture roots are used under `components`.
 Independent nested components are registered explicitly through CMake.
+
+The V2.03 external module header pinout and shared-signal constraints are
+documented in [Pins / pin_def](../pins/README.md#v203-external-module-header).
 
 ## Merge decisions
 
@@ -62,7 +69,62 @@ revision. Replacing our C5 with the stock image would remove Muse and regress th
 local protocol. Both integrated targets retain identical SPI version **8** headers;
 upstream currently has version 6. The Muse extension remains a separate category.
 
+## Local prototype integration, 16 November 2026
+
+This candidate integrates dev `c3f85db` in an isolated worktree with the existing
+0201891B wardriving workflow and battery guard. Both firmware images must be
+updated together: incremental Wi-Fi scan retains commands `0x56..0x58`, while
+wardriving uses `0x59..0x5B`. Identical P4/C5 protocol headers are checked at build.
+The GPS receiver remains on GPIO12 with TX on GPIO11; the diagnostic and recorder
+share UART3 exclusively. The recorder lives in `Service/wardrive`; the UI stop
+hook releases its worker and restores orientation.
+
+The production profile uses the upstream CPU clock selection and 200 MHz PSRAM,
+with no early startup clock override. Watchdog, brownout and battery charge guards
+remain enabled. The battery screen does not present an unqualified gauge percentage.
+
+Both chips on unit 0201891B were migrated from `0x2D0000` app slots to the
+upstream 3 MiB slots, with complete flash backups and verified programmed bytes.
+Bootloaders and NVS were preserved; rebuilt P4 assets retain twelve readable
+user configuration files. The old unreadable C5 assets remain in the raw backup;
+the installed C5 filesystem uses packaged defaults. The microSD was not formatted
+or migrated. Both applications booted and the paired SPI ping passed. P4 mounted
+the microSD and read a physical NFC card. These checks do not establish complete
+RF compatibility or long-term stability.
+
+An app-only P4 update subsequently installed the Type 2 short-reply correction,
+with unchanged flash regions verified. ROM flashing on this P4 used 230400 baud,
+bounded 64 KiB writes and explicit 8 MiB flash parameters before range digests;
+the RAM stub and USB automatic reset were not reliable in this session.
+During that deployment the ADC was at its floor and the gauge was unavailable,
+so the charge guard remained active. Later live telemetry recovered: 3.42–3.56 V
+at the battery and approximately 350 mA charging, with a 384 mA programmed limit,
+4.176 V regulation and no reported charger faults. The gauge still reports an
+unqualified 3000 mAh model; percentage, cell temperature and runtime remain
+unvalidated. No low-voltage or thermal safeguard was bypassed.
+On 2026-11-18, telemetry was again approximately 3.00 V with USB present,
+zero net charging current and the low-voltage recovery guard active. Charge
+requested is not equivalent to charge enabled; the UI now displays that reason.
+
+USB Storage mounted on macOS, accepted a small NFC profile and passed
+byte-for-byte readback. Type 2 target startup subsequently failed to allocate
+3328 bytes of internal DMA memory, including on repeated attempts after reboot.
+The short-response path now uses one RMT hardware memory block for ACK/NACK,
+without that DMA allocation; Classic and NFC-V retain the full target path.
+See [NFC target memory](../nfc/README.md#discovery-deadlines-and-target-dma).
+Ten Hotel start/stop cycles and one additional start after screen re-entry passed
+on unit 0201891B with the short-target build. No independent RF reader was
+available for acceptance testing of that exact build.
+
+
 ## Build
+
+Both builds also generate their own `assets.bin`. P4 uses the existing
+`tools/png_to_bin/` conversion scripts, including rotated frames; C5 packages
+its configuration/data directory directly. Standard `idf.py flash` now includes
+the assets partition; `assets-flash` writes only that filesystem. The guarded
+`tools/flash.sh` path remains app-only. See [assets](../storage_assets/README.md#v203-p4-assets-build-and-flash).
+
 
 ```sh
 bash tools/build.sh       # C5, then P4
@@ -188,21 +250,54 @@ images and do not authorize full restoration or production provisioning.
 
 ## Flash and storage boundary
 
-The previously used **local High Boy map** is retained: P4 app slots are
-`0x2D0000` bytes; C5 app slots are 2 MiB. This is not the current upstream P4 map:
+The earlier V2.03 NFC expansion layout reallocated 256 KiB from P4 assets to the two
+OTA slots, adding 128 KiB to each. C5 remains unchanged. Both P4 OTA slots and
+rollback are retained; NVS, PHY and OTA metadata keep their offsets.
 
-| P4 region | Upstream `011ed7d` | Integrated local profile |
+| P4 region | Previous local profile | NFC expansion profile |
 | --- | --- | --- |
-| `ota_0` offset / size | `0x20000` / `0x2E0000` | `0x20000` / `0x2D0000` |
-| `ota_1` offset / size | `0x300000` / `0x2E0000` | `0x2F0000` / `0x2D0000` |
-| `coredump` offset | `0x5E0000` | `0x5C0000` |
-| `assets` offset / size | `0x5F0000` / `0x210000` | `0x5D0000` / `0x230000` |
+| `ota_0` offset / size | `0x20000` / `0x2D0000` | `0x20000` / `0x2F0000` |
+| `ota_1` offset / size | `0x2F0000` / `0x2D0000` | `0x310000` / `0x2F0000` |
+| `coredump` offset / size | `0x5C0000` / `0x10000` | `0x600000` / `0x10000` |
+| `assets` offset / size | `0x5D0000` / `0x230000` | `0x610000` / `0x1F0000` |
 
-NVS, OTA metadata and PHY offsets are the same, but an upstream-installed device
-still needs an explicit migration review. Do not apply the local profile's
-offsets or assets image to it blindly. No partition is enlarged merely to pass
-the app size check. The previous local P4 image had only 1,840 bytes of margin,
-so the final linked size is an explicit release gate.
+The current GPS-test expansion takes another 128 KiB from assets, adding
+64 KiB to **each** OTA slot. Both slots remain equal and rollback is retained.
+C5, NVS, PHY and OTA metadata are unchanged.
+
+| P4 region | Current offset | Current size |
+| --- | --- | --- |
+| `ota_0` | `0x20000` | `0x300000` (3 MiB) |
+| `ota_1` | `0x320000` | `0x300000` (3 MiB) |
+| `coredump` | `0x620000` | `0x10000` (64 KiB) |
+| `assets` | `0x630000` | `0x1D0000` (1,856 KiB) |
+
+At the initial GPS expansion, the rebuilt LittleFS image was mounted offline:
+408 of 464 blocks were used
+(1,671,168 bytes), leaving 229,376 bytes (224 KiB) free at that revision. All 173 packaged files
+were compared byte-for-byte with the build staging directory. Filesystem free
+space is not application headroom until the map is migrated. All packaged
+assets are retained. The table still ends at `0x800000` (8 MiB).
+
+This changes installation compatibility. The guarded app-only updater rejects the
+previous tables (including 0x2F0000-byte slots); it cannot migrate them. Package verification, recovery review and
+the separate factory-security partition profile use the new geometry. Historic
+packages/backups must be handled with their matching revision's tools.
+
+Migration requires a backup and a serial flash of the new partition table,
+initial OTA metadata selecting `ota_0`, application and rebuilt assets together.
+Do not perform an app-only OTA or an assets-only flash to migrate. The old
+`ota_1`, assets and coredump locations overlap the new layout and cannot be kept
+as valid images. Preserve any configuration stored in the old assets filesystem
+before replacing it. NVS offsets and the SD card are unchanged; no erase-all or
+eFuse changes are required by this layout. This source change performs no device
+write. After migration, app-only updates again require an exact table match.
+
+The first NFC-layout candidate (historical) measured 2,943,392 bytes in a 3,080,192-byte slot:
+136,800 bytes free. The rebuilt LittleFS image is 2,031,616 bytes; mounting it
+with littlefs-python reports 1,671,168 allocated bytes and 360,448 bytes free.
+The 15 unused PNG sources and their generated rotated frames are absent.
+These are build/image checks, not physical migration or NFC RF acceptance.
 
 The last built baseline (`2b7614d3`) fit: P4 **2,943,520 / 2,949,120 bytes** (5,600 free),
 C5 **2,016,096 / 2,097,152 bytes** (81,056 free). Layout/control screens use size
@@ -262,9 +357,8 @@ If a check fails, no migration or full restoration is attempted. A failed serial
 operation can leave the device in the ROM loader; reset it to resume normal boot.
 
 **C5 is not embedded or flashed by this integrated P4 build.** The dedicated
-Quick Scan capture backend requires the matching C5 app. ESP SCAN uses the
-existing AP-scan commands and only needs a P4 update when C5 already supports
-those commands. To update C5 separately:
+Quick Scan capture backend requires the matching C5 app. Progressive AP discovery, including ESP SCAN, requires matching
+P4 and C5 applications with the channel-step commands (Wi-Fi 0x56–0x58). To update C5 separately:
 
 ```sh
 # Close any IDF serial monitor using the C5 port first (Ctrl+]).
@@ -273,7 +367,7 @@ bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220
 ```
 
 The C5 target selects `firmware_c5/build_highboy/TentacleOS_C5.bin`, its own
-partition table, 2 MiB app slots and the C5 SDK/Python environment. Paths come
+partition table, 3 MiB app slots and the C5 SDK/Python environment. Paths come
 from `HIGHBOY_C5_IDF_PATH` / `HIGHBOY_C5_PYTHON_ENV`, the local build environment
 file or the active IDF environment. It explicitly selects `esp32c5` and uses
 `--no-stub`, matching this profile's C5 flasher configuration. P4 uses
@@ -284,6 +378,30 @@ macOS C5 example is the port previously used by this environment's C5 monitor,
 not an automatic selection rule. A C5 update does not touch P4, and vice versa.
 The C5 updater passed host tests and validated the built C5 image; physical
 backup/write acceptance remains pending.
+
+### C5 application partition expansion
+
+The C5 now uses the full 8 MiB address space with the following normal layout:
+
+| Partition | Offset | Size |
+| --- | --- | --- |
+| `ota_0` | `0x20000` | `0x300000` (3 MiB) |
+| `ota_1` | `0x320000` | `0x300000` (3 MiB) |
+| `coredump` | `0x620000` | `0x10000` (64 KiB) |
+| `assets` | `0x630000` | `0x1D0000` (1,856 KiB) |
+
+NVS, OTA metadata and PHY offsets are unchanged. Each app slot gains 1 MiB by
+using the previously unassigned 1,984 KiB tail and reducing assets by 64 KiB.
+No asset files are removed. The factory-security review profile retains its
+separate NVS/security offsets and uses the same expanded app/assets geometry.
+Packaging, recovery validation and contract checks use the new normal table.
+
+Existing C5 installations with 2 MiB slots require a migration, not an app-only
+update. Back up flash and preserve filesystem configuration first; the new
+partition table, initial OTA metadata selecting `ota_0`, app and rebuilt assets
+must be installed together through a reviewed migration. Old `ota_1`, assets and
+coredump ranges overlap the new map. The guarded updater rejects the old table;
+this source change does not migrate or flash a device, or change P4 partitions.
 
 Offline guard tests (SDK partition parser required):
 

@@ -47,7 +47,8 @@ static void cdc_rx_cb(int itf, cdcacm_event_t *event) {
   uint32_t generation = host_link_session_generation(cdc_write);
   while (tinyusb_cdcacm_read((tinyusb_cdcacm_itf_t)itf, buf, sizeof(buf), &rx) == ESP_OK &&
          rx > 0) {
-    host_link_feed(cdc_write, generation, buf, rx);
+    if (!busb_msc_is_exposed())
+      host_link_feed(cdc_write, generation, buf, rx);
     if (rx < sizeof(buf))
       break;
   }
@@ -61,6 +62,11 @@ static void cdc_line_state_cb(int itf, cdcacm_event_t *event) {
   // Claim the single companion session when the host opens the port (DTR set),
   // release it when the port closes. Release also resets crypto + reassembly so
   // a reconnecting app must re-handshake.
+  if (busb_msc_is_exposed()) {
+    host_link_session_release(cdc_write);
+    tud_cdc_n_read_flush(HOST_LINK_CDC_ITF);
+    return;
+  }
   if (event->line_state_changed_data.dtr) {
     tud_cdc_n_write_clear(HOST_LINK_CDC_ITF);
     tud_cdc_n_read_flush(HOST_LINK_CDC_ITF);
@@ -75,14 +81,14 @@ static void cdc_line_state_cb(int itf, cdcacm_event_t *event) {
 static void cdc_write(uint32_t generation, const uint8_t *frame, size_t len) {
   // Drop when no app has the port open. Logs are pushed regardless of a
   // connection, so without this guard the write loop would spin forever.
-  if (!tud_cdc_n_connected(HOST_LINK_CDC_ITF) ||
+  if (busb_msc_is_exposed() || !tud_cdc_n_connected(HOST_LINK_CDC_ITF) ||
       !host_link_generation_matches(cdc_write, generation))
     return;
 
   size_t off = 0;
   int stalls = 0;
   while (off < len) {
-    if (!tud_cdc_n_connected(HOST_LINK_CDC_ITF) || !usb_mux_is_native() ||
+    if (busb_msc_is_exposed() || !tud_cdc_n_connected(HOST_LINK_CDC_ITF) || !usb_mux_is_native() ||
         !host_link_generation_matches(cdc_write, generation)) {
       tud_cdc_n_write_clear(HOST_LINK_CDC_ITF);
       return;
@@ -126,7 +132,7 @@ static void host_link_worker(void *arg) {
 esp_err_t host_link_cdc_init(void) {
   static bool s_cdc_up = false;
   if (s_cdc_up) {
-    return ESP_OK; // already brought up (e.g. native-USB toggle re-invoked it)
+    return busb_msc_is_exposed() ? ESP_OK : host_link_start_worker();
   }
 
   // Defer the native P4 USB (TinyUSB) until the USB-C data mux is actually routed
@@ -139,7 +145,7 @@ esp_err_t host_link_cdc_init(void) {
     return ESP_OK;
   }
 
-  esp_err_t err = host_link_start_worker();
+  esp_err_t err = busb_msc_is_exposed() ? ESP_OK : host_link_start_worker();
   if (err != ESP_OK)
     return err;
   err = busb_init(); // ensure the TinyUSB composite (HID + CDC) is up

@@ -79,7 +79,7 @@ class PackageTests(unittest.TestCase):
             with self.subTest(field=field):
                 report=copy.deepcopy(self.report);report[field]=value
                 with self.assertRaises(ValueError):self.write(report)
-        for field,value in [('file','../image.bin'),('idf_version','v0.0.0'),('slot_bytes',0x300000),
+        for field,value in [('file','../image.bin'),('idf_version','v0.0.0'),('slot_bytes',0x310000),
                             ('free_bytes',0),('bytes',True),('partition_table_sha256','0'*64),
                             ('sha256','0'*64)]:
             with self.subTest(field=field):

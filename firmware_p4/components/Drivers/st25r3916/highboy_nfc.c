@@ -22,6 +22,9 @@
 #include "st25r3916_reg.h"
 #include "rf_frontend.h"
 
+#define HIGHBOY_NFC_MANUAL_FIELD_DETECT 0x02U
+#define HIGHBOY_NFC_FIELD_SETTLE_MS     5U
+
 static bool s_initialized;
 
 esp_err_t highboy_nfc_init(const highboy_nfc_config_t *config) {
@@ -80,18 +83,26 @@ esp_err_t highboy_nfc_field_off(void) {
 }
 
 uint8_t highboy_nfc_measure_amplitude(void) {
-  if (!s_initialized) {
-    return 0;
-  }
   uint8_t amplitude = 0;
-  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE) != ESP_OK) {
-    return 0;
-  }
-  hb_nfc_timer_delay_ms(ST25R3916_AD_MEAS_DELAY_MS);
-  if (hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &amplitude) != ESP_OK) {
-    return 0;
-  }
+  (void)highboy_nfc_measure_amplitude_checked(&amplitude);
   return amplitude;
+}
+
+esp_err_t highboy_nfc_measure_amplitude_checked(uint8_t *out_amplitude) {
+  if (out_amplitude == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_amplitude = 0;
+  if (!s_initialized || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t err = hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+  if (err != ESP_OK)
+    return err;
+  hb_nfc_timer_delay_ms(ST25R3916_AD_MEAS_DELAY_MS);
+  uint8_t amplitude = 0;
+  err = hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &amplitude);
+  if (err == ESP_OK)
+    *out_amplitude = amplitude;
+  return err;
 }
 
 bool highboy_nfc_field_detected(uint8_t *out_aux_display) {
@@ -106,6 +117,38 @@ bool highboy_nfc_field_detected(uint8_t *out_aux_display) {
     *out_aux_display = aux;
   }
   return (aux & ST25R3916_AUX_DISP_EFD_BIT) != 0;
+}
+
+esp_err_t highboy_nfc_detect_external_field(bool *out_detected, uint8_t *out_aux_display) {
+  if (out_detected == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_detected = false;
+  if (out_aux_display != NULL)
+    *out_aux_display = 0;
+  if (!s_initialized || !rf_frontend_can_access(RF_FRONTEND_NFC_13MHZ))
+    return ESP_ERR_INVALID_STATE;
+
+  esp_err_t err = st25r3916_core_field_off();
+  if (err != ESP_OK)
+    return err;
+  /* ST25R3916B OP_CONTROL en_fd=10: manual passive-target field detector.
+   * EN alone disables this detector. TX_EN stays clear throughout. */
+  err = hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL,
+                             ST25R3916_OP_CTRL_EN | HIGHBOY_NFC_MANUAL_FIELD_DETECT);
+  uint8_t aux = 0;
+  if (err == ESP_OK) {
+    hb_nfc_timer_delay_ms(HIGHBOY_NFC_FIELD_SETTLE_MS);
+    err = hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+  }
+  const esp_err_t cleanup_error = st25r3916_core_field_off();
+  if (err == ESP_OK)
+    err = cleanup_error;
+  if (err != ESP_OK)
+    return err;
+  *out_detected = (aux & ST25R3916_AUX_DISP_EFD_BIT) != 0;
+  if (out_aux_display != NULL)
+    *out_aux_display = aux;
+  return ESP_OK;
 }
 
 esp_err_t highboy_nfc_set_regulator_mv(uint16_t millivolts) {

@@ -78,7 +78,7 @@ class FactoryBuildAuditTests(unittest.TestCase):
         for target in ('p4', 'c5'):
             data, original = secure_build.partition_table(security.ROOT/f'firmware_{target}/partitions.csv')
             self.assertEqual(hashlib.sha256(data).hexdigest(), verify_package.PROFILE[target.upper()]['partition_table_sha256'])
-            _, factory = secure_build.partition_table(security.ROOT/f'integration/security/partitions-{target}.csv')
+            _, factory = secure_build.partition_table(security.ROOT/f'tools/highboy/security_profiles/partitions-{target}.csv')
             for name in ('ota_0', 'ota_1', 'assets', 'coredump'):
                 self.assertEqual(factory[name][:4], original[name][:4])
             self.assertEqual(factory['nvs_keys'][2:5], (0x1a000, 0x1000, 1))
@@ -108,7 +108,7 @@ class FactoryBuildAuditTests(unittest.TestCase):
         for target in ('p4', 'c5'):
             config = dict(security.REQUIRED, IDF_TARGET=json.dumps('esp32'+target),
                           PARTITION_TABLE_OFFSET='0x10000',
-                          PARTITION_TABLE_CUSTOM_FILENAME=json.dumps('../integration/security/partitions-'+target+'.csv'),
+                          PARTITION_TABLE_CUSTOM_FILENAME=json.dumps('../tools/highboy/security_profiles/partitions-'+target+'.csv'),
                           NVS_ENCRYPTION='y', NVS_SEC_KEY_PROTECT_USING_FLASH_ENC='y')
             security.audit(target, config, factory=True)
             for name in ('PARTITION_TABLE_OFFSET', 'PARTITION_TABLE_CUSTOM_FILENAME', 'NVS_ENCRYPTION',
@@ -124,7 +124,7 @@ class FactoryBuildAuditTests(unittest.TestCase):
         overlay = {name: overlay[name] for name in security.C5_BOARD_SETTINGS}
         baseline.update(overlay)
         config = dict(baseline, PARTITION_TABLE_OFFSET='0x10000',
-                      PARTITION_TABLE_CUSTOM_FILENAME='"../integration/security/partitions-c5.csv"',
+                      PARTITION_TABLE_CUSTOM_FILENAME='"../tools/highboy/security_profiles/partitions-c5.csv"',
                       NVS_ENCRYPTION='y', NVS_SEC_KEY_PROTECT_USING_FLASH_ENC='y')
         security.audit('c5', config, baseline, factory=True)
         for name, value in overlay.items():

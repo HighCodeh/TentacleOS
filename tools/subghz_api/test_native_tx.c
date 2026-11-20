@@ -18,7 +18,7 @@
 #include <time.h>
 #include <errno.h>
 static void *allocate(size_t);
-static void *allocate_zero(size_t,size_t);
+
 static void release(void *);
 #define malloc allocate
 #define calloc allocate_zero
@@ -39,6 +39,13 @@ static atomic_uint s_alloc_count,s_received;
 static unsigned s_fail_alloc;
 static atomic_uint s_disable_fail,s_delete_fail,s_encoder_delete_fail,s_retries;
 static unsigned s_fault;
+static atomic_uint s_radio_calls, s_radio_fail;
+static atomic_bool s_hold_idle, s_idle_entered;
+static esp_err_t radio_result(void) {
+  unsigned call = atomic_fetch_add(&s_radio_calls, 1) + 1;
+  return call == atomic_load(&s_radio_fail) ? ESP_FAIL : ESP_OK;
+}
+static subghz_tx_config_t s_expected = {.frequency_hz = TX_DEFAULT_FREQ, .preset = CC1101_PRESET_OOK_270KHZ};
 static atomic_bool s_hold_start,s_start_entered;
 static atomic_int s_start_error;
 static void pause_tick(void) { struct timespec t={.tv_nsec=1000000};nanosleep(&t,NULL); }
@@ -47,7 +54,7 @@ static void *allocate(size_t size) {
   if(s_fail_alloc!=0 && call==s_fail_alloc)return NULL;
   void *p=malloc(size);assert(p);return p;
 }
-static void *allocate_zero(size_t count,size_t size) { void *p=allocate(count*size);if(p)memset(p,0,count*size);return p; }
+void *heap_caps_malloc(size_t size, unsigned int caps) { assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)); return allocate(size); }
 static void release(void *p) {
   if((uintptr_t)p==atomic_load(&s_dma_pointer) && p!=NULL)
     assert(!s_dma_pending || (!s_channel_live && !s_encoder_live && !s_enabled));
@@ -105,9 +112,34 @@ esp_err_t resource_acquire(const res_request_t *request,res_handle_t *out) {
   assert(!s_grant_live && request->owner_kind==RES_OWNER_UI);s_grant_live=true;*out=42;return ESP_OK;
 }
 esp_err_t resource_release(res_handle_t grant) { assert(s_grant_live && !s_channel_live && !s_encoder_live);s_grant_live=false;return ESP_OK; }
-void cc1101_enable_async_mode(uint32_t frequency) { assert(s_grant_live); }
-void cc1101_strobe(uint8_t command) { assert(s_grant_live); }
-void cc1101_enter_tx_mode(void) { assert(s_grant_live); }
+esp_err_t cc1101_init(void) { assert(s_grant_live);
+  return radio_result();
+}
+esp_err_t cc1101_set_preset(cc1101_preset_t preset,uint32_t frequency) {
+  assert(s_grant_live);
+  if (preset == CC1101_PRESET_IDLE && s_tx_entered && s_hold_idle) {
+    s_idle_entered = true;
+    while (s_hold_idle) pause_tick();
+  }
+  if (preset != CC1101_PRESET_IDLE)
+    assert(frequency==s_expected.frequency_hz && preset==s_expected.preset);
+  return radio_result();
+}
+esp_err_t cc1101_write_reg(uint8_t reg,uint8_t value) { assert(s_grant_live);
+  return radio_result();
+}
+esp_err_t cc1101_set_pa(int power) { assert(power==10);
+  return radio_result();
+}
+esp_err_t cc1101_enable_async_mode(uint32_t frequency) { assert(s_grant_live);
+  return radio_result();
+}
+esp_err_t cc1101_strobe(uint8_t command) { assert(s_grant_live);
+  return radio_result();
+}
+esp_err_t cc1101_enter_tx_mode(void) { assert(s_grant_live);
+  return radio_result();
+}
 void led_signal_error(void) {}
 esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert(s_grant_live);s_start_entered=true;while(s_hold_start)pause_tick();if(s_fault==4)return ESP_FAIL;s_channel_live=true;*out=(void *)3;return ESP_OK;
@@ -120,7 +152,7 @@ esp_err_t rmt_new_copy_encoder(const rmt_copy_encoder_config_t *config,rmt_encod
 }
 esp_err_t rmt_enable(rmt_channel_handle_t channel) { if(s_fault==6)return ESP_FAIL;s_enabled=true;return ESP_OK; }
 esp_err_t rmt_disable(rmt_channel_handle_t channel) {
-  assert(s_enabled && s_grant_live);if(s_disable_fail){--s_disable_fail;return ESP_FAIL;}s_enabled=false;return ESP_OK;
+  assert(s_enabled && s_grant_live);if(s_tx_entered && s_disable_fail){--s_disable_fail;return ESP_FAIL;}s_enabled=false;return ESP_OK;
 }
 esp_err_t rmt_del_channel(rmt_channel_handle_t channel) {
   assert(!s_enabled);if(s_delete_fail){--s_delete_fail;return ESP_FAIL;}s_channel_live=false;return ESP_OK;
@@ -130,7 +162,11 @@ esp_err_t rmt_del_encoder(rmt_encoder_handle_t encoder) {
 }
 esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t encoder,const void *data,size_t size,const rmt_transmit_config_t *config) {
   assert(s_enabled && s_grant_live);s_dma_pointer=(uintptr_t)data;s_dma_pending=true;s_tx_entered=true;
-  const rmt_symbol_word_t *symbols=data;assert(symbols[0].duration0==32767 && !symbols[0].level0);
+  const rmt_symbol_word_t *symbols=data;assert(size==2*sizeof(*symbols));
+  assert(symbols[0].duration0==32767 && !symbols[0].level0);
+  assert(symbols[0].duration1==17233 && !symbols[0].level1);
+  assert(symbols[1].duration0==350 && symbols[1].level0);
+  assert(symbols[1].duration1==700 && !symbols[1].level1);
   return s_fault==7?ESP_FAIL:ESP_OK;
 }
 esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
@@ -153,7 +189,7 @@ int main(void) {
   assert(s_state==SUBGHZ_TX_STOPPING && s_grant_live);s_hold_start=false;
   assert(pthread_join(initializer,NULL)==0 && s_start_error==ESP_ERR_INVALID_STATE);join_worker();
   s_fault=0;s_alloc_count=0;s_fail_alloc=1;assert(subghz_tx_init()==ESP_OK);
-  int32_t timings[]={INT32_MIN,350,-700};
+  int32_t timings[]={-50000,350,-700};
   assert(subghz_tx_send_raw(timings,3)==ESP_ERR_NO_MEM);subghz_tx_stop();join_worker();s_fail_alloc=0;
   for(s_fault=0;s_fault<=8;s_fault+=7) {
     s_tx_entered=false;s_alloc_count=0;assert(subghz_tx_init()==ESP_OK);
@@ -178,5 +214,55 @@ int main(void) {
     pause_tick();
   }
   subghz_tx_stop();join_worker();
-  puts("PASS: real native TX worker, startup errors, in-flight stop, RMT cleanup retries, allocation and INT32_MIN");
+  s_fault=0;s_fail_alloc=0;s_expected=(subghz_tx_config_t){.frequency_hz=868350000,.preset=CC1101_PRESET_2FSK_47KHZ};
+  s_tx_entered=false;assert(subghz_tx_init()==ESP_OK);
+  assert(subghz_tx_send_configured(timings,3,&s_expected)==ESP_OK);
+  while(!s_tx_entered) { pause_tick(); }
+  subghz_tx_stop();join_worker();
+  // Radio startup errors must stop before RMT is created.
+  for (unsigned call = 1; call <= 6; ++call) {
+    s_radio_calls = 0; s_radio_fail = call; s_tx_entered = false;
+    assert(subghz_tx_init() == ESP_FAIL);
+    join_worker();
+    subghz_tx_status_t status; subghz_tx_get_status(&status);
+    assert(status.error == ESP_FAIL && !status.is_busy && !s_tx_entered);
+  }
+  s_radio_fail = 0;
+  // Each configured-frame register/state failure prevents transmission.
+  for (unsigned call = 1; call <= 7; ++call) {
+    s_radio_calls = 0; s_tx_entered = false;
+    assert(subghz_tx_init() == ESP_OK);
+    s_radio_fail = atomic_load(&s_radio_calls) + call;
+    assert(subghz_tx_send_configured(timings, 3, &s_expected) == ESP_OK);
+    join_worker();
+    subghz_tx_status_t status; subghz_tx_get_status(&status);
+    assert(status.error == ESP_FAIL && !status.is_busy && !s_tx_entered);
+    s_radio_fail = 0;
+  }
+  // Enqueue and RMT completion alone must not report success before radio IDLE.
+  s_tx_entered = false; s_hold_tx = true; s_hold_idle = true; s_idle_entered = false;
+  assert(subghz_tx_init() == ESP_OK);
+  assert(subghz_tx_send_configured(timings, 3, &s_expected) == ESP_OK);
+  while (!s_tx_entered) pause_tick();
+  subghz_tx_status_t status; subghz_tx_get_status(&status);
+  assert(status.is_busy && status.error == ESP_OK);
+  s_hold_tx = false;
+  while (!s_idle_entered) pause_tick();
+  subghz_tx_get_status(&status);
+  assert(status.is_busy && status.error == ESP_OK && s_grant_live);
+  s_hold_idle = false;
+  do { subghz_tx_get_status(&status); pause_tick(); } while (status.is_busy);
+  assert(status.error == ESP_OK);
+  subghz_tx_stop(); join_worker();
+  // An IDLE failure after DMA completion is still a failed job.
+  s_tx_entered = false;
+  assert(subghz_tx_init() == ESP_OK);
+  s_radio_fail = atomic_load(&s_radio_calls) + 8;
+  assert(subghz_tx_send_configured(timings, 3, &s_expected) == ESP_OK);
+  join_worker(); subghz_tx_get_status(&status);
+  assert(s_tx_entered && !status.is_busy && status.error == ESP_FAIL);
+  s_radio_fail = 0;
+  int32_t invalid[]={INT32_MIN};size_t words=0;
+  subghz_tx_item_t bad={.timings=invalid,.count=1};assert(make_symbols(&bad,&words)==NULL);
+  puts("PASS: long gaps and queued frequency/preset; real native TX worker, startup/configuration errors, real completion, in-flight stop, RMT cleanup retries, allocation and INT32_MIN");
 }

@@ -286,53 +286,37 @@ int nfc_mac_verify(const nfc_mac_input_t *in, const uint8_t *mac_rx, size_t mac_
   return (nfc_memcmp_ct(mac_calc, mac_rx, mac_calc_len) == 0) ? 0 : -3;
 }
 
-void nfc_ev2_derive_session_keys(const uint8_t *kx,
+bool nfc_ev2_derive_session_keys(const uint8_t *kx,
                                  const uint8_t *rnd_a,
                                  const uint8_t *rnd_b,
                                  uint8_t *ses_mac,
                                  uint8_t *ses_enc) {
-  uint8_t ctx[26];
-  uint8_t sv[32];
+  if (ses_mac == NULL || ses_enc == NULL)
+    return false;
+  memset(ses_mac, 0, AES_BLOCK_SIZE);
+  memset(ses_enc, 0, AES_BLOCK_SIZE);
+  if (kx == NULL || rnd_a == NULL || rnd_b == NULL)
+    return false;
 
-  ctx[0] = rnd_a[14];
-  ctx[1] = rnd_a[15];
-  ctx[2] = (uint8_t)(rnd_a[13] ^ rnd_b[10]);
-  ctx[3] = (uint8_t)(rnd_a[12] ^ rnd_b[11]);
-  ctx[4] = (uint8_t)(rnd_a[11] ^ rnd_b[12]);
-  ctx[5] = (uint8_t)(rnd_a[10] ^ rnd_b[13]);
-  ctx[6] = (uint8_t)(rnd_a[9] ^ rnd_b[14]);
-  ctx[7] = (uint8_t)(rnd_a[8] ^ rnd_b[15]);
-  ctx[8] = rnd_b[9];
-  ctx[9] = rnd_b[8];
-  ctx[10] = rnd_b[7];
-  ctx[11] = rnd_b[6];
-  ctx[12] = rnd_b[5];
-  ctx[13] = rnd_b[4];
-  ctx[14] = rnd_b[3];
-  ctx[15] = rnd_b[2];
-  ctx[16] = rnd_b[1];
-  ctx[17] = rnd_b[0];
-  ctx[18] = rnd_a[7];
-  ctx[19] = rnd_a[6];
-  ctx[20] = rnd_a[5];
-  ctx[21] = rnd_a[4];
-  ctx[22] = rnd_a[3];
-  ctx[23] = rnd_a[2];
-  ctx[24] = rnd_a[1];
-  ctx[25] = rnd_a[0];
-
-  sv[0] = EV2_SV_MARKER_A;
-  sv[1] = EV2_SV_MARKER_B;
-  sv[2] = 0x00;
-  sv[3] = EV2_SV_COUNTER;
-  sv[4] = 0x00;
-  sv[5] = EV2_SV_KEY_LEN_BITS;
-  memcpy(sv + 6, ctx, 26);
-  (void)nfc_aes_cmac(kx, AES_BLOCK_SIZE, sv, sizeof(sv), ses_mac);
-
+  // AN12343: challenges are in wire order; the A5/5A label derives ENC.
+  uint8_t sv[32] = {EV2_SV_MARKER_A, EV2_SV_MARKER_B, 0, EV2_SV_COUNTER, 0, EV2_SV_KEY_LEN_BITS};
+  memcpy(sv + 6, rnd_a, 2);
+  for (size_t i = 0; i < 6; i++)
+    sv[8 + i] = rnd_a[2 + i] ^ rnd_b[i];
+  memcpy(sv + 14, rnd_b + 6, 10);
+  memcpy(sv + 24, rnd_a + 8, 8);
+  if (nfc_aes_cmac(kx, AES_BLOCK_SIZE, sv, sizeof(sv), ses_enc) != 0) {
+    memset(ses_enc, 0, AES_BLOCK_SIZE);
+    return false;
+  }
   sv[0] = EV2_SV_MARKER_B;
   sv[1] = EV2_SV_MARKER_A;
-  (void)nfc_aes_cmac(kx, AES_BLOCK_SIZE, sv, sizeof(sv), ses_enc);
+  if (nfc_aes_cmac(kx, AES_BLOCK_SIZE, sv, sizeof(sv), ses_mac) != 0) {
+    memset(ses_enc, 0, AES_BLOCK_SIZE);
+    memset(ses_mac, 0, AES_BLOCK_SIZE);
+    return false;
+  }
+  return true;
 }
 
 void nfc_ev2_mac_truncate(const uint8_t cmac16[16], uint8_t mac8[8]) {
@@ -346,6 +330,11 @@ int nfc_ev2_compute_cmd_mac(const nfc_ev2_mac_ctx_t *ctx,
   if (ctx == NULL || ctx->ses_mac_key == NULL || ctx->ti == NULL || cmd == NULL || mac8 == NULL)
     return -1;
 
+  memset(mac8, 0, DES_BLOCK_SIZE);
+  if ((cmd->hdr_len != 0 && cmd->header == NULL) || (cmd->data_len != 0 && cmd->data == NULL) ||
+      cmd->hdr_len > SIZE_MAX - EV2_MAC_HEADER_SIZE ||
+      cmd->data_len > SIZE_MAX - EV2_MAC_HEADER_SIZE - cmd->hdr_len)
+    return -1;
   size_t buf_len = EV2_MAC_HEADER_SIZE + cmd->hdr_len + cmd->data_len;
   uint8_t *buf = (uint8_t *)malloc(buf_len);
   if (buf == NULL) {
@@ -379,6 +368,9 @@ int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
   if (ctx == NULL || ctx->ses_mac_key == NULL || ctx->ti == NULL || mac8 == NULL)
     return -1;
 
+  memset(mac8, 0, DES_BLOCK_SIZE);
+  if ((resp_len != 0 && resp_data == NULL) || resp_len > SIZE_MAX - EV2_MAC_HEADER_SIZE)
+    return -1;
   size_t buf_len = EV2_MAC_HEADER_SIZE + resp_len;
   uint8_t *buf = (uint8_t *)malloc(buf_len);
   if (buf == NULL) {
@@ -403,30 +395,48 @@ int nfc_ev2_compute_resp_mac(const nfc_ev2_mac_ctx_t *ctx,
   return result;
 }
 
-void nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],
+bool nfc_ev2_build_iv_cmd(const uint8_t ses_enc[16],
                           const uint8_t ti[4],
                           uint16_t cmd_ctr,
                           uint8_t iv_out[16]) {
+  if (iv_out == NULL)
+    return false;
+  memset(iv_out, 0, AES_BLOCK_SIZE);
+  if (ses_enc == NULL || ti == NULL)
+    return false;
   uint8_t in[AES_BLOCK_SIZE] = {0};
   in[0] = EV2_SV_MARKER_A;
   in[1] = EV2_SV_MARKER_B;
-  in[8] = (uint8_t)(cmd_ctr & 0xFF);
-  in[9] = (uint8_t)((cmd_ctr >> 8) & 0xFF);
-  memcpy(in + 10, ti, EV2_TI_SIZE);
-  (void)nfc_aes_ecb_encrypt(ses_enc, in, iv_out);
+  in[6] = (uint8_t)(cmd_ctr & 0xFF);
+  in[7] = (uint8_t)((cmd_ctr >> 8) & 0xFF);
+  memcpy(in + 2, ti, EV2_TI_SIZE);
+  if (!nfc_aes_ecb_encrypt(ses_enc, in, iv_out)) {
+    memset(iv_out, 0, AES_BLOCK_SIZE);
+    return false;
+  }
+  return true;
 }
 
-void nfc_ev2_build_iv_resp(const uint8_t ses_enc[16],
+bool nfc_ev2_build_iv_resp(const uint8_t ses_enc[16],
                            const uint8_t ti[4],
                            uint16_t cmd_ctr_next,
                            uint8_t iv_out[16]) {
+  if (iv_out == NULL)
+    return false;
+  memset(iv_out, 0, AES_BLOCK_SIZE);
+  if (ses_enc == NULL || ti == NULL)
+    return false;
   uint8_t in[AES_BLOCK_SIZE] = {0};
   in[0] = EV2_SV_MARKER_B;
   in[1] = EV2_SV_MARKER_A;
-  in[8] = (uint8_t)(cmd_ctr_next & 0xFF);
-  in[9] = (uint8_t)((cmd_ctr_next >> 8) & 0xFF);
-  memcpy(in + 10, ti, EV2_TI_SIZE);
-  (void)nfc_aes_ecb_encrypt(ses_enc, in, iv_out);
+  in[6] = (uint8_t)(cmd_ctr_next & 0xFF);
+  in[7] = (uint8_t)((cmd_ctr_next >> 8) & 0xFF);
+  memcpy(in + 2, ti, EV2_TI_SIZE);
+  if (!nfc_aes_ecb_encrypt(ses_enc, in, iv_out)) {
+    memset(iv_out, 0, AES_BLOCK_SIZE);
+    return false;
+  }
+  return true;
 }
 
 size_t nfc_iso9797_pad_method2(const uint8_t *in, size_t in_len, uint8_t *out, size_t out_max) {

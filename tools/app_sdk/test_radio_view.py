@@ -16,6 +16,7 @@
 
 """Test real radio adapters and native chat-ring synchronization."""
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -30,7 +31,7 @@ APPS = ROOT / 'firmware_p4/components/Applications'
 def main():
     with tempfile.TemporaryDirectory(prefix='radio-view-') as temporary:
         work = Path(temporary)
-        (work / 'esp_err.h').write_text('#pragma once\ntypedef int esp_err_t;\n')
+        (work / 'esp_err.h').write_text('#pragma once\n#include "tos_api.h"\nstatic inline const char *esp_err_to_name(esp_err_t e) {(void)e;return "test";}\n')
         (work / 'esp_log.h').write_text('#define ESP_LOGD(tag, ...) ((void)(tag))\n')
         (work / 'cc1101.h').write_text('#pragma once\ntypedef int cc1101_preset_t;\n')
         command = [*shlex.split(os.environ.get('CC', 'cc')), '-std=c11',
@@ -39,6 +40,7 @@ def main():
                    '-I', str(work), '-I', str(SERVICE / 'app_runtime/include'),
                    '-I', str(SERVICE / 'host_link/include'),
                    '-I', str(SERVICE / 'spi_bridge/include'),
+                   '-I', str(ROOT / 'firmware_p4/components/Drivers/sx1262/include'),
                    '-I', str(APPS / 'LoRa/session/include'), '-I', str(APPS / 'SubGhz/include')]
         binary = work / 'test'
         subprocess.run([*command, str(SERVICE / 'app_runtime/tos_api_radio_view.c'),
@@ -49,7 +51,9 @@ def main():
         prefix = source[:source.index('static esp_err_t start_protocol(')]
         prefix = '\n'.join(line for line in prefix.splitlines() if not line.startswith('#include') and not line.startswith('static esp_err_t stop_protocol('))
         def function(signature):
-            start = source.index(signature)
+            match = re.search(re.escape(signature).replace(r"\ ", r"\s+"), source)
+            assert match is not None, signature
+            start = match.start()
             opening = source.index('{', start)
             depth, end = 1, opening + 1
             while depth:
@@ -59,7 +63,7 @@ def main():
         test = (ROOT / 'tools/app_sdk/tests/test_chat_ring.c').read_text()
         native = prefix + '\n' + '\n'.join(function(signature) for signature in (
             'uint16_t lora_session_msg_count(', 'uint16_t lora_session_msg_since(',
-            'void lora_session_on_rx_text('))
+            'void lora_session_on_rx_text(', 'void lora_session_on_rx_radio('))
         (work / 'ring.c').write_text(test.replace('/* NATIVE_RING */', native))
         subprocess.run([*command, '-pthread', '-Wno-unused-variable', str(work / 'ring.c'),
                         '-o', str(binary)], check=True)
@@ -73,7 +77,7 @@ def main():
             'static esp_err_t stop_session(', 'esp_err_t lora_session_stop(',
             'esp_err_t lora_session_stop_owned(', 'static esp_err_t stop_protocol(lora_proto_t proto) {',
             'lora_proto_t lora_session_active(', 'static esp_err_t send_text(',
-            'esp_err_t lora_session_send_text(', 'void lora_session_process_tx('))
+            'static esp_err_t queue_text(', 'esp_err_t lora_session_send_text(', 'void lora_session_process_tx('))
         (work / 'tx.c').write_text(tx.replace('/* NATIVE_TX */', native_tx))
         subprocess.run([*command, '-pthread', '-Wno-unused-variable', str(work / 'tx.c'),
                         '-o', str(binary)], check=True)

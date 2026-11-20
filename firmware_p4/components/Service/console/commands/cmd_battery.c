@@ -24,9 +24,14 @@
 #include <string.h>
 
 #include "esp_console.h"
+#include "esp_log.h"
 
 #include "battery_service.h"
+#include "bq27220.h"
 #include "bq25896.h"
+#include "power_profile.h"
+
+static const char *TAG = "BATTERY_PROFILE";
 
 static const char *chg_name(bq25896_charge_status_t state) {
   switch (state) {
@@ -98,6 +103,19 @@ static int print_registers(void) {
 }
 
 static int cmd_battery(int argc, char **argv) {
+  if (argc == 3 && strcmp(argv[1], "charge") == 0 &&
+      (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "off") == 0)) {
+    esp_err_t error = battery_service_request_charge(strcmp(argv[2], "on") == 0);
+    printf("Charge request queued: %s; activation requires valid telemetry and limits\n",
+           esp_err_to_name(error));
+    return error == ESP_OK ? 0 : 1;
+  }
+  battery_charge_snapshot_t service = {0};
+  bool have_service = battery_service_get_charge(&service);
+  printf("Charge service: requested=%d valid=%d status=%s\n",
+         service.requested,
+         have_service,
+         service.status ? service.status : "not ready");
   if (argc > 1 && strcmp(argv[1], "regs") == 0) {
     return print_registers();
   }
@@ -108,15 +126,35 @@ static int cmd_battery(int argc, char **argv) {
   }
 
   bq25896_telem_t t;
-  esp_err_t err = bq25896_read_telemetry(&t);
+  esp_err_t err = ESP_OK;
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  if (have_service)
+    t = service.charger;
+  else
+    err = bq25896_read_telemetry(&t);
+#else
+  err = bq25896_read_telemetry(&t);
+#endif
   if (err != ESP_OK) {
     printf("Battery: telemetry read failed: %s\n", esp_err_to_name(err));
     return 1;
   }
 
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  ESP_LOGW(TAG,
+           "Retained limits: current=%s voltage=%s; temperature UNVALIDATED; "
+           "guarded charge service; board sensor is not cell temperature",
+           t.charge_current_limit_ma <= POWER_PROFILE_CHARGE_STANDARD_MA ? "within standard"
+                                                                         : "ABOVE standard",
+           t.charge_voltage_limit_mv <= POWER_PROFILE_CHARGE_MAX_MV ? "within ceiling"
+                                                                    : "ABOVE ceiling");
+#endif
+
+#ifndef CONFIG_HIGHBOY_BOARD_V203
   battery_snapshot_t bs;
   bool have_snap = battery_service_get(&bs);
   int temp_abs = t.temperature_decic < 0 ? -t.temperature_decic : t.temperature_decic;
+#endif
 
   printf("BQ25896 silicon\n");
   printf("  Identity : PN=%u (BQ25896), revision=%u, REG14=0x%02X\n",
@@ -124,23 +162,48 @@ static int cmd_battery(int argc, char **argv) {
          t.device_revision,
          t.raw_part_info);
   printf("  ADC      : %s, TS=%lu.%03lu %%REGN\n",
-         t.adc_continuous ? "continuous" : "NOT continuous",
+         t.adc_valid ? (t.adc_continuous ? "continuous" : "fresh one-shot complete") : "INVALID",
          (unsigned long)(t.ts_milli_pct / 1000),
          (unsigned long)(t.ts_milli_pct % 1000));
 
   printf("Battery / system\n");
-  printf("  SoC      : %u %% voltage estimate", t.soc);
-  if (have_snap && bs.valid) {
-    printf(" (smoothed %d %%)", bs.soc);
+  if (have_service && service.soc >= 0)
+    ESP_LOGI(TAG,
+             "Battery charge: %d%% (%s)",
+             service.soc,
+             service.gauge_valid ? "gauge" : "filtered voltage estimate");
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  bq27220_sample_t gauge;
+  if (bq27220_read_sample(&gauge) == ESP_OK) {
+    ESP_LOGI(TAG,
+             "BQ27220 raw SoC=%u%% (UNQUALIFIED), remaining=%u/%u mAh, design=%u mAh, net=%d mA, "
+             "VBAT=%u mV",
+             gauge.soc_pct,
+             gauge.remaining_mah,
+             gauge.full_mah,
+             gauge.design_mah,
+             gauge.current_ma,
+             gauge.voltage_mv);
+  } else {
+    ESP_LOGW(TAG, "BQ27220 unavailable; using voltage estimate when telemetry is valid");
   }
+#else
+  printf("  SoC      : %u %% voltage estimate", t.soc);
+  if (have_snap && bs.valid)
+    printf(" (smoothed %d %%)", bs.soc);
   printf("\n");
+#endif
   printf("  VBAT     : %u mV\n", t.vbat_mv);
   printf("  VSYS     : %u mV%s\n", t.vsys_mv, t.vsys_regulation ? " (VSYSMIN regulation)" : "");
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+  printf("  Temp     : not calibrated; TS ratio above; hardware NTC=%s\n", ntc_name(t.ntc_state));
+#else
   printf("  Temp     : %s%d.%d C (NTC estimate, %s)\n",
          t.temperature_decic < 0 ? "-" : "",
          temp_abs / 10,
          temp_abs % 10,
          ntc_name(t.ntc_state));
+#endif
   printf("  Charge   : %s, %s, measured %u mA\n",
          t.charge_enabled ? "enabled" : "disabled",
          chg_name(t.chg),
@@ -189,8 +252,8 @@ static int cmd_battery(int argc, char **argv) {
 void register_battery_commands(void) {
   const esp_console_cmd_t cmd = {
       .command = "battery",
-      .help = "BQ25896 telemetry and limits; use 'battery regs' for REG00..REG14",
-      .hint = "[regs]",
+      .help = "BQ25896 telemetry and guarded charge control; regs for raw values",
+      .hint = "[regs|charge on|charge off]",
       .func = &cmd_battery,
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd));

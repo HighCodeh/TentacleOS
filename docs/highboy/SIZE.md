@@ -23,6 +23,13 @@ that same source tree; the changed P4 libsodium compile policy is the comparison
 variable. Existing partitions, features, trust identities and vendor sources
 are unchanged. This is build evidence, not runtime performance acceptance.
 
+## Later partition migration
+
+The measurements below are historical. The current V2.03 GPS-test expansion uses `0x300000` bytes per P4
+slot and `0x1D0000` bytes for assets (after the earlier NFC expansion). See the current
+[layout and measured headroom](README.md#flash-and-storage-boundary). This is an
+explicit installation migration, not a change to the historical optimization results.
+
 ## Selected policy
 
 P4 libsodium uses `-Os -flto=2 -ffat-lto-objects`, joining the existing final
@@ -218,3 +225,12 @@ This supersedes earlier statements that #157 still lacks software packaging or
 signed-image capacity evidence. Runtime performance, heap/stack, actual update/
 rollback and production installation remain unmeasured release gates after
 software closure. No release version, device firmware or eFuse was changed.
+
+## V2.03 CI memory and compiler policy
+
+C5 config staging uses a lazy, reusable 4097-byte PSRAM allocation instead of
+static internal RAM. Allocation failure rejects BEGIN and permits retry; no
+internal fallback is used. The 61,440-byte linker headroom floor is unchanged.
+Service code uses `-Os` for the original OTA slot, while `hb_muse_c5_service.c`
+and `wifi_service.c` explicitly retain the reviewed `-Og` policy, as does the
+SPI slave driver. No DMA or task-stack allocation policy changes.

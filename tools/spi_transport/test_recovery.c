@@ -56,7 +56,7 @@ static void esp_restart(void){restarts++;longjmp(reboot,1);}
 static void vTaskDelete(void *p){(void)p;halts++;}
 static void grok_wifi_stop(void){}
 static void hb_muse_c5_service_revoke(void){}
-static void gpio_set_level(int pin,int level){(void)pin;(void)level;}
+#define gpio_set_level(pin, level) assert(!"V2.03 must not drive an IRQ GPIO")
 static bool esp_ptr_word_aligned(const void *p){return !((uintptr_t)p&3);}
 static bool esp_ptr_dma_capable(const void *p){return p!=NULL;}
 static esp_err_t spi_slave_queue_trans(int host,spi_slave_transaction_t *t,uint32_t ticks){
@@ -78,6 +78,8 @@ static void reset_test(void){
   s_recovery_attempts=0;s_recovery_restarts=0;s_recovery_check=~s_recovery_restarts;
 }
 int main(void){
+  spi_slave_driver_set_irq(0);
+  spi_slave_driver_set_irq(1);
   uint32_t tx[80]={0},rx[80]={0};spi_slave_transaction_t a,b,other;
   reset_reason=0;recovery_budget_init();
   reset_test();

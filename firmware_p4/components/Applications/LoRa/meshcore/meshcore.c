@@ -125,7 +125,7 @@ void meshcore_stop(void) {
 
 void meshcore_poll(void) {
   if (s_is_running)
-    sx1262_process_irq();
+    mc_router_rx_process();
   mc_pendings_gc();
   mc_router_relay_process();
 }
@@ -245,7 +245,8 @@ esp_err_t meshcore_set_radio_params(
   cfg.bw = bw_code;
   cfg.cr = (cr - 4);
   cfg.tx_power_dbm = tx_power_dbm;
-  cfg.preamble_len = MESHCORE_PREAMBLE_LEN;
+  cfg.preamble_len =
+      cfg.sf <= MESHCORE_FAST_SF_MAX ? MESHCORE_FAST_PREAMBLE : MESHCORE_SLOW_PREAMBLE;
   cfg.is_crc_on = true;
   cfg.is_inverted_iq = false;
   cfg.is_implicit_hdr = false;

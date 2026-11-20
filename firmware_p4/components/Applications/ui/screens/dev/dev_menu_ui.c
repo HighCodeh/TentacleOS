@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+#include "ui_chrome.h"
 #include "dev_menu_ui.h"
 
 #include "lvgl.h"
@@ -36,6 +37,7 @@ static const struct {
     {"Apps", "/assets/icons/description.bin", SCREEN_APPS},
     {"Scripts", "/assets/icons/developer_board.bin", SCREEN_SCRIPTS},
     {"Console", "/assets/icons/monitoring.bin", SCREEN_DEV_CONSOLE},
+    {"PC Monitor", "/assets/icons/monitoring.bin", SCREEN_PC_MONITOR},
     {"P4 Update", "/assets/icons/system_update.bin", SCREEN_SYSTEM_UPDATE},
     {"Diagnostics", "/assets/icons/troubleshoot.bin", SCREEN_DEV_DIAG},
     {"Boot map", "/assets/icons/storage.bin", SCREEN_BOOT_MAP},
@@ -70,12 +72,7 @@ static void build_screen(void) {
     s_screen = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   s_menu = menu_component_create(s_screen, TITLE, TITLE_ICON);
   for (int i = 0; i < MENU_ITEM_COUNT; i++)

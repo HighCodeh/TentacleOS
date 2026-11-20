@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "console_service.h"
+#include "nfc_protocol_service.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -732,8 +733,7 @@ static int cmd_cc1101(int argc, char **argv) {
            pkt,
            gpio_get_level(GPIO_CC1101_GDO0_PIN),
            gpio_get_level(GPIO_CC1101_GDO2_PIN));
-    printf("  PE613050A: V1(GPIO17)=%d V2(GPIO18)=%d (RF1 tuning branch "
-           "selected)\n",
+    printf("  PE613050A: V1(GPIO17)=%d V2(GPIO18)=%d (V1,V2 tuning control)\n",
            gpio_get_level(GPIO_RF_SW_V1_PIN),
            gpio_get_level(GPIO_RF_SW_V2_PIN));
     printf("  regs: IOCFG2=%02X IOCFG0=%02X PKTCTRL0=%02X MDMCFG4=%02X "
@@ -1912,15 +1912,11 @@ static esp_err_t load_mfc1k_dump(const char *path, mfc_emu_card_data_t *card) {
 
 static void print_mfc_emu_status(void) {
   mfc_emu_stats_t stats = mfc_emu_get_stats();
-  printf("NFC emu: running=%s state=%s UID=%02X%02X%02X%02X auth=%d/%d "
+  printf("NFC emu: running=%s state=%s auth=%d/%d "
          "reads=%d writes=%d "
          "field_losses=%d cycles=%d\n",
-         s_console_emu_running ? "yes" : "no",
+         nfc_listener_is_running() ? "yes" : "no",
          mfc_emu_state_str(mfc_emu_get_state()),
-         s_console_emu_card.uid[0],
-         s_console_emu_card.uid[1],
-         s_console_emu_card.uid[2],
-         s_console_emu_card.uid[3],
          stats.successful_auths,
          stats.total_auths,
          stats.reads_served,
@@ -1930,6 +1926,32 @@ static void print_mfc_emu_status(void) {
 }
 
 static int cmd_nfc(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[1], "ul")) {
+    if (!strcmp(argv[2], "status")) {
+      nfc_protocol_status_t status;
+      nfc_protocol_service_get_status(&status);
+      printf("UL operation=%u state=%u running=%u error=%s\n",
+             status.operation,
+             status.state,
+             status.running,
+             esp_err_to_name(status.error));
+      for (unsigned i = 0; i < status.result.line_count; i++)
+        printf("%s\n", status.result.lines[i]);
+      return 0;
+    }
+    if (!strcmp(argv[2], "stop")) {
+      nfc_protocol_service_stop();
+      return 0;
+    }
+    nfc_protocol_op_t op = !strcmp(argv[2], "read")      ? NFC_PROTOCOL_OP_ULTRALIGHT
+                           : !strcmp(argv[2], "unlock")  ? NFC_PROTOCOL_OP_UL_READER_UNLOCK
+                           : !strcmp(argv[2], "emulate") ? NFC_PROTOCOL_OP_UL_EMULATE
+                                                         : NFC_PROTOCOL_OP_COUNT;
+    esp_err_t error = nfc_protocol_service_start(op);
+    printf("UL: %s\n", esp_err_to_name(error));
+    return error == ESP_OK ? 0 : 1;
+  }
+
   if (argc < 2) {
     printf("usage: nfc "
            "<init|selftest|status|field|power|measure|detect|scan|emu|regs|"
@@ -1945,6 +1967,11 @@ static int cmd_nfc(int argc, char **argv) {
   if (strcmp(argv[1], "deinit") == 0) {
     highboy_nfc_deinit();
     printf("NFC deinitialized and field OFF\n");
+    return 0;
+  }
+
+  if (argc == 3 && strcmp(argv[1], "emu") == 0 && strcmp(argv[2], "status") == 0) {
+    print_mfc_emu_status();
     return 0;
   }
 
@@ -2110,10 +2137,13 @@ static int cmd_nfc(int argc, char **argv) {
   }
 
   if (strcmp(argv[1], "detect") == 0) {
-    highboy_nfc_field_off();
-    vTaskDelay(pdMS_TO_TICKS(5));
     uint8_t aux = 0;
-    bool detected = highboy_nfc_field_detected(&aux);
+    bool detected = false;
+    err = highboy_nfc_detect_external_field(&detected, &aux);
+    if (err != ESP_OK) {
+      printf("NFC field detection failed: %s\n", esp_err_to_name(err));
+      return 1;
+    }
     printf("External 13.56 MHz field: %s (AUX_DISPLAY=0x%02X)\n",
            detected ? "DETECTED" : "not detected",
            aux);

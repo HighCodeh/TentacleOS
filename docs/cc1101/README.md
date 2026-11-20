@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # CC1101 Sub-GHz Radio Driver
 
 This component provides a full driver for the Texas Instruments CC1101 low-power sub-GHz RF transceiver. It handles SPI communication, frequency configuration, modulation presets, and TX/RX operations.
@@ -16,8 +33,55 @@ This component provides a full driver for the Texas Instruments CC1101 low-power
 |------------|---------------|----------|
 | 315 MHz    | 300 - 348     | `PA_TABLE_315` |
 | 433 MHz    | 387 - 464     | `PA_TABLE_433` |
-| 868 MHz    | 779 - 899     | `PA_TABLE_868` |
+| 868 MHz    | 779 - <900    | `PA_TABLE_868` |
 | 915 MHz    | 900 - 928     | `PA_TABLE_915` |
+
+### High Boy V2.03 matching network
+
+GPIO17 drives PE613050 V1 and GPIO18 drives V2. U10 selects a shunt matching
+branch on the common antenna feed; these are not four separate antennas.
+
+| Branch | Matching inductor | V1 / GPIO17 | V2 / GPIO18 |
+| --- | --- | --- | --- |
+| RF1 | L16, 51 nH | 0 | 0 |
+| RF2 | L17, 16 nH | 0 | 1 |
+| RF3 | L18, 1.8 nH | 1 | 0 |
+| RF4 | L19, 1.5 nH | 1 | 1 |
+
+The branch wiring follows the supplied **High Boy_V2_03 Schematic
+2026-10-19.PDF**, page 3, and **P4679_HighBoy Prototype2_measurement
+report_summary.pdf**, pages 10–12 (Radientum, 10 September 2026). The
+[PE613050 specification, table 4](https://psemi.com/wp-content/uploads/pdf/datasheets/pe613050ds.pdf)
+lists its columns as **V2, V1**; the GPIO columns above deliberately use V1, V2.
+The report's nominal band assignments are RF1/315, RF2/433, RF4/868 and RF3/915 MHz;
+they are distinct from the current prototype selection below. The report notes
+high measurement uncertainty at 315/433 MHz.
+These supplied hardware documents are reference inputs, not packaged firmware assets.
+
+The current driver uses Vini's prototype link measurements from 13 November 2026:
+
+| Supported tuning range | Selected branch | V1 / GPIO17 | V2 / GPIO18 |
+| --- | --- | --- | --- |
+| 300–348 MHz (315 band) | RF1 | 0 | 0 |
+| 387–464 MHz (433 band) | RF1 | 0 | 0 |
+| 779–928 MHz (868/915 bands) | RF2 | 0 | 1 |
+
+The supplied results compare High Boy transmission received by a Flipper at
+5 cm, 50 cm and 1 m, with two 1 s carrier bursts per cell at nominal 0 dBm.
+RF1 led at 433.92 MHz at all distances and at 315 MHz at 5/50 cm; the 315 MHz
+results at 1 m were near the noise floor. RF2 led at 915 MHz at all distances
+and at 868.35 MHz at 5/50 cm, while RF1 led at 868.35 MHz at 1 m. RF2 is the
+selected upper-band compromise for this prototype. Applying these choices
+across each supported band is firmware policy; these limited measurements do
+not establish a best path at every frequency, receive performance or suitability
+for other board assemblies.
+
+This selection applies independently of `CONFIG_HIGHBOY_BOARD_V203`. The PA
+tables remain frequency-specific, with their existing 900 MHz boundary between
+868/915 tables; that boundary no longer changes the RF path. Invalid frequencies
+are rejected before touching the GPIOs or radio.
+Changes to either switch pin require a confirmed IDLE state, followed by the
+switch's 5 us maximum settling interval before tuning.
 
 ## Modulation Presets (`cc1101_preset_t`)
 
@@ -33,35 +97,61 @@ This component provides a full driver for the Texas Instruments CC1101 low-power
 
 ## API Reference
 
+Initialization, tuning, preset/mode changes, register writes and FIFO transmission
+return `esp_err_t`. Native workers check these results before enabling dependent
+hardware; the first failure is also retained by the app-worker lease. Legacy
+byte-returning reads and ancillary void setters retain the lease error latch.
+
 ### Initialization
 
 #### `cc1101_init`
 ```c
-void cc1101_init(void);
+esp_err_t cc1101_init(void);
 ```
-Adds the CC1101 to the SPI bus (SPI3_HOST, 4 MHz), performs a hardware reset, verifies chip presence via version register, and sets the default frequency to **433.92 MHz**.
+Adds the CC1101 to SPI3 at 1 MHz, checks RF-switch GPIO initialization, resets the
+radio, verifies PARTNUM/VERSION, and tunes to **433.92 MHz**. Initialization is
+reported complete only after successful calibration and PA configuration.
+`cc1101_is_initialized()` reflects that completed initialization, not merely an
+allocated SPI handle. Failed initialization can be retried; `cc1101_recover()`
+performs the same checked initialization again and returns its error.
 
 ### Frequency & Calibration
 
 #### `cc1101_set_frequency`
 ```c
-void cc1101_set_frequency(uint32_t freq_hz);
+esp_err_t cc1101_set_frequency(uint32_t freq_hz);
 ```
-Sets the carrier frequency in Hz. Calculates FREQ2/FREQ1/FREQ0 registers from a 26 MHz crystal reference and triggers automatic calibration.
+Sets the carrier frequency after a bounded IDLE check and selects the matching
+branch above. Calculates `FREQ = floor(frequency_hz * 65536 / 26000000)` using a
+64-bit intermediate, calibrates, and reapplies the active PA request using the
+target band's table. Frequency and band selection use integer Hz, including
+899,999,999 Hz, without a floating-point gap below 900 MHz. The operation leaves
+the radio in IDLE; callers explicitly resume RX/TX.
 
 #### `cc1101_calibrate`
 ```c
-void cc1101_calibrate(void);
+esp_err_t cc1101_calibrate(void);
 ```
-Performs frequency synthesizer calibration with band-specific FSCTRL0, TEST0, and FSCAL2 adjustments.
+Performs frequency synthesizer calibration with band-specific TEST0/FSCAL2.
+When manual high-VCO selection is required, FSCAL2 is set **before** SCAL.
+The driver waits for MARCSTATE to return to IDLE instead of assuming a fixed
+delay is sufficient. State polling has a 100 ms deadline; SPI bus-lock waits
+are separately bounded. A tuning failure prevents subsequent RX/TX strobes
+until tuning succeeds. Failed mode entry attempts to return to IDLE.
+FSCTRL0 remains zero: the unmeasured linear frequency-offset calculation was removed.
+Any future crystal correction requires a measured reference, recorded per board.
 
 ### Preset Management
 
 #### `cc1101_set_preset`
 ```c
-void cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
+esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
 ```
-Configures the radio with a predefined modulation/bandwidth combination. Internally calls `cc1101_enable_async_mode` (OOK presets) or `cc1101_enable_fsk_mode` (FSK presets) and then applies preset-specific tuning.
+Configures the complete modulation/bandwidth/deviation profile in IDLE, selects
+the matching branch, calibrates, applies the PA table, and then enters RX.
+Calibration results are not overwritten by later profile writes. Invalid preset
+IDs are rejected; the active preset is published only after RX entry succeeds.
+The idle preset stops the radio without requiring a carrier frequency.
 
 #### `cc1101_get_active_preset_id`
 ```c
@@ -73,20 +163,26 @@ Returns the ID of the currently active preset.
 
 #### `cc1101_enable_async_mode`
 ```c
-void cc1101_enable_async_mode(uint32_t freq_hz);
+esp_err_t cc1101_enable_async_mode(uint32_t freq_hz);
 ```
-Configures the CC1101 for **ASK/OOK async serial output** on GDO0 (for RMT-based sniffing). Sets infinite packet length, max sensitivity AGC, 812 kHz RX bandwidth, and enters RX.
+Configures **ASK/OOK async serial output** on GDO0 for RMT capture, with infinite
+packet length, no sync-word qualification, and approximately 812 kHz RX bandwidth.
+Retains the existing AGCCTRL2/1/0 profile `C7/00/91`; this is not a maximum-gain
+claim. OOK disables frequency-offset compensation (`FOC_LIMIT=0`), as required
+by the CC1101 datasheet. The current PA request is retained across presets.
 
 #### `cc1101_enable_fsk_mode`
 ```c
-void cc1101_enable_fsk_mode(uint32_t freq_hz);
+esp_err_t cc1101_enable_fsk_mode(uint32_t freq_hz);
 ```
-Configures the CC1101 for **2-FSK async serial output** on GDO0. Same async architecture as OOK mode but with FSK modulation.
+Configures **2-FSK async serial output** on GDO0, with no sync-word qualification.
+Uses the same checked configuration sequence and preserves FSK frequency-offset
+compensation.
 
 #### `cc1101_enter_rx_mode` / `cc1101_enter_tx_mode`
 ```c
-void cc1101_enter_rx_mode(void);
-void cc1101_enter_tx_mode(void);
+esp_err_t cc1101_enter_rx_mode(void);
+esp_err_t cc1101_enter_tx_mode(void);
 ```
 Transitions the radio to RX or TX state (via IDLE first).
 
@@ -94,39 +190,51 @@ Transitions the radio to RX or TX state (via IDLE first).
 
 #### `cc1101_send_data`
 ```c
-void cc1101_send_data(const uint8_t *data, size_t len);
+esp_err_t cc1101_send_data(const uint8_t *data, size_t len);
 ```
-Sends a packet (max 61 bytes) via the TX FIFO. Flushes the FIFO, writes length + payload, strobes TX, and blocks until transmission completes (polls MARCSTATE).
+Sends 1–61 bytes through the TX FIFO. Requires normal FIFO mode with variable
+packet length; async serial and fixed-length profiles return `ESP_ERR_NOT_SUPPORTED`.
+Invalid/oversized payloads are rejected rather than truncated. Flushes the FIFO,
+writes the length and payload, and checks both TXBYTES and MARCSTATE. An initial
+IDLE sample with queued bytes is not completion. Underflow is an error; polling
+yields and times out after 2 seconds. Every started attempt finishes with checked
+IDLE/flush cleanup. The original transfer error takes precedence over cleanup
+errors. This helper is separate from native RMT transmission.
 
 ### Modem Tuning
 
 #### `cc1101_set_rx_bandwidth`
 ```c
-void cc1101_set_rx_bandwidth(float khz);
+esp_err_t cc1101_set_rx_bandwidth(float khz);
 ```
-Sets the RX filter bandwidth in kHz by calculating the MDMCFG4 register fields.
+Chooses the closest of the 16 representable RX filter bandwidths using
+`BW = 26 MHz / (8 * (4 + M) * 2^E)`, preserving MDMCFG4's data-rate exponent.
 
 #### `cc1101_set_data_rate`
 ```c
-void cc1101_set_data_rate(float baud);
+esp_err_t cc1101_set_data_rate(float baud);
 ```
-Sets the data rate in kBaud (range: ~0.025 - 1621.83). Writes MDMCFG4 (exponent) and MDMCFG3 (mantissa).
+Accepts **baud**, not kBaud. Chooses the closest exponent/mantissa using
+`rate = (256 + M) * 2^E * 26 MHz / 2^28`, preserving the bandwidth fields.
+Rounding across a mantissa boundary advances the exponent instead of wrapping
+the mantissa and halving the requested rate.
 
 #### `cc1101_set_deviation`
 ```c
-void cc1101_set_deviation(float dev);
+esp_err_t cc1101_set_deviation(float dev);
 ```
-Sets frequency deviation in kHz (range: 1.59 - 380.86) for FSK modulation.
+Chooses the nearest representable FSK deviation using
+`deviation = (8 + M) * 2^E * 26 MHz / 2^17` (API input in kHz).
 
 #### `cc1101_set_modulation`
 ```c
-void cc1101_set_modulation(uint8_t modulation);
+esp_err_t cc1101_set_modulation(uint8_t modulation);
 ```
 Sets the modulation format: `0` = 2-FSK, `1` = GFSK, `2` = ASK/OOK, `3` = 4-FSK, `4` = MSK. Automatically adjusts FREND0 and reapplies PA settings.
 
 #### `cc1101_set_pa`
 ```c
-void cc1101_set_pa(int dbm);
+esp_err_t cc1101_set_pa(int dbm);
 ```
 Sets the output power in dBm. Automatically selects the correct PA table for the current frequency band. Handles ASK/OOK PATABLE indexing (index 0 = 0x00, index 1 = power).
 
@@ -138,9 +246,14 @@ Sets the channel number (CHANNR register).
 
 #### `cc1101_set_chsp`
 ```c
-void cc1101_set_chsp(float khz);
+esp_err_t cc1101_set_chsp(float khz);
 ```
-Sets channel spacing in kHz (range: 25.39 - 405.46).
+Chooses the nearest channel spacing using
+`spacing = (256 + M) * 2^E * 26 MHz / 2^18` (API input in kHz), preserving
+the other MDMCFG1 fields. All four numeric setters reject non-finite/non-positive
+inputs and saturate positive out-of-range requests to register limits. Register
+representability alone does not establish a valid RF profile for every modulation;
+the device's modulation-specific operating limits still apply.
 
 #### `cc1101_set_sync_mode`
 ```c
@@ -178,19 +291,23 @@ Converts a raw RSSI register value to dBm.
 ### Low-Level SPI Access
 
 ```c
-void cc1101_strobe(uint8_t cmd);
-void cc1101_write_reg(uint8_t reg, uint8_t val);
+esp_err_t cc1101_strobe(uint8_t cmd);
+esp_err_t cc1101_write_reg(uint8_t reg, uint8_t val);
+esp_err_t cc1101_get_register(uint8_t reg, uint8_t *out_value);
 uint8_t cc1101_read_reg(uint8_t reg);
-void cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
+esp_err_t cc1101_write_burst(uint8_t reg, const uint8_t *buf, uint8_t len);
 void cc1101_read_burst(uint8_t reg, uint8_t *buf, uint8_t len);
 ```
 Direct SPI register access: single read/write, burst read/write, and strobe commands.
+Use `cc1101_get_register` when a caller must distinguish a valid zero from a read
+failure; it preserves the output on failure. The legacy byte-returning read remains
+available for existing lease-based consumers.
 
 ## Persistent app-worker lease
 
 Bounded app RX/TX uses a task-owned lease and a non-preempting SYSTEM grant on
 `RES_SUBGHZ`. Existing native RX, TX and spectrum grants prevent acquisition.
-All 29 hardware/state-facing public CC1101 functions check that lease; foreign
+All hardware/state-facing public CC1101 functions check that lease; foreign
 callers cannot initialize, recover, read, retune or transmit while it is held.
 In-flight native calls also prevent acquisition. Pure RSSI conversion remains
 available. Rejected burst reads zero their caller's output.
@@ -205,3 +322,23 @@ scope and retries cleanup before touching a new capture/transmission.
 This lease is internal, not an app-visible raw driver API. See
 [Sub-GHz ABI](../app_sdk/README.md#bounded-sub-ghz-api-abi-113) for bounds and
 [Sub-GHz](../SubGhz/README.md) for native worker shutdown.
+
+## References and validation
+
+Register equations, OOK compensation requirements and calibration states follow
+the [TI CC1101 datasheet](https://www.ti.com/lit/ds/symlink/cc1101.pdf).
+The supplied driver checkouts were consulted for comparison:
+
+- [SmartRC-CC1101-Driver-Lib](https://github.com/LSatan/SmartRC-CC1101-Driver-Lib/tree/de6757ef633b3e626dae5c7835cdb66ab53f9a1d): band-specific TEST0 and PA handling.
+- [esp-idf-cc1101](https://github.com/nopnop2002/esp-idf-cc1101/tree/1a8f0c7842828acb82b3e20127b60756ad03910f): ESP-IDF register configuration.
+- [Momentum](https://github.com/next-flip/momentum-firmware/tree/d3f89dfe2ef6b01839201598e9be1590cba80322): bounded calibration/state sequencing. Its board's RF-switch GPIO mapping is not used on High Boy.
+
+`python3 tools/subghz_api/test_subghz_api.py` compiles the production driver with
+explicit SPI/GPIO/clock fakes and address/undefined-behavior sanitizers. It checks
+band boundaries and gaps, switch levels and IDLE ordering, carrier quantization,
+PA indexing, all presets, modem rounding, initialization/recovery, FIFO
+completion/timeout/underflow, checked RSSI reads, all 256 RSSI conversions,
+and injected SPI/GPIO/allocation/timeouts. The existing ownership, RX/TX and spectrum tests
+remain part of that suite. These are host checks, not RF measurements; physical
+RX sensitivity, TX output, antenna matching and repeated band changes must still
+be verified on the assembled board.

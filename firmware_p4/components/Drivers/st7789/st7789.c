@@ -27,6 +27,7 @@
 #include "hal/spi_types.h"
 
 #include "pin_def.h"
+#include "led_control.h"
 #include "storage_assets.h"
 #include "storage_atomic.h"
 #include "tos_flash_paths.h"
@@ -167,8 +168,15 @@ void lcd_apply_brightness(uint8_t percent) {
     percent = MAX_BRIGHTNESS;
   }
   uint32_t duty = (BL_MAX_DUTY * percent) / MAX_BRIGHTNESS;
-  ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CH, duty);
-  ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CH);
+  esp_err_t result = ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CH, duty);
+  if (result == ESP_OK)
+    result = ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CH);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "Backlight update failed: %s", esp_err_to_name(result));
+    led_signal_error();
+    return;
+  }
+  led_set_display_active(percent != 0);
 }
 
 void lcd_set_brightness(uint8_t percent) {
@@ -259,6 +267,7 @@ esp_err_t st7789_init(void) {
       .lcd_param_bits = LCD_PARAM_BITS,
       .spi_mode = 0,
       .trans_queue_depth = SPI_IO_QUEUE_DEPTH,
+      .flags.psram_dma_direct = false,
   };
   esp_err_t ret = esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle);
   if (ret != ESP_OK) {

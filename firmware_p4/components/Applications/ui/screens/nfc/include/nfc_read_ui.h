@@ -16,6 +16,8 @@
 #ifndef NFC_READ_UI_H
 #define NFC_READ_UI_H
 
+#include <stdbool.h>
+
 /**
  * @brief Real ST25R3916B NFC-A reader: scans asynchronously, shows the detected
  *

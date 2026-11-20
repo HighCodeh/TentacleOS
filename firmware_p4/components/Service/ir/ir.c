@@ -15,576 +15,435 @@
 
 #include "ir.h"
 
-#include "led_control.h"
-
 #include <string.h>
 
 #include "esp_log.h"
-#include "driver/gpio.h"
-#include "driver/rmt_rx.h"
-#include "driver/rmt_tx.h"
-#include "driver/rmt_encoder.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
+#include "freertos/task.h"
 
-#include "resource_mgr.h"
 #include "ir_lease.h"
+#include "led_control.h"
+#include "resource_mgr.h"
+#include "spi_bridge.h"
+
+#define IR_RPC_MS     250
+#define IR_POLL_MS    20
+#define IR_CONTROL_MS 1500
+#define IR_US_PER_MS  1000
+#define IR_BYTE_BITS  8
+#define IR_BYTE_MASK  0xff
+#define IR_MODE_NONE  0
+#define IR_MODE_RX    1
+#define IR_MODE_TX    2
+#define IR_MODE_TORCH 3
+
+_Static_assert(sizeof(spi_ir_request_t) == SPI_IR_HEADER_SIZE, "IR request size");
+_Static_assert(sizeof(spi_ir_reply_t) == SPI_IR_HEADER_SIZE, "IR reply size");
 
 static const char *TAG = "IR";
-
-static rmt_channel_handle_t s_rx_chan;
-static QueueHandle_t s_rx_queue;
-static rmt_symbol_word_t s_rx_buffer[IR_MAX_SYMBOLS];
-static rmt_receive_config_t s_rx_cfg = {
-    .signal_range_min_ns = IR_RX_MIN_NS,
-    .signal_range_max_ns = IR_RX_MAX_NS,
-};
-
-static rmt_channel_handle_t s_tx_chan;
-static rmt_encoder_handle_t s_tx_encoder;
-static uint32_t s_current_carrier = 0;
-static SemaphoreHandle_t s_mutex = NULL;
-
-static bool s_is_rx_inited = false;
-static bool s_is_tx_inited = false;
-
-// RES_IR grants. TX and RX share the one IR front end, so they are mutually
-// exclusive: whichever inits first holds it; the other init returns BUSY.
-static res_handle_t s_rx_res = RES_HANDLE_NONE;
-static res_handle_t s_tx_res = RES_HANDLE_NONE;
-// True while the RX channel is armed for a frame. A one-shot rmt_receive() is
-// consumed by every frame (including NEC repeat frames), so if a frame lands
-// while no one is in ir_receive(), the channel goes idle — ir_rx_prime() re-arms
-// it before the next capture. Set from the ISR, so volatile.
-static volatile bool s_rx_armed = false;
-
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_busy;
+static TaskHandle_t s_owner;
+static uint8_t s_mode;
+static uint64_t s_client;
+static uint64_t s_epoch;
+static uint32_t s_operation;
+static res_handle_t s_resource = RES_HANDLE_NONE;
 static rmt_symbol_word_t s_last_raw[IR_MAX_SYMBOLS];
-static size_t s_last_raw_count = 0;
+static size_t s_last_raw_count;
 
-static bool rx_callback(rmt_channel_handle_t ch, const rmt_rx_done_event_data_t *data, void *ctx);
-static esp_err_t set_carrier(uint32_t freq_hz);
-static esp_err_t transmit(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz);
+static bool enter(void) {
+  if (xPortInIsrContext() || !ir_lease_enter())
+    return false;
+  portENTER_CRITICAL(&s_lock);
+  bool allowed = !s_busy && (s_owner == NULL || s_owner == xTaskGetCurrentTaskHandle());
+  if (allowed)
+    s_busy = true;
+  portEXIT_CRITICAL(&s_lock);
+  if (!allowed)
+    ir_lease_leave(true);
+  return allowed;
+}
 
-static bool s_has_torch;
+static esp_err_t leave(esp_err_t result) {
+  ir_lease_leave(s_mode != IR_MODE_NONE);
+  portENTER_CRITICAL(&s_lock);
+  s_busy = false;
+  portEXIT_CRITICAL(&s_lock);
+  return result;
+}
 
-static esp_err_t rx_init_impl(void);
-static void rx_prime_impl(void);
-static void rx_deinit_impl(void);
-static esp_err_t tx_init_impl(void);
-static void tx_deinit_impl(void);
-static esp_err_t flash_on_impl(void);
-static esp_err_t flash_off_impl(void);
-static esp_err_t receive_impl(ir_data_t *out_data, uint32_t timeout_ms);
-static esp_err_t send_impl(const ir_data_t *data);
-static esp_err_t send_raw_impl(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz);
-static esp_err_t get_last_raw_impl(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count);
+static esp_err_t exchange(const spi_ir_request_t *request,
+                          const uint8_t *chunk,
+                          spi_ir_reply_t *out_reply,
+                          uint8_t *out_chunk) {
+  uint8_t payload[SPI_IR_HEADER_SIZE + SPI_IR_CHUNK_SYMBOLS * SPI_IR_SYMBOL_BYTES];
+  uint8_t response[sizeof(payload) + 1];
+  uint8_t length = sizeof(*request);
+  memcpy(payload, request, length);
+  if (request->action == SPI_IR_UPLOAD) {
+    length += request->count * SPI_IR_SYMBOL_BYTES;
+    memcpy(payload + sizeof(*request), chunk, length - sizeof(*request));
+  }
+  spi_header_t header = {0};
+  esp_err_t ret = spi_bridge_send_command(
+      SPI_ID_IR_REMOTE, payload, length, &header, response, sizeof(response), IR_RPC_MS);
+  if (ret != ESP_OK)
+    return ret;
+  size_t expected = sizeof(*out_reply);
+  if (request->action == SPI_IR_FETCH)
+    expected += request->count * SPI_IR_SYMBOL_BYTES;
+  if (header.length != expected)
+    return ESP_ERR_INVALID_RESPONSE;
+  memcpy(out_reply, response, sizeof(*out_reply));
+  if (out_reply->revision != SPI_IR_REVISION || out_reply->reserved != 0 || out_reply->epoch == 0 ||
+      out_reply->state >= SPI_IR_STATE_COUNT)
+    return ESP_ERR_INVALID_RESPONSE;
+  if (out_chunk != NULL)
+    memcpy(out_chunk, response + sizeof(*out_reply), expected - sizeof(*out_reply));
+  return ESP_OK;
+}
+
+static spi_ir_request_t request_for(uint8_t action) {
+  return (spi_ir_request_t){
+      .epoch = s_epoch, .operation = s_operation, .action = action, .revision = SPI_IR_REVISION};
+}
+
+static esp_err_t command(uint8_t action, spi_ir_reply_t *out_reply) {
+  spi_ir_request_t request = request_for(action);
+  return exchange(&request, NULL, out_reply, NULL);
+}
+
+static void release_local(void) {
+  (void)resource_release(s_resource);
+  s_resource = RES_HANDLE_NONE;
+  s_mode = IR_MODE_NONE;
+  s_epoch = 0;
+  s_client = 0;
+  portENTER_CRITICAL(&s_lock);
+  s_owner = NULL;
+  portEXIT_CRITICAL(&s_lock);
+}
+
+static esp_err_t close_remote(void) {
+  if (s_mode == IR_MODE_NONE)
+    return ESP_OK;
+  int64_t deadline = esp_timer_get_time() + IR_CONTROL_MS * IR_US_PER_MS;
+  esp_err_t ret = ESP_ERR_TIMEOUT;
+  do {
+    spi_ir_reply_t reply;
+    ret = command(SPI_IR_STATUS, &reply);
+    if (ret == ESP_OK) {
+      if (reply.state == SPI_IR_CLOSED || (reply.epoch != s_epoch && reply.state == SPI_IR_IDLE)) {
+        release_local();
+        return ESP_OK;
+      }
+      if (reply.epoch == s_epoch)
+        ret = command(SPI_IR_CLOSE, &reply);
+    }
+    vTaskDelay(pdMS_TO_TICKS(IR_POLL_MS));
+  } while (esp_timer_get_time() < deadline);
+  ESP_LOGW(TAG, "Remote release unconfirmed; IR ownership retained");
+  return ret == ESP_OK ? ESP_ERR_TIMEOUT : ret;
+}
+
+static esp_err_t open_remote(uint8_t mode) {
+  if (s_mode != IR_MODE_NONE)
+    return s_mode == mode ? ESP_OK : ESP_ERR_INVALID_STATE;
+  const res_request_t resource = {
+      .id = RES_IR, .lane = RES_LANE_MAIN, .owner_kind = RES_OWNER_UI, .allow_preempt = false};
+  esp_err_t ret = resource_acquire(&resource, &s_resource);
+  if (ret != ESP_OK)
+    return ret;
+  do {
+    esp_fill_random(&s_client, sizeof(s_client));
+  } while (s_client == 0);
+  s_mode = mode;
+  portENTER_CRITICAL(&s_lock);
+  s_owner = xTaskGetCurrentTaskHandle();
+  portEXIT_CRITICAL(&s_lock);
+  s_operation = 0;
+  s_epoch = 0;
+  const spi_ir_request_t request = {
+      .epoch = s_client, .action = SPI_IR_OPEN, .revision = SPI_IR_REVISION};
+  int64_t deadline = esp_timer_get_time() + IR_CONTROL_MS * IR_US_PER_MS;
+  do {
+    spi_ir_reply_t reply;
+    ret = exchange(&request, NULL, &reply, NULL);
+    if (ret == ESP_OK) {
+      s_epoch = reply.epoch;
+      if (reply.state == SPI_IR_IDLE && reply.operation == 0)
+        return ESP_OK;
+      ret = ESP_ERR_INVALID_STATE;
+      break;
+    }
+    if (ret == ESP_ERR_NOT_SUPPORTED)
+      break;
+    vTaskDelay(pdMS_TO_TICKS(IR_POLL_MS));
+  } while (esp_timer_get_time() < deadline);
+  // OPEN never starts hardware; a lost OPEN reply cannot leave an active emitter.
+  release_local();
+  return ret;
+}
+
+static esp_err_t next_operation(void) {
+  if (s_operation == UINT32_MAX)
+    return ESP_ERR_INVALID_STATE;
+  ++s_operation;
+  return ESP_OK;
+}
+
+static esp_err_t wait_done(uint32_t timeout_ms, spi_ir_reply_t *out_reply) {
+  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * IR_US_PER_MS;
+  do {
+    esp_err_t ret = command(SPI_IR_STATUS, out_reply);
+    if (ret == ESP_OK) {
+      if (out_reply->epoch != s_epoch || out_reply->operation != s_operation ||
+          out_reply->state == SPI_IR_CLOSED)
+        return ESP_ERR_INVALID_STATE;
+      if (out_reply->state == SPI_IR_DONE)
+        return out_reply->result;
+    } else if (ret == ESP_ERR_NOT_SUPPORTED)
+      return ret;
+    vTaskDelay(pdMS_TO_TICKS(IR_POLL_MS));
+  } while (esp_timer_get_time() < deadline);
+  return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t transmit(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier) {
+  if (s_mode != IR_MODE_TX)
+    return ESP_ERR_INVALID_STATE;
+  if (symbols == NULL || count == 0 || count > SPI_IR_TX_SYMBOLS ||
+      (carrier != 0 && (carrier < SPI_IR_CARRIER_MIN || carrier > SPI_IR_CARRIER_MAX)))
+    return ESP_ERR_INVALID_ARG;
+  uint32_t duration = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (symbols[i].duration0 == 0 || (symbols[i].duration1 == 0 && i + 1 != count))
+      return ESP_ERR_INVALID_ARG;
+    duration += symbols[i].duration0 + symbols[i].duration1;
+    if (duration > SPI_IR_MAX_US)
+      return ESP_ERR_INVALID_SIZE;
+  }
+  esp_err_t ret = next_operation();
+  if (ret != ESP_OK)
+    return ret;
+  spi_ir_reply_t reply;
+  spi_ir_request_t request = request_for(SPI_IR_BEGIN);
+  request.count = count;
+  request.value = carrier;
+  ret = exchange(&request, NULL, &reply, NULL);
+  if (ret != ESP_OK)
+    return ret;
+  if (reply.epoch != s_epoch || reply.operation != s_operation || reply.state != SPI_IR_UPLOADING)
+    return reply.result != ESP_OK && reply.result != ESP_ERR_NOT_FINISHED
+               ? reply.result
+               : ESP_ERR_INVALID_RESPONSE;
+  for (size_t offset = 0; offset < count;) {
+    uint8_t chunk[SPI_IR_CHUNK_SYMBOLS * SPI_IR_SYMBOL_BYTES];
+    request = request_for(SPI_IR_UPLOAD);
+    request.offset = offset;
+    request.count = count - offset > SPI_IR_CHUNK_SYMBOLS ? SPI_IR_CHUNK_SYMBOLS : count - offset;
+    for (uint16_t i = 0; i < request.count; i++) {
+      const rmt_symbol_word_t *symbol = &symbols[offset + i];
+      uint16_t first = symbol->duration0 | (symbol->level0 << SPI_IR_LEVEL_SHIFT);
+      uint16_t second = symbol->duration1 | (symbol->level1 << SPI_IR_LEVEL_SHIFT);
+      uint8_t *bytes = chunk + i * SPI_IR_SYMBOL_BYTES;
+      bytes[0] = first & IR_BYTE_MASK;
+      bytes[1] = first >> IR_BYTE_BITS;
+      bytes[2] = second & IR_BYTE_MASK;
+      bytes[3] = second >> IR_BYTE_BITS;
+    }
+    ret = exchange(&request, chunk, &reply, NULL);
+    if (ret != ESP_OK)
+      return ret;
+    if (reply.epoch != s_epoch || reply.operation != s_operation ||
+        reply.state != SPI_IR_UPLOADING || reply.offset != offset + request.count)
+      return ESP_ERR_INVALID_RESPONSE;
+    offset += request.count;
+  }
+  // Never repeat COMMIT after an ambiguous response; reconcile only by STATUS.
+  ret = command(SPI_IR_COMMIT, &reply);
+  if (ret == ESP_ERR_NOT_SUPPORTED)
+    return ret;
+  return wait_done(IR_CONTROL_MS, &reply);
+}
+
+esp_err_t ir_close(void) {
+  if (!enter())
+    return ESP_ERR_INVALID_STATE;
+  return leave(close_remote());
+}
 
 esp_err_t ir_rx_init(void) {
-  if (!ir_lease_enter())
+  if (!enter())
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = rx_init_impl();
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
-}
-
-void ir_rx_prime(void) {
-  if (!ir_lease_enter())
-    return;
-  rx_prime_impl();
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-}
-
-void ir_rx_deinit(void) {
-  if (!ir_lease_enter())
-    return;
-  rx_deinit_impl();
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
+  return leave(open_remote(IR_MODE_RX));
 }
 
 esp_err_t ir_tx_init(void) {
-  if (!ir_lease_enter())
+  if (!enter())
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = tx_init_impl();
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
+  return leave(open_remote(IR_MODE_TX));
+}
+
+void ir_rx_prime(void) {
+  if (!enter())
+    return;
+  // Each receive starts a new one-shot capture; cached raw remains readable.
+  (void)leave(ESP_OK);
+}
+
+void ir_rx_deinit(void) {
+  if (!enter())
+    return;
+  if (s_mode == IR_MODE_RX)
+    (void)close_remote();
+  (void)leave(ESP_OK);
 }
 
 void ir_tx_deinit(void) {
-  if (!ir_lease_enter())
+  if (!enter())
     return;
-  tx_deinit_impl();
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-}
-
-esp_err_t ir_flash_on(void) {
-  if (!ir_lease_enter())
-    return ESP_ERR_INVALID_STATE;
-  esp_err_t error = flash_on_impl();
-  if (error == ESP_OK)
-    s_has_torch = true;
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
-}
-
-esp_err_t ir_flash_off(void) {
-  if (!ir_lease_enter())
-    return ESP_ERR_INVALID_STATE;
-  esp_err_t error = flash_off_impl();
-  if (error == ESP_OK)
-    s_has_torch = false;
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
+  if (s_mode == IR_MODE_TX)
+    (void)close_remote();
+  (void)leave(ESP_OK);
 }
 
 esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
-  if (!ir_lease_enter())
+  if (out_data == NULL || timeout_ms == 0 || timeout_ms > SPI_IR_RX_TIMEOUT_MS)
+    return ESP_ERR_INVALID_ARG;
+  if (!enter())
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = receive_impl(out_data, timeout_ms);
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
+  if (s_mode != IR_MODE_RX)
+    return leave(ESP_ERR_INVALID_STATE);
+  s_last_raw_count = 0;
+  esp_err_t ret = next_operation();
+  if (ret != ESP_OK)
+    return leave(ret);
+  spi_ir_request_t request = request_for(SPI_IR_CAPTURE);
+  request.value = timeout_ms;
+  spi_ir_reply_t reply;
+  ret = exchange(&request, NULL, &reply, NULL);
+  if (ret == ESP_OK)
+    ret = wait_done(timeout_ms + IR_CONTROL_MS, &reply);
+  if (ret != ESP_OK)
+    return leave(ret);
+  if (reply.count == 0 || reply.count > IR_MAX_SYMBOLS)
+    return leave(ESP_ERR_INVALID_SIZE);
+  size_t count = reply.count;
+  for (size_t offset = 0; offset < count;) {
+    uint8_t chunk[SPI_IR_CHUNK_SYMBOLS * SPI_IR_SYMBOL_BYTES];
+    request = request_for(SPI_IR_FETCH);
+    request.offset = offset;
+    request.count = count - offset > SPI_IR_CHUNK_SYMBOLS ? SPI_IR_CHUNK_SYMBOLS : count - offset;
+    ret = exchange(&request, NULL, &reply, chunk);
+    if (ret != ESP_OK)
+      return leave(ret);
+    if (reply.epoch != s_epoch || reply.operation != s_operation || reply.state != SPI_IR_DONE ||
+        reply.result != ESP_OK || reply.count != count || reply.offset != offset)
+      return leave(ESP_ERR_INVALID_RESPONSE);
+    for (uint16_t i = 0; i < request.count; i++) {
+      const uint8_t *bytes = chunk + i * SPI_IR_SYMBOL_BYTES;
+      uint16_t first = bytes[0] | ((uint16_t)bytes[1] << IR_BYTE_BITS);
+      uint16_t second = bytes[2] | ((uint16_t)bytes[3] << IR_BYTE_BITS);
+      s_last_raw[offset + i] = (rmt_symbol_word_t){
+          .duration0 = first & SPI_IR_DURATION_MASK,
+          .level0 = first >> SPI_IR_LEVEL_SHIFT,
+          .duration1 = second & SPI_IR_DURATION_MASK,
+          .level1 = second >> SPI_IR_LEVEL_SHIFT,
+      };
+    }
+    offset += request.count;
+  }
+  s_last_raw_count = count;
+  bool decoded = ir_decode(s_last_raw, count, out_data);
+  decoded ? led_signal_info() : led_signal_warning();
+  return leave(decoded ? ESP_OK : ESP_ERR_NOT_FOUND);
 }
 
 esp_err_t ir_send(const ir_data_t *data) {
-  if (!ir_lease_enter())
+  if (data == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!enter())
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = send_impl(data);
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
+  rmt_symbol_word_t symbols[IR_RMT_MEM_SYMBOLS];
+  size_t count = ir_encode(data, symbols, IR_RMT_MEM_SYMBOLS);
+  esp_err_t ret = transmit(symbols, count, ir_carrier_freq(data->protocol));
+  ret == ESP_OK ? led_signal_info() : led_signal_error();
+  return leave(ret);
 }
 
 esp_err_t ir_send_raw(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
-  if (!ir_lease_enter())
+  if (!enter())
     return ESP_ERR_INVALID_STATE;
-  esp_err_t error = send_raw_impl(symbols, count, carrier_hz);
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
+  return leave(transmit(symbols, count, carrier_hz));
 }
 
 esp_err_t ir_get_last_raw(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count) {
-  if (!ir_lease_enter())
-    return ESP_ERR_INVALID_STATE;
-  esp_err_t error = get_last_raw_impl(out_buf, buf_max, out_count);
-  ir_lease_leave(s_rx_chan != NULL || s_tx_chan != NULL || s_tx_encoder != NULL ||
-                 s_rx_queue != NULL || s_has_torch);
-  return error;
-}
-
-static esp_err_t rx_init_impl(void) {
-  if (s_is_rx_inited)
-    return ESP_OK;
-
-  if (s_mutex == NULL) {
-    s_mutex = xSemaphoreCreateMutex();
-    if (s_mutex == NULL) {
-      ESP_LOGE(TAG, "Failed to create mutex");
-      return ESP_ERR_NO_MEM;
-    }
-  }
-
-  // Non-DMA RX: DMA-backed rmt_receive() failed on this board and every error
-  // path below used to `return` without deleting the channel, so the re-arm loop
-  // leaked one RX channel per attempt until "no free rx channels". Now the config
-  // is non-DMA and every failure jumps to `fail` to release the channel/queue.
-  rmt_rx_channel_config_t cfg = {
-      .clk_src = RMT_CLK_SRC_DEFAULT,
-      .resolution_hz = IR_RMT_RESOLUTION_HZ,
-      .mem_block_symbols = IR_RX_MEM_BLOCK_SYMBOLS,
-      .gpio_num = GPIO_IR_RX_PIN,
-      .flags.invert_in = false,
-      .flags.with_dma = false,
-  };
-
-  esp_err_t ret = rmt_new_rx_channel(&cfg, &s_rx_chan);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(ret));
-    s_rx_chan = NULL;
-    return ret;
-  }
-
-  res_request_t res_req = {.id = RES_IR,
-                           .lane = RES_LANE_MAIN,
-                           .owner_kind = RES_OWNER_UI,
-                           .owner_task = NULL,
-                           .allow_preempt = false};
-  if (resource_acquire(&res_req, &s_rx_res) != ESP_OK) {
-    ESP_LOGW(TAG, "IR busy; RX not started");
-    ret = ESP_ERR_INVALID_STATE;
-    goto fail;
-  }
-
-  s_rx_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
-  if (s_rx_queue == NULL) {
-    ret = ESP_ERR_NO_MEM;
-    goto fail;
-  }
-
-  rmt_rx_event_callbacks_t cbs = {.on_recv_done = rx_callback};
-  ret = rmt_rx_register_event_callbacks(s_rx_chan, &cbs, s_rx_queue);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_rx_register_event_callbacks failed: %s", esp_err_to_name(ret));
-    goto fail;
-  }
-
-  ret = rmt_enable(s_rx_chan);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_enable (rx) failed: %s", esp_err_to_name(ret));
-    goto fail;
-  }
-
-  ret = rmt_receive(s_rx_chan, s_rx_buffer, sizeof(s_rx_buffer), &s_rx_cfg);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_receive failed: %s", esp_err_to_name(ret));
-    rmt_disable(s_rx_chan);
-    goto fail;
-  }
-  s_rx_armed = true;
-
-  s_is_rx_inited = true;
-  ESP_LOGI(TAG, "IR RX on GPIO %d", GPIO_IR_RX_PIN);
-  return ESP_OK;
-
-fail:
-  ir_rx_deinit();
-  return ret;
-}
-
-static void rx_prime_impl(void) {
-  // Drop any stale/ambient frame, then re-arm the channel if a frame consumed the
-  // one-shot receive while nobody was in ir_receive(). Flush first so a frame that
-  // arrives after we re-arm isn't discarded.
-  if (s_rx_queue != NULL)
-    xQueueReset(s_rx_queue);
-  if (s_rx_chan != NULL && !s_rx_armed) {
-    if (rmt_receive(s_rx_chan, s_rx_buffer, sizeof(s_rx_buffer), &s_rx_cfg) == ESP_OK)
-      s_rx_armed = true;
-  }
-}
-
-static void rx_deinit_impl(void) {
-  if (!s_is_rx_inited && s_rx_chan == NULL && s_rx_queue == NULL)
-    return;
-
-  // Disable before delete: rmt_del_channel rejects an enabled channel. The
-  // one-shot receive pending from init/re-arm is dropped by the disable.
-  if (s_rx_chan != NULL) {
-    esp_err_t error = rmt_disable(s_rx_chan);
-    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
-      ESP_LOGE(TAG, "Cannot disable IR RX: %s", esp_err_to_name(error));
-      return;
-    }
-    error = rmt_del_channel(s_rx_chan);
-    if (error != ESP_OK) {
-      ESP_LOGE(TAG, "Cannot delete IR RX: %s", esp_err_to_name(error));
-      return;
-    }
-    s_rx_chan = NULL;
-  }
-  if (s_rx_queue != NULL) {
-    vQueueDelete(s_rx_queue);
-    s_rx_queue = NULL;
-  }
-  s_rx_armed = false;
-  s_is_rx_inited = false;
-  resource_release(s_rx_res);
-  s_rx_res = RES_HANDLE_NONE;
-  ESP_LOGI(TAG, "IR RX released");
-}
-
-static esp_err_t tx_init_impl(void) {
-  if (s_is_tx_inited)
-    return ESP_OK;
-
-  if (s_mutex == NULL) {
-    s_mutex = xSemaphoreCreateMutex();
-    if (s_mutex == NULL) {
-      ESP_LOGE(TAG, "Failed to create mutex");
-      return ESP_ERR_NO_MEM;
-    }
-  }
-
-  rmt_tx_channel_config_t cfg = {
-      .clk_src = RMT_CLK_SRC_DEFAULT,
-      .gpio_num = GPIO_IR_TX_PIN,
-      .mem_block_symbols = IR_TX_MEM_BLOCK_SYMBOLS,
-      .resolution_hz = IR_RMT_RESOLUTION_HZ,
-      .trans_queue_depth = IR_TX_QUEUE_DEPTH,
-      .flags.invert_out = false,
-      .flags.with_dma = false,
-  };
-
-  esp_err_t ret = rmt_new_tx_channel(&cfg, &s_tx_chan);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(ret));
-    s_tx_chan = NULL;
-    return ret;
-  }
-
-  res_request_t res_req = {.id = RES_IR,
-                           .lane = RES_LANE_MAIN,
-                           .owner_kind = RES_OWNER_UI,
-                           .owner_task = NULL,
-                           .allow_preempt = false};
-  if (resource_acquire(&res_req, &s_tx_res) != ESP_OK) {
-    ESP_LOGW(TAG, "IR busy; TX not started");
-    ret = ESP_ERR_INVALID_STATE;
-    goto fail;
-  }
-
-  rmt_copy_encoder_config_t enc_cfg = {};
-  ret = rmt_new_copy_encoder(&enc_cfg, &s_tx_encoder);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(ret));
-    goto fail;
-  }
-
-  ret = rmt_enable(s_tx_chan);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_enable (tx) failed: %s", esp_err_to_name(ret));
-    goto fail;
-  }
-
-  s_is_tx_inited = true;
-  ESP_LOGI(TAG, "IR TX on GPIO %d", GPIO_IR_TX_PIN);
-  return ESP_OK;
-
-fail:
-  ir_tx_deinit();
-  return ret;
-}
-
-static void tx_deinit_impl(void) {
-  if (!s_is_tx_inited && s_tx_chan == NULL && s_tx_encoder == NULL)
-    return;
-
-  // Disable before delete: rmt_del_channel rejects an enabled channel.
-  if (s_tx_chan != NULL) {
-    esp_err_t error = rmt_disable(s_tx_chan);
-    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
-      ESP_LOGE(TAG, "Cannot disable IR TX: %s", esp_err_to_name(error));
-      return;
-    }
-    error = rmt_del_channel(s_tx_chan);
-    if (error != ESP_OK) {
-      ESP_LOGE(TAG, "Cannot delete IR TX: %s", esp_err_to_name(error));
-      return;
-    }
-    s_tx_chan = NULL;
-  }
-  if (s_tx_encoder != NULL) {
-    esp_err_t error = rmt_del_encoder(s_tx_encoder);
-    if (error != ESP_OK) {
-      ESP_LOGE(TAG, "Cannot delete IR encoder: %s", esp_err_to_name(error));
-      return;
-    }
-    s_tx_encoder = NULL;
-  }
-  s_current_carrier = 0;
-  s_is_tx_inited = false;
-  resource_release(s_tx_res);
-  s_tx_res = RES_HANDLE_NONE;
-  ESP_LOGI(TAG, "IR TX released");
-}
-
-static esp_err_t flash_on_impl(void) {
-  // Full-power DC drive: bypass the RMT carrier and hold the emitter gate high,
-  // so the LED stays lit instead of pulsing at the 38 kHz duty. Release the RMT
-  // TX channel first so it does not also own GPIO_IR_TX_PIN.
-  ir_tx_deinit();
-
-  gpio_config_t io = {
-      .pin_bit_mask = 1ULL << GPIO_IR_TX_PIN,
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  esp_err_t ret = gpio_config(&io);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "gpio_config (flash) failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  ret = gpio_set_level(GPIO_IR_TX_PIN, 1);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "gpio_set_level (flash on) failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  ESP_LOGI(TAG, "IR flash ON (GPIO %d held high)", GPIO_IR_TX_PIN);
-  return ESP_OK;
-}
-
-static esp_err_t flash_off_impl(void) {
-  // Keep the pin a plain output at low: matches the R90 pull-down resting state,
-  // and a later ir_tx_init() re-routes it to the RMT peripheral as needed.
-  gpio_config_t io = {
-      .pin_bit_mask = 1ULL << GPIO_IR_TX_PIN,
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  esp_err_t ret = gpio_config(&io);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "gpio_config (flash off) failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  ret = gpio_set_level(GPIO_IR_TX_PIN, 0);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "gpio_set_level (flash off) failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  ESP_LOGI(TAG, "IR flash OFF");
-  return ESP_OK;
-}
-
-static esp_err_t receive_impl(ir_data_t *out_data, uint32_t timeout_ms) {
-  if (out_data == NULL)
-    return ESP_ERR_INVALID_ARG;
-
-  rmt_rx_done_event_data_t rx_data;
-  if (xQueueReceive(s_rx_queue, &rx_data, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
-    led_signal_warning(); // nothing captured in the window
-    return ESP_ERR_TIMEOUT;
-  }
-
-  if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-    s_last_raw_count = rx_data.num_symbols;
-    if (s_last_raw_count > IR_MAX_SYMBOLS)
-      s_last_raw_count = IR_MAX_SYMBOLS;
-    memcpy(s_last_raw, rx_data.received_symbols, s_last_raw_count * sizeof(rmt_symbol_word_t));
-    xSemaphoreGive(s_mutex);
-  }
-
-  bool is_decoded = ir_decode(rx_data.received_symbols, rx_data.num_symbols, out_data);
-  if (!is_decoded) {
-    ir_print_raw(rx_data.received_symbols, rx_data.num_symbols);
-  }
-
-  esp_err_t ret = rmt_receive(s_rx_chan, s_rx_buffer, sizeof(s_rx_buffer), &s_rx_cfg);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_receive re-arm failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  s_rx_armed = true;
-
-  is_decoded ? led_signal_info() : led_signal_warning();
-  return is_decoded ? ESP_OK : ESP_ERR_NOT_FOUND;
-}
-
-static esp_err_t send_impl(const ir_data_t *data) {
-  if (data == NULL)
-    return ESP_ERR_INVALID_ARG;
-
-  rmt_symbol_word_t symbols[IR_RMT_MEM_SYMBOLS];
-  size_t count = ir_encode(data, symbols, IR_RMT_MEM_SYMBOLS);
-  if (count == 0)
-    return ESP_ERR_INVALID_ARG;
-  esp_err_t r = transmit(symbols, count, ir_carrier_freq(data->protocol));
-  r == ESP_OK ? led_signal_info() : led_signal_error();
-  return r;
-}
-
-static esp_err_t
-send_raw_impl(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
-  if (symbols == NULL || count == 0)
-    return ESP_ERR_INVALID_ARG;
-  return transmit(symbols, count, carrier_hz);
-}
-
-static esp_err_t get_last_raw_impl(rmt_symbol_word_t *out_buf, size_t buf_max, size_t *out_count) {
   if (out_buf == NULL || buf_max == 0)
     return ESP_ERR_INVALID_ARG;
-
-  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) {
-    if (out_count != NULL)
-      *out_count = 0;
-    return ESP_ERR_TIMEOUT;
-  }
-
-  size_t n = s_last_raw_count < buf_max ? s_last_raw_count : buf_max;
-  memcpy(out_buf, s_last_raw, n * sizeof(rmt_symbol_word_t));
   if (out_count != NULL)
-    *out_count = n;
+    *out_count = 0;
+  if (!enter())
+    return ESP_ERR_INVALID_STATE;
+  if (buf_max < s_last_raw_count)
+    return leave(ESP_ERR_INVALID_SIZE);
+  memcpy(out_buf, s_last_raw, s_last_raw_count * sizeof(*out_buf));
+  if (out_count != NULL)
+    *out_count = s_last_raw_count;
+  return leave(ESP_OK);
+}
 
-  xSemaphoreGive(s_mutex);
-  return ESP_OK;
+esp_err_t ir_flash_on(void) {
+  if (!enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t ret = open_remote(IR_MODE_TORCH);
+  if (ret != ESP_OK)
+    return leave(ret);
+  ret = next_operation();
+  if (ret != ESP_OK)
+    return leave(ret);
+  spi_ir_reply_t reply;
+  ret = command(SPI_IR_TORCH, &reply);
+  if (ret == ESP_OK) {
+    int64_t deadline = esp_timer_get_time() + IR_CONTROL_MS * IR_US_PER_MS;
+    do {
+      ret = command(SPI_IR_STATUS, &reply);
+      if (ret == ESP_OK && reply.epoch == s_epoch && reply.operation == s_operation &&
+          reply.state == SPI_IR_TORCH_RUNNING)
+        return leave(ESP_OK);
+      if (ret == ESP_OK && reply.state == SPI_IR_CLOSED)
+        return leave(ESP_ERR_INVALID_STATE);
+      vTaskDelay(pdMS_TO_TICKS(IR_POLL_MS));
+    } while (esp_timer_get_time() < deadline);
+    ret = ESP_ERR_TIMEOUT;
+  }
+  return leave(ret);
+}
+
+esp_err_t ir_flash_off(void) {
+  if (!enter())
+    return ESP_ERR_INVALID_STATE;
+  return leave(s_mode == IR_MODE_TORCH ? close_remote() : ESP_OK);
 }
 
 void ir_print_raw(const rmt_symbol_word_t *symbols, size_t count) {
-  ESP_LOGD(TAG, "--- Raw (%d symbols) ---", count);
-  size_t max = (count > IR_PRINT_MAX_SYMBOLS) ? IR_PRINT_MAX_SYMBOLS : count;
-  for (size_t i = 0; i < max; i++) {
-    ESP_LOGD(TAG,
-             "[%2d] %5lu %5lu",
-             i,
-             (unsigned long)symbols[i].duration0,
-             (unsigned long)symbols[i].duration1);
-  }
-  if (count > IR_PRINT_MAX_SYMBOLS)
-    ESP_LOGD(TAG, "... (%d omitted)", count - IR_PRINT_MAX_SYMBOLS);
+  if (symbols == NULL)
+    return;
+  size_t limit = count < IR_PRINT_MAX_SYMBOLS ? count : IR_PRINT_MAX_SYMBOLS;
+  for (size_t i = 0; i < limit; i++)
+    ESP_LOGD(TAG, "[%u] %u %u", (unsigned)i, symbols[i].duration0, symbols[i].duration1);
 }
 
 void ir_print_data(const ir_data_t *data) {
+  if (data == NULL)
+    return;
   ESP_LOGI(TAG,
-           "Protocol: %-10s | Addr: 0x%08lX | Cmd: 0x%08lX%s",
+           "%s addr=0x%08lX cmd=0x%08lX%s",
            ir_protocol_name(data->protocol),
            (unsigned long)data->address,
            (unsigned long)data->command,
-           data->repeat ? " [REPEAT]" : "");
-}
-
-static bool rx_callback(rmt_channel_handle_t ch, const rmt_rx_done_event_data_t *data, void *ctx) {
-  (void)ch;
-  s_rx_armed = false; // this frame consumed the one-shot receive
-  BaseType_t wake = pdFALSE;
-  xQueueSendFromISR((QueueHandle_t)ctx, data, &wake);
-  return wake == pdTRUE;
-}
-
-static esp_err_t set_carrier(uint32_t freq_hz) {
-  if (freq_hz == s_current_carrier)
-    return ESP_OK;
-  rmt_carrier_config_t carrier = {
-      .duty_cycle = IR_CARRIER_DUTY_CYCLE,
-      .frequency_hz = freq_hz,
-      .flags.polarity_active_low = false,
-  };
-  esp_err_t ret = rmt_apply_carrier(s_tx_chan, &carrier);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "rmt_apply_carrier failed: %s", esp_err_to_name(ret));
-    return ret;
-  }
-  s_current_carrier = freq_hz;
-  return ESP_OK;
-}
-
-static esp_err_t transmit(const rmt_symbol_word_t *symbols, size_t count, uint32_t carrier_hz) {
-  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) {
-    return ESP_ERR_TIMEOUT;
-  }
-
-  esp_err_t ret = set_carrier(carrier_hz);
-  if (ret != ESP_OK) {
-    xSemaphoreGive(s_mutex);
-    return ret;
-  }
-
-  rmt_transmit_config_t tx_cfg = {.loop_count = 0};
-  ret = rmt_transmit(s_tx_chan, s_tx_encoder, symbols, count * sizeof(rmt_symbol_word_t), &tx_cfg);
-  if (ret == ESP_OK) {
-    ret = rmt_tx_wait_all_done(s_tx_chan, IR_TX_WAIT_MS);
-  }
-
-  xSemaphoreGive(s_mutex);
-  return ret;
+           data->repeat ? " repeat" : "");
 }

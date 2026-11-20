@@ -23,6 +23,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
 #include "esp_wifi_types.h"
 
 /**
@@ -34,6 +35,9 @@ typedef enum {
   WIFI_DEAUTHER_TYPE_CLASS3,
   WIFI_DEAUTHER_TYPE_COUNT
 } wifi_deauther_frame_type_t;
+
+/** Single broadcast on the already-owned channel; returns the driver result. */
+esp_err_t wifi_deauther_send_capture_frame(const uint8_t *bssid, uint8_t channel);
 
 /**
  * @brief Send a single deauthentication frame to the AP itself.

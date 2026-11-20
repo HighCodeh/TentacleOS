@@ -34,14 +34,14 @@ static skimmer_detector_record_t s_empty_record;
 static uint32_t s_session_id = SPI_SESSION_INVALID_ID;
 
 bool skimmer_detector_start(void) {
-  ESP_LOGI(TAG, "Skimmer detector started");
+  ESP_LOGD(TAG, "Skimmer detector started");
   skimmer_detector_clear_results();
   s_session_id = spi_session_start(SPI_ID_BT_APP_SKIMMER, NULL, 0, NULL, NULL);
   return s_session_id != SPI_SESSION_INVALID_ID;
 }
 
 void skimmer_detector_stop(void) {
-  ESP_LOGI(TAG, "Skimmer detector stopped");
+  ESP_LOGD(TAG, "Skimmer detector stopped");
   if (s_session_id != SPI_SESSION_INVALID_ID) {
     spi_session_stop(s_session_id);
     s_session_id = SPI_SESSION_INVALID_ID;

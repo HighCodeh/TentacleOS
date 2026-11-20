@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # LVGL Service Documentation
 
 This component integrates the **LVGL v9** graphics library with the Highboy
@@ -53,15 +70,46 @@ esp_err_t lvgl_glue_init(void);
    are not ready.
 2. **`lvgl_port_init`:** starts the managed LVGL task (calls `lv_init`
    internally), the periodic tick, and a recursive mutex (the lock).
-3. **`lvgl_port_add_disp`:** registers the display - a partial DMA double buffer
-   of `LVGL_BUF_LINES` (`LCD_PANEL_H / 4` = 80) lines in internal DMA-capable
-   RAM, RGB565 with byte swap.
-4. **PSRAM draw buffers:** overrides LVGL's draw and image buffer handlers with
-   `draw_buf_psram_malloc`, which routes allocations larger than
-   `DRAWBUF_PSRAM_THRESHOLD` (48 KB) to PSRAM (`MALLOC_CAP_SPIRAM`) and falls
-   back to the default heap otherwise. This keeps big off-screen / image buffers
-   off the scarce internal heap. The DMA render double buffer above stays in
-   internal DMA RAM (PSRAM is not DMA-reachable by the LCD).
+3. **`lvgl_port_add_disp`:** two 40-line RGB565 draw buffers in internal
+   DMA-capable RAM (19,200 bytes each at 240 pixels wide). LVGL uses partial
+   rendering and transfers dirty areas in strips.
+4. **Other draw/image buffers:** allocations above 48 KB prefer PSRAM as before;
+   these are separate from the LCD transfer buffers.
+
+Full-frame PSRAM DMA was reverted after navigation on hardware produced a
+`Load access fault` while the heap monitor walked TLSF metadata, with LVGL
+waiting for a flush on the other core. This establishes a runtime regression,
+not the exact source of the invalid memory access. LCD DMA buffers are internal
+again and the SPI panel explicitly disables `psram_dma_direct`. The restored
+transfer configuration still requires an on-device retest.
+At 20 MHz a full RGB565 screen requires at least 61.44 ms of SPI transmission;
+this path does not provide atomic panel page-flipping or TE synchronization.
+
+### SPI completion and scheduling
+
+The LVGL flush wait callback blocks the render task on an internal FreeRTOS
+binary semaphore instead of spinning on `display->flushing`. The LCD completion
+ISR releases the SPI bus lease and signals that semaphore; LVGL clears its own
+flush state on the render task after completion. The ISR does not access the
+LVGL display object, which may live in PSRAM. An early completion remains pending
+until consumed, and a new strip cannot reuse the previous strip's completion.
+Direct-draw apps have a separate completion semaphore, including when they take
+over with an LVGL transfer still pending.
+
+Both completion semaphores must exist before display registration. Registration
+and callback installation run under the port lock before rendering can start;
+allocation, lock or callback failure unwinds the acquired resources. A missing
+completion never fakes DMA success or permits buffer reuse: the task stays
+blocked and the existing render-progress monitor can report the stall.
+
+`python3 tools/highboy/tests/test_lvgl_flush.py` exercises the production glue
+with pthread-backed semaphore/ISR scheduling, early and delayed completion,
+direct takeover and initialization failures under AddressSanitizer/UBSan.
+This is host synchronization coverage, not a hardware diagnosis. During the
+2026-11-20 investigation, the preserved `cb9ed41db` firmware faulted on core 0 at
+several valid internal-RAM addresses while core 1 was in LVGL's busy flush wait.
+The semaphore change removes that busy wait; whether it resolves the observed
+access faults still requires a matching on-device run.
 
 ### Thread safety
 ```c
@@ -99,11 +147,11 @@ drives the ST7789 itself with raw `esp_lcd_panel_draw_bitmap()` calls. The panel
 SPI is async - `draw_bitmap` queues the transfer and returns - so reusing one
 blit buffer for the next strip while the previous DMA is still reading it
 corrupts the image. Between `_begin()` and `_end()` the shared
-color-transfer-done ISR raises a semaphore instead of signalling LVGL flush-ready;
+color-transfer-done ISR signals the separate direct-draw semaphore;
 the app calls `lvgl_glue_wait_flush()` after each draw to block until that
 strip's DMA finished, making single-buffer reuse safe. Call `_begin()` right
 after taking the lock and `_end()` before releasing it; outside this window the
-ISR drives LVGL exactly as before.
+ISR signals the LVGL completion semaphore consumed by its flush wait callback.
 
 ### Screenshot capture
 ```c

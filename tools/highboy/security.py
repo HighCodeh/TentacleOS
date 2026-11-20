@@ -82,7 +82,7 @@ def audit(target, config, baseline=None, factory=False):
         raise ValueError('External signing profile must not select a private key')
     if factory:
         expected = {'PARTITION_TABLE_OFFSET': '0x10000',
-                    'PARTITION_TABLE_CUSTOM_FILENAME': json.dumps('../integration/security/partitions-' + target + '.csv'),
+                    'PARTITION_TABLE_CUSTOM_FILENAME': json.dumps('../tools/highboy/security_profiles/partitions-' + target + '.csv'),
                     'NVS_ENCRYPTION': 'y', 'NVS_SEC_KEY_PROTECT_USING_FLASH_ENC': 'y'}
         for name, value in expected.items():
             if config.get(name) != value:
@@ -124,7 +124,7 @@ def resolve(target, idf, python, build, output, factory=False):
     if output.exists() or output.is_symlink():
         raise ValueError('Output already exists; refusing to overwrite')
     output.parent.mkdir(parents=True, exist_ok=True)
-    profile = ROOT / 'integration/security' / (target + '.defaults')
+    profile = ROOT / 'tools/highboy/security_profiles' / (target + '.defaults')
     with tempfile.TemporaryDirectory(prefix='.security-', dir=output.parent) as temp:
         staging = Path(temp) / 'review'
         staging.mkdir(mode=0o700)
@@ -138,7 +138,7 @@ def resolve(target, idf, python, build, output, factory=False):
                    '--env', 'IDF_ENV_FPGA=', '--env', 'IDF_INIT_VERSION=' + version[1:],
                    '--env', 'IDF_MINIMAL_BUILD=n', '--dont-write-deprecated', '--output', 'config', str(config)]
         if factory:
-            command.extend(['--defaults', str(ROOT / 'integration/security' / (target + '.factory.defaults'))])
+            command.extend(['--defaults', str(ROOT / 'tools/highboy/security_profiles' / (target + '.factory.defaults'))])
         subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=120)
         report = audit(target, config_values(config), baseline, factory)
         image = build / ('TentacleOS_' + target.upper() + '.bin')
@@ -153,7 +153,7 @@ def resolve(target, idf, python, build, output, factory=False):
                 'signed_padded_bytes': projected, 'slot_bytes': slot,
                 'over_slot_bytes': max(0, projected - slot), 'secure_build_validated': False}
         if factory:
-            report['factory_profile_sha256'] = digest(ROOT / 'integration/security' / (target + '.factory.defaults'))
+            report['factory_profile_sha256'] = digest(ROOT / 'tools/highboy/security_profiles' / (target + '.factory.defaults'))
         report.update(profile_sha256=digest(profile), sdkconfig_sha256=digest(config),
                       baseline_sdkconfig_sha256=digest(build / 'sdkconfig'))
         (staging / 'review.json').write_text(json.dumps(report, indent=2) + '\n')

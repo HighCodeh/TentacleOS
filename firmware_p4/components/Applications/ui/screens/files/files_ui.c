@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
+#include "ui_chrome.h"
 #include "files_ui.h"
 
 #include <dirent.h>
@@ -160,6 +161,7 @@ static int s_top = 0;
 static uint8_t s_sel_stack[MAX_DEPTH];
 static bool s_in_viewer = false;
 static bool s_resume = false;
+static char s_resume_name[sizeof(((entry_t *)0)->name)];
 
 static lv_obj_t *s_screen = NULL;
 static lv_timer_t *s_timer = NULL;
@@ -192,6 +194,7 @@ static char *s_gbuf = NULL;
 static void files_hold_tick_cb(lv_timer_t *t);
 static void files_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
+static void screen_deleted(lv_event_t *event);
 
 static bool files_alloc(void) {
   s_entries = malloc(sizeof(entry_t) * MAX_ENTRIES);
@@ -925,12 +928,8 @@ static void build_screen(void) {
     s_tile[j] = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, screen_deleted, LV_EVENT_DELETE, NULL);
 
   if (s_in_viewer) {
     build_viewer();
@@ -1217,6 +1216,27 @@ static void files_input(const input_event_t *ev, void *ctx) {
   }
 }
 
+static void screen_deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) != s_screen)
+    return;
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+  s_vbody = NULL;
+}
+
+void ui_files_close(void) {
+  s_resume_name[0] = '\0';
+  if (s_entries != NULL && s_sel >= 0 && s_sel < s_count)
+    snprintf(s_resume_name, sizeof(s_resume_name), "%s", s_entries[s_sel].name);
+  if (s_timer != NULL) {
+    lv_timer_delete(s_timer);
+    s_timer = NULL;
+  }
+  s_vbody = NULL;
+}
+
 void ui_files_open(void) {
   ESP_LOGI(TAG, "files explorer");
   files_free();
@@ -1232,8 +1252,15 @@ void ui_files_open(void) {
   if (s_resume) {
     s_resume = false;
     scan_dir();
+    for (int i = 0; i < s_count; ++i)
+      if (strcmp(s_entries[i].name, s_resume_name) == 0) {
+        s_sel = i;
+        break;
+      }
     if (s_sel >= s_count)
       s_sel = s_count > 0 ? s_count - 1 : 0;
+    if (s_count == 0)
+      s_in_viewer = false;
     build_screen();
     return;
   }

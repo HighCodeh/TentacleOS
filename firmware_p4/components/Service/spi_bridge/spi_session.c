@@ -85,6 +85,14 @@ static void notify_lost_locked(const char *reason) {
     cb(lost_id, lost_op);
 }
 
+void spi_session_link_lost(void) {
+  if (s_mutex == NULL)
+    return;
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  notify_lost_locked("physical link recovery");
+  xSemaphoreGive(s_mutex);
+}
+
 // resource_mgr fires this (outside its lock) if a higher-priority owner takes the
 // radio from us. The grant is already released; drop the session too.
 static void session_res_revoked(void *user) {
@@ -237,6 +245,7 @@ uint32_t spi_session_start(spi_id_t op_id,
 
   spi_header_t resp_header = {0};
   spi_session_resp_t resp = {0};
+  uint32_t generation = spi_bridge_link_generation();
   esp_err_t ret = spi_bridge_send_command(op_id,
                                           params,
                                           params_len,
@@ -245,7 +254,16 @@ uint32_t spi_session_start(spi_id_t op_id,
                                           sizeof(resp),
                                           spi_bridge_get_timeout(op_id));
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
+    if (resp_header.sync == SPI_SYNC_BYTE && resp_header.type == SPI_TYPE_RESP)
+      ESP_LOGE(TAG, "START op 0x%04X rejected by C5: %s", op_id, esp_err_to_name(ret));
+    else
+      ESP_LOGE(TAG,
+               "START op 0x%04X transport/local error: %s (alive=%d generation=%lu/%lu)",
+               op_id,
+               esp_err_to_name(ret),
+               spi_bridge_is_alive(),
+               (unsigned long)generation,
+               (unsigned long)spi_bridge_link_generation());
     led_signal_error();
     resource_release(new_handle);
     return SPI_SESSION_INVALID_ID;
@@ -274,6 +292,11 @@ uint32_t spi_session_start(spi_id_t op_id,
   }
 
   xSemaphoreTake(s_mutex, portMAX_DELAY);
+  if (generation != spi_bridge_link_generation()) {
+    xSemaphoreGive(s_mutex);
+    resource_release(new_handle);
+    return SPI_SESSION_INVALID_ID;
+  }
   s_state.session_id = resp.session_id;
   s_state.op_id = op_id;
   s_state.last_acked_seq = 0;

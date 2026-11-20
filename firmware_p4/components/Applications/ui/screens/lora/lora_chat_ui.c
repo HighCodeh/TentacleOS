@@ -16,6 +16,7 @@
 #include "lora_chat_ui.h"
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -44,7 +45,8 @@
 
 static const char *TAG = "LORA_MESH";
 
-#define HOME_MQTT_INDEX 8
+#define HOME_CHAT_INDEX 0
+#define HOME_MQTT_INDEX 9
 
 #define CONNECT_POLL_MS       1000
 #define CHAT_POLL_MS          500
@@ -58,7 +60,9 @@ static const char *TAG = "LORA_MESH";
 #define DOTS_STEP_MS 340
 #define DOTS_MAX     3
 
-#define BUBBLE_MAX_W 184
+#define CHAT_ROWS_MAX  24
+#define CHAT_STATUS_H  24
+#define CHAT_COMPOSE_H 40
 
 #define LORA_AMBER     0xF5B13D
 #define MAP_CENTER_X   120
@@ -91,7 +95,6 @@ static const char *PROTOS[] = {"MeshCore", "Meshtastic"};
 #define PROTO_COUNT ((int)(sizeof(PROTOS) / sizeof(PROTOS[0])))
 
 static const char *PROTO_ICONS[] = {"/assets/icons/hub.bin", "/assets/icons/lan.bin"};
-static const char *PROTO_BANDS[] = {"868 MHz", "915 MHz"};
 
 #define NODE_COUNT 5
 
@@ -138,9 +141,17 @@ static int s_proto = 0;
 static int s_home_sel = 0;
 static int s_node = 0;
 static bool s_linked = false;
-static bool s_starting = false;
+static atomic_bool s_starting;
+static atomic_int s_start_error;
 static int s_cfg_region = 0, s_cfg_preset = 0;
 static uint32_t s_chat_seq = 0;
+static lv_obj_t *s_chat_empty;
+static lv_obj_t *s_chat_state;
+static lv_obj_t *s_chat_unread;
+static uint16_t s_chat_new;
+static bool s_chat_follow = true;
+static view_t s_chat_return = VIEW_HOME;
+static char s_chat_draft[640];
 
 static lv_obj_t *s_node_pins[NODE_COUNT];
 static lv_obj_t *s_node_names[NODE_COUNT];
@@ -159,7 +170,7 @@ static bool s_nodes_ok_active = false;
 
 static void lora_chat_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
-static void add_bubble(bool outgoing, const char *who, const char *text);
+static void add_bubble(const lora_msg_t *message);
 
 static void stop_timers(void) {
   if (s_connect_timer != NULL) {
@@ -185,6 +196,7 @@ static void lora_start_task(void *pv) {
   esp_err_t err = lora_session_start(proto);
   if (err != ESP_OK)
     ESP_LOGE(TAG, "start proto %d: %s", (int)proto, esp_err_to_name(err));
+  s_start_error = err;
   s_starting = false;
   vTaskDelete(NULL);
 }
@@ -193,6 +205,7 @@ static void start_active_proto(lora_proto_t proto) {
   if (s_starting || lora_session_active() != LORA_PROTO_NONE)
     return;
   s_starting = true;
+  s_start_error = ESP_OK;
   if (xTaskCreatePinnedToCore(lora_start_task,
                               "lora_start",
                               LORA_START_TASK_STACK,
@@ -201,6 +214,7 @@ static void start_active_proto(lora_proto_t proto) {
                               NULL,
                               SYS_CORE_RADIO) != pdPASS) {
     s_starting = false;
+    s_start_error = ESP_ERR_NO_MEM;
     ESP_LOGE(TAG, "failed to spawn start task");
   }
 }
@@ -215,7 +229,7 @@ static void refresh_nodes(void) {
     snprintf(
         s_nodes[n].name, sizeof(s_nodes[n].name), "%s", (nd.name[0] != '\0') ? nd.name : "node");
     s_nodes[n].rssi = nd.rssi;
-    s_nodes[n].strong = (nd.rssi == 0) || (nd.rssi >= RSSI_GOOD);
+    s_nodes[n].strong = nd.rssi != 0 && nd.rssi >= RSSI_GOOD;
     n++;
   }
   s_rnode_count = n;
@@ -291,9 +305,7 @@ static void build_proto_view(void) {
   s_menu = menu_component_create(s_screen, "SELECT NETWORK", "/assets/icons/lan.bin");
   menu_component_add_section(&s_menu, "MESH PROTOCOL");
   for (int i = 0; i < PROTO_COUNT; i++) {
-    char label[48];
-    snprintf(label, sizeof(label), "%s   %s", PROTOS[i], PROTO_BANDS[i]);
-    menu_component_add_item(&s_menu, PROTO_ICONS[i], label);
+    menu_component_add_item(&s_menu, PROTO_ICONS[i], PROTOS[i]);
   }
   menu_component_select(&s_menu, s_proto);
   menu_component_set_hint(&s_menu, LV_SYMBOL_UP LV_SYMBOL_DOWN "  choose   OK enter   BACK exit");
@@ -310,8 +322,9 @@ static void build_home_view(void) {
         band, sizeof(band), "%s  %s", (rg != NULL) ? rg->name : "?", (pr != NULL) ? pr->name : "?");
     menu_component_add_section(&s_menu, band);
   }
-  menu_component_add_section(&s_menu, s_linked ? "[ MESH ONLINE ]" : "[ STANDALONE ]");
+  menu_component_add_section(&s_menu, "LORA MESH");
 
+  menu_component_add_item(&s_menu, "/assets/icons/hub.bin", "Chat / group message");
   menu_component_add_item(&s_menu, "/assets/icons/bluetooth.bin", "Connect App");
   menu_component_add_item(&s_menu, "/assets/icons/hub.bin", "Nodes");
   menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Configs");
@@ -324,7 +337,7 @@ static void build_home_view(void) {
     menu_component_add_item(&s_menu, "/assets/icons/lan.bin", "MQTT");
 
   if (s_linked)
-    menu_component_set_item_label_color(&s_menu, 0, lv_color_hex(UI_COL_SUCCESS));
+    menu_component_set_item_label_color(&s_menu, 1, lv_color_hex(UI_COL_SUCCESS));
 
   menu_component_select(&s_menu, s_home_sel);
   menu_component_set_hint(&s_menu,
@@ -856,17 +869,38 @@ static void build_connect(void) {
   }
 }
 
-static void add_bubble(bool outgoing, const char *who, const char *text) {
+static lv_obj_t *
+chat_label(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_color_t color) {
+  lv_obj_t *label = lv_label_create(parent);
+  lv_label_set_text(label, text);
+  lv_obj_set_style_text_font(label, font, 0);
+  lv_obj_set_style_text_color(label, color, 0);
+  return label;
+}
+
+static void add_bubble(const lora_msg_t *message) {
   if (s_chat_list == NULL)
     return;
-  lv_color_t accent = ui_theme_get_accent();
-
+  if (s_chat_empty != NULL) {
+    lv_obj_delete(s_chat_empty);
+    s_chat_empty = NULL;
+  }
+  const bool outgoing = message->outgoing;
+  const lv_color_t accent = ui_theme_get_accent();
+  const int width = LV_MIN(ui_screen_w() - 40, 260);
+  if (lv_obj_get_child_count(s_chat_list) >= CHAT_ROWS_MAX) {
+    lv_obj_t *oldest = lv_obj_get_child(s_chat_list, 0);
+    lv_obj_update_layout(s_chat_list);
+    int32_t removed = lv_obj_get_height(oldest) + 10;
+    int32_t scroll = lv_obj_get_scroll_y(s_chat_list);
+    lv_obj_delete(oldest);
+    lv_obj_update_layout(s_chat_list);
+    if (!s_chat_follow)
+      lv_obj_scroll_to_y(s_chat_list, LV_MAX(0, scroll - removed), LV_ANIM_OFF);
+  }
   lv_obj_t *row = lv_obj_create(s_chat_list);
-  lv_obj_set_width(row, LV_PCT(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 0, 0);
+  lv_obj_remove_style_all(row);
+  lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row,
@@ -874,109 +908,211 @@ static void add_bubble(bool outgoing, const char *who, const char *text) {
                         LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_START);
 
-  lv_obj_t *group = lv_obj_create(row);
-  lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(group, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(group, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(group, 0, 0);
-  lv_obj_set_style_pad_all(group, 2, 0);
-  lv_obj_set_style_pad_row(group, 2, 0);
-  lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(group,
-                        LV_FLEX_ALIGN_START,
-                        outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
-                        LV_FLEX_ALIGN_START);
-
-  lv_obj_t *bubble = lv_obj_create(group);
+  lv_obj_t *bubble = lv_obj_create(row);
   lv_obj_remove_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(bubble, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_width(bubble, BUBBLE_MAX_W, 0);
-  lv_obj_set_style_pad_all(bubble, 7, 0);
-  lv_obj_set_style_radius(bubble, 9, 0);
-  lv_obj_set_style_bg_opa(bubble, outgoing ? LV_OPA_20 : LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(bubble, outgoing ? accent : current_theme.bg_secondary, 0);
+  lv_obj_set_size(bubble, width, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_all(bubble, 9, 0);
+  lv_obj_set_style_pad_row(bubble, 4, 0);
+  lv_obj_set_style_radius(bubble, 13, 0);
+  lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(bubble,
+                            outgoing ? lv_color_mix(accent, current_theme.bg_primary, 45)
+                                     : current_theme.bg_secondary,
+                            0);
   lv_obj_set_style_bg_grad_dir(bubble, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_border_width(bubble, 1, 0);
-  lv_obj_set_style_border_color(bubble, outgoing ? accent : current_theme.border_inactive, 0);
+  lv_obj_set_style_border_color(bubble,
+                                outgoing ? lv_color_mix(accent, current_theme.bg_primary, 140)
+                                         : current_theme.border_inactive,
+                                0);
   lv_obj_set_flex_flow(bubble, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(bubble, 2, 0);
 
-  if (!outgoing && who != NULL) {
-    lv_obj_t *nm = lv_label_create(bubble);
-    char sender[48];
-    snprintf(sender, sizeof(sender), "> %s", who);
-    lv_label_set_text(nm, sender);
-    lv_obj_set_style_text_color(nm, accent, 0);
-    lv_obj_set_style_text_font(nm, &lv_font_montserrat_12, 0);
-  }
-
-  lv_obj_t *body = lv_label_create(bubble);
+  lv_obj_t *sender =
+      chat_label(bubble,
+                 outgoing ? (strcmp(message->who, "direct") == 0 ? "YOU / DIRECT" : "YOU / GROUP")
+                          : message->who,
+                 &lv_font_montserrat_12,
+                 accent);
+  lv_obj_set_width(sender, LV_PCT(100));
+  lv_label_set_long_mode(sender, LV_LABEL_LONG_DOT);
+  lv_obj_t *body =
+      chat_label(bubble, message->text, &lv_font_montserrat_14, current_theme.text_main);
+  lv_obj_set_width(body, LV_PCT(100));
   lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_max_width(body, BUBBLE_MAX_W - 16, 0);
-  lv_label_set_text(body, text);
-  lv_obj_set_style_text_color(body, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(body, &lv_font_montserrat_12, 0);
-
-  lv_obj_scroll_to_view(bubble, LV_ANIM_ON);
+  lv_obj_set_style_text_line_space(body, 2, 0);
+  char metadata[48];
+  if (message->has_rf)
+    snprintf(
+        metadata, sizeof(metadata), "%d dBm  /  SNR %d dB", message->rssi_dbm, message->snr_db);
+  else
+    snprintf(metadata,
+             sizeof(metadata),
+             "%s",
+             outgoing ? "Submitted to radio" : "Received / no RF data");
+  lv_obj_t *meta =
+      chat_label(bubble, metadata, &lv_font_montserrat_12, current_theme.text_secondary);
+  lv_obj_set_width(meta, LV_PCT(100));
+  lv_label_set_long_mode(meta, LV_LABEL_LONG_WRAP);
+  if (s_chat_follow) {
+    lv_obj_update_layout(s_chat_list);
+    lv_obj_scroll_to_view(row, LV_ANIM_OFF);
+    s_chat_new = 0;
+  } else if (s_chat_new < UINT16_MAX) {
+    s_chat_new++;
+  }
 }
 
 static void chat_drain(void) {
   if (s_chat_list == NULL)
     return;
   lora_msg_t batch[CHAT_BATCH];
-  uint16_t got;
-  while ((got = lora_session_msg_since(&s_chat_seq, batch, CHAT_BATCH)) > 0) {
-    for (uint16_t i = 0; i < got; i++)
-      add_bubble(batch[i].outgoing, batch[i].outgoing ? NULL : batch[i].who, batch[i].text);
+  uint16_t got = lora_session_msg_since(&s_chat_seq, batch, CHAT_BATCH);
+  for (uint16_t i = 0; i < got; i++) {
+    if (batch[i].proto == proto_for_sel(s_proto))
+      add_bubble(&batch[i]);
+  }
+}
+
+static void chat_update_state(void) {
+  if (s_chat_state == NULL)
+    return;
+  lora_tx_status_t tx = {0};
+  char state[64];
+  if (s_starting)
+    snprintf(state, sizeof(state), "Starting radio...");
+  else if (lora_session_active() != proto_for_sel(s_proto))
+    snprintf(state,
+             sizeof(state),
+             "%s",
+             s_start_error != ESP_OK ? "Radio start failed / return to retry"
+                                     : "Radio stopped / open protocol");
+  else if (lora_session_tx_status(&tx) != ESP_OK)
+    snprintf(state, sizeof(state), "Reading radio state...");
+  else if (tx.processing || tx.queued)
+    snprintf(state, sizeof(state), "Sending / %u queued", tx.queued);
+  else if (tx.completed && tx.last_error != ESP_OK)
+    snprintf(state, sizeof(state), "Last send failed / %s", esp_err_to_name(tx.last_error));
+  else
+    snprintf(state, sizeof(state), "Delivery is not confirmed");
+  lv_label_set_text(s_chat_state, state);
+  if (s_chat_new) {
+    lv_label_set_text_fmt(s_chat_unread, "%u new " LV_SYMBOL_RIGHT, s_chat_new);
+    lv_obj_remove_flag(s_chat_unread, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(s_chat_unread, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
 static void chat_poll_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen || s_view != VIEW_CHAT) {
-    lv_timer_delete(t);
-    s_chat_poll = NULL;
+  (void)t;
+  /* Keyboard is an overlay: do not kill the subscription while composing. */
+  if (s_screen == NULL || s_view != VIEW_CHAT)
     return;
-  }
   chat_drain();
+  chat_update_state();
 }
 
 static void on_kb_submit(const char *text, void *user_data) {
   (void)user_data;
-  if (text == NULL || text[0] == '\0' || s_view != VIEW_CHAT)
+  if (s_screen == NULL || text == NULL || text[0] == '\0' || s_view != VIEW_CHAT)
     return;
   esp_err_t err = lora_session_send_text(text);
   if (err == ESP_OK) {
+    s_chat_draft[0] = '\0';
+    s_chat_follow = true;
     ui_feedback(UI_FB_WRITE);
-    chat_drain();
   } else {
-    notify(NOTIFY_LORA, "Send failed");
+    snprintf(s_chat_draft, sizeof(s_chat_draft), "%s", text);
+    notify(NOTIFY_LORA,
+           err == ESP_ERR_TIMEOUT       ? "Queue busy / OK to retry"
+           : err == ESP_ERR_INVALID_ARG ? "Use up to 159 UTF-8 bytes"
+                                        : "Radio unavailable / draft kept");
   }
+  chat_update_state();
+}
+
+static void chat_deleted(lv_event_t *event) {
+  (void)event;
+  stop_timers();
+  s_chat_list = s_chat_empty = s_chat_state = s_chat_unread = NULL;
 }
 
 static void build_chat(void) {
-  const char *title =
-      (lora_session_active() == LORA_PROTO_MESHTASTIC) ? "MESH BROADCAST" : "PUBLIC CHANNEL";
-  ui_chrome_header(s_screen, title, "/assets/icons/hub.bin");
-  s_hint = ui_chrome_footer(s_screen, LV_SYMBOL_KEYBOARD " OK write   BACK nodes");
+  ui_chrome_header(s_screen, "RADIO CHAT", "/assets/icons/hub.bin");
+  s_hint = ui_chrome_footer(
+      s_screen, LV_SYMBOL_UP LV_SYMBOL_DOWN " history   " LV_SYMBOL_RIGHT " latest   BACK");
+  const int top = UI_CHROME_HEADER_H + CHAT_STATUS_H;
+  const int bottom = ui_screen_h() - UI_CHROME_FOOTER_H - CHAT_COMPOSE_H;
+  char channel[48];
+  snprintf(channel, sizeof(channel), "%s / %s", PROTOS[s_proto], "recent messages");
+  lv_obj_t *strip =
+      chat_label(s_screen, channel, &lv_font_montserrat_12, current_theme.text_secondary);
+  lv_obj_set_pos(strip, 10, UI_CHROME_HEADER_H + 4);
+  s_chat_unread = chat_label(s_screen, "", &lv_font_montserrat_12, ui_theme_get_accent());
+  lv_obj_set_style_bg_color(s_chat_unread, current_theme.screen_base, 0);
+  lv_obj_set_style_bg_opa(s_chat_unread, LV_OPA_COVER, 0);
+  lv_obj_align(s_chat_unread, LV_ALIGN_TOP_RIGHT, -8, UI_CHROME_HEADER_H + 4);
 
   s_chat_list = lv_obj_create(s_screen);
-  lv_obj_set_size(
-      s_chat_list, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
-  lv_obj_align(s_chat_list, LV_ALIGN_TOP_LEFT, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_size(s_chat_list, ui_screen_w(), bottom - top - 4);
+  lv_obj_set_pos(s_chat_list, 0, top);
   lv_obj_set_style_bg_opa(s_chat_list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_chat_list, 0, 0);
-  lv_obj_set_style_pad_all(s_chat_list, 6, 0);
-  lv_obj_set_style_pad_row(s_chat_list, 6, 0);
+  lv_obj_set_style_pad_all(s_chat_list, 8, 0);
+  lv_obj_set_style_pad_row(s_chat_list, 10, 0);
   lv_obj_set_flex_flow(s_chat_list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_scroll_dir(s_chat_list, LV_DIR_VER);
-  lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_remove_flag(s_chat_list, LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM);
   lv_obj_set_scrollbar_mode(s_chat_list, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_style_bg_color(s_chat_list, ui_theme_get_accent(), LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(s_chat_list, 3, LV_PART_SCROLLBAR);
 
+  s_chat_empty = lv_obj_create(s_chat_list);
+  lv_obj_remove_style_all(s_chat_empty);
+  lv_obj_remove_flag(s_chat_empty, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_chat_empty, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_ver(s_chat_empty, 12, 0);
+  lv_obj_set_style_pad_row(s_chat_empty, 8, 0);
+  lv_obj_set_flex_flow(s_chat_empty, LV_FLEX_FLOW_COLUMN);
+  chat_label(s_chat_empty,
+             LV_SYMBOL_WIFI "  Start a conversation",
+             &lv_font_montserrat_14,
+             ui_theme_get_accent());
+  chat_label(s_chat_empty,
+             "OK to write to the group.\nRecent history lasts until restart.",
+             &lv_font_montserrat_12,
+             current_theme.text_secondary);
+
+  lv_obj_t *compose = lv_obj_create(s_screen);
+  lv_obj_remove_flag(compose, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(compose, ui_screen_w() - 16, CHAT_COMPOSE_H);
+  lv_obj_set_pos(compose, 8, bottom);
+  lv_obj_set_style_pad_all(compose, 5, 0);
+  lv_obj_set_style_radius(compose, 9, 0);
+  lv_obj_set_style_border_width(compose, 1, 0);
+  lv_obj_set_style_border_color(compose, ui_theme_get_accent(), 0);
+  lv_obj_set_style_bg_color(compose, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(compose, LV_OPA_COVER, 0);
+  lv_obj_set_flex_flow(compose, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(compose, 1, 0);
+  chat_label(compose,
+             s_proto == 0 ? LV_SYMBOL_KEYBOARD "  OK  Write to channel 0"
+                          : LV_SYMBOL_KEYBOARD "  OK  Write to primary",
+             &lv_font_montserrat_12,
+             current_theme.text_main);
+  s_chat_state = chat_label(compose, "", &lv_font_montserrat_12, current_theme.text_secondary);
+  lv_obj_set_width(s_chat_state, LV_PCT(100));
+  lv_label_set_long_mode(s_chat_state, LV_LABEL_LONG_DOT);
   s_chat_seq = 0;
-  chat_drain();
-
+  s_chat_new = 0;
+  s_chat_follow = true;
+  for (unsigned i = 0; i < CHAT_ROWS_MAX / CHAT_BATCH; ++i)
+    chat_drain();
+  chat_update_state();
+  lv_obj_add_event_cb(s_screen, chat_deleted, LV_EVENT_DELETE, NULL);
   s_chat_poll = lv_timer_create(chat_poll_cb, CHAT_POLL_MS, NULL);
+  if (s_chat_poll == NULL)
+    notify(NOTIFY_LORA, "Chat refresh unavailable");
 }
 
 static void build_screen(void) {
@@ -986,6 +1122,9 @@ static void build_screen(void) {
     s_screen = NULL;
   }
   s_chat_list = NULL;
+  s_chat_empty = NULL;
+  s_chat_state = NULL;
+  s_chat_unread = NULL;
   s_status_label = NULL;
   s_hint = NULL;
   s_info_name = NULL;
@@ -1000,12 +1139,7 @@ static void build_screen(void) {
     s_list_val[i] = NULL;
   }
 
-  s_screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_pad_all(s_screen, 0, 0);
+  s_screen = ui_chrome_screen_create();
 
   lv_obj_t *fade_target = NULL;
 
@@ -1118,21 +1252,25 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
           if (press) {
             s_home_sel = menu_component_get_selected(&s_menu);
             ui_feedback(UI_FB_SELECT);
-            if (s_home_sel == 3) {
-              ui_switch_screen(SCREEN_LORA_CHANNELS);
+            if (s_home_sel == HOME_CHAT_INDEX) {
+              s_chat_return = VIEW_HOME;
+              s_view = VIEW_CHAT;
+              build_screen();
             } else if (s_home_sel == 4) {
-              ui_switch_screen(SCREEN_LORA_POSITION);
+              ui_switch_screen(SCREEN_LORA_CHANNELS);
             } else if (s_home_sel == 5) {
-              ui_switch_screen(SCREEN_LORA_TELEMETRY);
+              ui_switch_screen(SCREEN_LORA_POSITION);
             } else if (s_home_sel == 6) {
-              ui_switch_screen(SCREEN_LORA_SECURE_DM);
+              ui_switch_screen(SCREEN_LORA_TELEMETRY);
             } else if (s_home_sel == 7) {
+              ui_switch_screen(SCREEN_LORA_SECURE_DM);
+            } else if (s_home_sel == 8) {
               ui_switch_screen(SCREEN_LORA_TRACEROUTE);
             } else if (s_home_sel == HOME_MQTT_INDEX) {
               ui_switch_screen(SCREEN_LORA_MQTT);
             } else {
-              s_view = (s_home_sel == 0)   ? VIEW_CONNECT
-                       : (s_home_sel == 1) ? VIEW_NODES
+              s_view = (s_home_sel == 1)   ? VIEW_CONNECT
+                       : (s_home_sel == 2) ? VIEW_NODES
                                            : VIEW_CONFIGS;
               build_screen();
             }
@@ -1187,6 +1325,7 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
             s_nodes_ok_fired = false;
             if (short_press) {
               ui_feedback(UI_FB_SELECT);
+              s_chat_return = VIEW_NODES;
               s_view = VIEW_CHAT;
               build_screen();
             }
@@ -1248,6 +1387,9 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
             int32_t sb = lv_obj_get_scroll_bottom(s_chat_list);
             if (sb > 0)
               lv_obj_scroll_by(s_chat_list, 0, -(sb < 36 ? sb : 36), LV_ANIM_OFF);
+            s_chat_follow = lv_obj_get_scroll_bottom(s_chat_list) <= 4;
+            if (s_chat_follow)
+              s_chat_new = 0;
           }
           break;
         case INPUT_BTN_UP:
@@ -1255,15 +1397,28 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
             int32_t st = lv_obj_get_scroll_top(s_chat_list);
             if (st > 0)
               lv_obj_scroll_by(s_chat_list, 0, (st < 36 ? st : 36), LV_ANIM_OFF);
+            s_chat_follow = false;
           }
           break;
         case INPUT_BTN_OK:
           if (press)
-            keyboard_open(NULL, on_kb_submit, NULL);
+            keyboard_open_config(&(keyboard_config_t){.title = "Message draft",
+                                                      .initial = s_chat_draft,
+                                                      .max_chars = 159,
+                                                      .min_chars = 1},
+                                 on_kb_submit,
+                                 NULL);
+          break;
+        case INPUT_BTN_RIGHT:
+          if (press && s_chat_list) {
+            s_chat_follow = true;
+            s_chat_new = 0;
+            lv_obj_scroll_to_y(s_chat_list, LV_COORD_MAX, LV_ANIM_OFF);
+          }
           break;
         case INPUT_BTN_BACK:
           if (press) {
-            s_view = VIEW_NODES;
+            s_view = s_chat_return;
             build_screen();
           }
           break;
@@ -1280,9 +1435,16 @@ static void lora_chat_input(const input_event_t *ev, void *ctx) {
 void ui_lora_chat_open(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
   lora_proto_t cur = lora_session_active();
-  s_view = VIEW_PROTO;
-  s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
-  s_home_sel = 0;
+  const screen_id_t from = ui_current_screen();
+  const bool is_returning = from == SCREEN_LORA_CHANNELS || from == SCREEN_LORA_POSITION ||
+                            from == SCREEN_LORA_TELEMETRY || from == SCREEN_LORA_SECURE_DM ||
+                            from == SCREEN_LORA_TRACEROUTE || from == SCREEN_LORA_MQTT ||
+                            from == SCREEN_LORA_RNODE;
+  s_view = is_returning ? VIEW_HOME : VIEW_PROTO;
+  if (!is_returning) {
+    s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
+    s_home_sel = 0;
+  }
   s_node = 0;
   s_rnode_count = 0;
   s_nodes_list = false;
@@ -1298,6 +1460,7 @@ void ui_lora_chat_open_chat(void) {
   ui_theme_set_protocol(PROTOCOL_LORA);
   lora_proto_t cur = lora_session_active();
   s_view = VIEW_CHAT;
+  s_chat_return = VIEW_HOME;
   s_proto = (cur != LORA_PROTO_NONE) ? sel_for_proto(cur) : 0;
   s_home_sel = 0;
   s_node = 0;
@@ -1309,4 +1472,10 @@ void ui_lora_chat_open_chat(void) {
   s_chat_poll = NULL;
   build_screen();
   ESP_LOGI(TAG, "LoRa chat opened");
+}
+
+void ui_lora_chat_close(void) {
+  if (keyboard_is_open())
+    keyboard_close();
+  stop_timers();
 }
