@@ -85,15 +85,33 @@ switch's 5 us maximum settling interval before tuning.
 
 ## Modulation Presets (`cc1101_preset_t`)
 
-| Preset                     | Mode    | RX Bandwidth |
-|----------------------------|---------|--------------|
-| `CC1101_PRESET_IDLE`       | Idle    | -            |
-| `CC1101_PRESET_OOK_270KHZ`| ASK/OOK | 270 kHz     |
-| `CC1101_PRESET_OOK_650KHZ`| ASK/OOK | 650 kHz     |
-| `CC1101_PRESET_OOK_800KHZ`| ASK/OOK | 812 kHz     |
-| `CC1101_PRESET_2FSK_2KHZ` | 2-FSK   | 58 kHz       |
-| `CC1101_PRESET_2FSK_47KHZ`| 2-FSK   | 270 kHz      |
-| `CC1101_PRESET_2FSK_95KHZ`| 2-FSK   | 540 kHz      |
+| UI name | Preset | Mode | RX bandwidth | Nominal modem rate | FSK deviation |
+| --- | --- | --- | --- | --- | --- |
+| — | `CC1101_PRESET_IDLE` | Idle | — | — | — |
+| AM270 | `CC1101_PRESET_OOK_270KHZ` | ASK/OOK | 270.83 kHz | 3.794 kBaud | — |
+| AM650 | `CC1101_PRESET_OOK_650KHZ` | ASK/OOK | 650 kHz | 3.794 kBaud | — |
+| FM238 | `CC1101_PRESET_2FSK_2KHZ` | 2-FSK | 270.83 kHz | 4.798 kBaud | 2.38 kHz |
+| FM476 | `CC1101_PRESET_2FSK_47KHZ` | 2-FSK | 270.83 kHz | 4.798 kBaud | 47.61 kHz |
+| AM812 | `CC1101_PRESET_OOK_800KHZ` | ASK/OOK | 812.5 kHz | 4.798 kBaud | — |
+| FM952 | `CC1101_PRESET_2FSK_95KHZ` | 2-FSK | 541.67 kHz | 4.798 kBaud | 95.21 kHz |
+
+AM270, AM650, FM238 and FM476 use the modem register values from
+[Flipper Zero/Momentum's CC1101 profiles](https://github.com/Next-Flip/Momentum-Firmware/blob/d3f89dfe2ef6b01839201598e9be1590cba80322/lib/subghz/devices/cc1101_configs.c)
+(GPL-3.0). These are adapted register data, not an imported driver. Changing a
+preset resets the chip and restores modulation, rate, bandwidth, deviation,
+channel spacing, packet mode, FIFO/ADC retention, frequency compensation, AGC,
+front-end and WOR controls before calibration. In particular, AM270 uses
+AGCCTRL2/1/0 `03/00/40`, while AM650 uses `07/00/91`; they are not merely two
+bandwidth settings. FM238 now uses the reference 270.83 kHz bandwidth instead of
+the previous High Boy 58 kHz filter. The FM reference uses carrier-sense gating
+without sync-word qualification (`MDMCFG2=04`). AM812 and FM952 retain the existing
+High Boy profiles, and serialized numeric preset IDs remain unchanged.
+
+High Boy retains its own GDO2 high-impedance setting, fixed channel zero,
+calibration sequence, selected carrier frequency, RF1/RF2 policy and requested
+PA level/band-specific table. Flipper's fixed PA table is not imported. Async
+RMT pulse durations remain those of the received/saved signal; the modem rate is
+a receiver configuration, not a resampling rate for captured timings.
 
 ## API Reference
 
@@ -147,11 +165,35 @@ Any future crystal correction requires a measured reference, recorded per board.
 ```c
 esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz);
 ```
-Configures the complete modulation/bandwidth/deviation profile in IDLE, selects
+Resets and configures the complete modem profile in IDLE, selects
 the matching branch, calibrates, applies the PA table, and then enters RX.
 Calibration results are not overwritten by later profile writes. Invalid preset
 IDs are rejected; the active preset is published only after RX entry succeeds.
 The idle preset stops the radio without requiring a carrier frequency.
+
+#### Editable radio configuration
+
+`cc1101_config_from_preset()` copies the base preset's MDMCFG4/3, DEVIATN and
+AGCCTRL2 into `cc1101_radio_config_t`. The common profile table and integer modem
+math live in `cc1101_config.c`; UI code does not duplicate register formulas.
+`cc1101_config_value()`, `cc1101_config_step()`, `cc1101_config_is_custom()` and
+`cc1101_config_is_fsk()` are pure helpers and require no hardware ownership.
+Steps preserve unrelated fields and choose representable bandwidths/rates rather
+than merely changing a label. Validation rejects idle/unknown presets, reserved
+deviation bits and rates outside 600–600000 baud. Modulation and the remaining
+AGC/FIFO/front-end registers continue to follow the base preset.
+
+LNA controls the maximum allowed gain relative to the chip's maximum: 0, −2.6,
+−6.1, −7.4, −9.2, −11.5, −14.6 or −17.1 dB. DVGA allows all gain steps or excludes
+the highest one, two or three. These are AGC limits, not fixed gain settings or
+TX power. AGCCTRL2's magnitude target is preserved when either limit changes.
+See [TI's CC1101 datasheet, AGCCTRL2](https://www.ti.com/lit/ds/symlink/cc1101.pdf).
+
+`cc1101_set_radio_config(config, frequency)` validates, restores the complete base
+profile with those four overrides, calibrates and enters RX under the existing
+radio lease. `cc1101_get_radio_config(out)` reads the active register values under
+that lease; it rejects an untuned/idle radio and publishes output only on complete
+success.
 
 #### `cc1101_get_active_preset_id`
 ```c
@@ -336,7 +378,8 @@ The supplied driver checkouts were consulted for comparison:
 `python3 tools/subghz_api/test_subghz_api.py` compiles the production driver with
 explicit SPI/GPIO/clock fakes and address/undefined-behavior sanitizers. It checks
 band boundaries and gaps, switch levels and IDLE ordering, carrier quantization,
-PA indexing, all presets, modem rounding, initialization/recovery, FIFO
+PA indexing, reference profile settings, all 36 preset transitions (including
+overwritten manual settings), modem rounding, initialization/recovery, FIFO
 completion/timeout/underflow, checked RSSI reads, all 256 RSSI conversions,
 and injected SPI/GPIO/allocation/timeouts. The existing ownership, RX/TX and spectrum tests
 remain part of that suite. These are host checks, not RF measurements; physical

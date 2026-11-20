@@ -51,7 +51,7 @@ typedef int esp_err_t;
         (temp/'led_control.h').write_text('void led_signal_error(void);\n')
         (temp/'power_manager.h').write_text('#include "esp_err.h"\nesp_err_t power_manager_no_sleep_acquire(void);\nesp_err_t power_manager_no_sleep_release(void);\n')
         command=[*shlex.split(os.environ.get('CC','cc')),'-std=gnu11','-Wall','-Wextra','-Werror',
-                 '-Wno-unused-parameter','-fsanitize=address,undefined','-fno-sanitize-recover=all','-pthread']
+                 '-Wno-unused-parameter','-fsanitize=address,undefined','-fno-sanitize-recover=all','-pthread', str(DRIVER/'cc1101_config.c')]
         for folder in [temp,HERE/'fixtures',SERVICE/'app_runtime',SERVICE/'app_runtime/include',
                        SERVICE/'host_link/include',ROOT/'firmware_p4/components/Core/resource_mgr/include',
                        DRIVER/'include',APPS,APPS/'include',APPS/'protocols/include']:
@@ -79,12 +79,12 @@ typedef int esp_err_t;
             if params!='void':
                 for part in params.split(','):
                     arg=re.search(r'(\w+)\s*$',part).group(1)
-                    args.append('buffer' if arg in ['buf','data','out_value'] else '3')
+                    args.append('&radio_config' if arg in ['config', 'out_config'] else 'buffer' if arg in ['buf','data','out_value'] else '3')
             call='cc1101_'+name[:-5]+'('+','.join(args)+')'
             public_ret=re.search(r'^(void|uint8_t|bool|esp_err_t) cc1101_'+name[:-5]+r'\(',wrappers,re.M).group(1)
             foreign_calls.append(call+';' if public_ret=='void' else 'assert('+call+'=='+('false' if public_ret=='bool' else 'ESP_ERR_INVALID_STATE' if public_ret=='esp_err_t' else '0')+');')
             native_calls.append(call+';')
-        driver_test=(HERE/'test_lease.c').read_text().replace('/* WRAPPERS */',wrappers+'\n'+'\n'.join(fake_impl))
+        driver_test=(HERE/'test_lease.c').read_text().replace('/* WRAPPERS */','static cc1101_radio_config_t radio_config;\n'+wrappers+'\n'+'\n'.join(fake_impl))
         driver_test=driver_test.replace('/* FOREIGN_CALLS */','\n'.join(foreign_calls)).replace('/* NATIVE_CALLS */','\n'.join(native_calls))
         def function(signature):
             start=source.index(signature);opening=source.index('{',start);depth=1;end=opening+1

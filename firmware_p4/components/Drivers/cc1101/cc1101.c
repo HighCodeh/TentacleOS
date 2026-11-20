@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cc1101.h"
+#include "cc1101_config.h"
 #include "cc1101_rf_path.h"
 #include "cc1101_lease.h"
 
@@ -69,15 +70,10 @@
 #define CC1101_RATE_EXPONENT_MASK       0x0FU
 #define CC1101_BANDWIDTH_MASK           0xF0U
 #define CC1101_CHSP_EXPONENT_MASK       0x03U
-#define CC1101_DEFAULT_RATE_BAUD        4800.0f
-#define CC1101_DEFAULT_BANDWIDTH_KHZ    812.0f
-#define CC1101_DEFAULT_DEVIATION_KHZ    47.0f
 #define CC1101_DEFAULT_PA_DBM           10
 #define CC1101_GDO_HIGH_IMPEDANCE       0x2EU
 #define CC1101_GDO_ASYNC_DATA           0x0DU
 #define CC1101_PKT_ASYNC                0x32U
-#define CC1101_FOC_OOK                  0x14U
-#define CC1101_FOC_FSK                  0x16U
 #define CC1101_MAX_TX_FIFO              61
 #define CC1101_PA_TABLE_SIZE            8
 #define CC1101_RSSI_OFFSET              74
@@ -161,6 +157,8 @@ static esp_err_t recover_impl(void);
 static esp_err_t enable_async_mode_impl(uint32_t freq_hz);
 static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz);
 static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz);
+static esp_err_t set_radio_config_impl(const cc1101_radio_config_t *config, uint32_t freq_hz);
+static esp_err_t get_radio_config_impl(cc1101_radio_config_t *out_config);
 static uint8_t get_active_preset_id_impl(void);
 static esp_err_t enter_tx_mode_impl(void);
 static esp_err_t enter_rx_mode_impl(void);
@@ -394,6 +392,24 @@ esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq_hz) {
   return error;
 }
 
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t freq_hz) {
+  if (!cc1101_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = set_radio_config_impl(config, freq_hz);
+  cc1101_lease_record_error(error);
+  cc1101_lease_leave();
+  return error;
+}
+
+esp_err_t cc1101_get_radio_config(cc1101_radio_config_t *out_config) {
+  if (!cc1101_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = get_radio_config_impl(out_config);
+  cc1101_lease_record_error(error);
+  cc1101_lease_leave();
+  return error;
+}
+
 uint8_t cc1101_get_active_preset_id(void) {
   if (!cc1101_lease_enter())
     return 0;
@@ -440,8 +456,7 @@ static esp_err_t enter_idle(void) {
   return wait_for_state(CC1101_MARCSTATE_IDLE);
 }
 
-static esp_err_t
-configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, float deviation_khz) {
+static esp_err_t configure_sniffer(uint32_t freq_hz, const cc1101_async_profile_t *profile) {
   if (cc1101_rf_path_for_frequency(freq_hz) == CC1101_RF_PATH_NONE)
     return ESP_ERR_INVALID_ARG;
   s_is_tuned = false;
@@ -455,18 +470,10 @@ configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, flo
       {CC1101_IOCFG0, CC1101_GDO_ASYNC_DATA},
       {CC1101_IOCFG2, CC1101_GDO_HIGH_IMPEDANCE},
       {CC1101_PKTCTRL0, CC1101_PKT_ASYNC},
-      {CC1101_PKTCTRL1, 0x00},
       {CC1101_PKTLEN, 0x00},
       {CC1101_CHANNR, 0x00},
-      {CC1101_MDMCFG2, 0x00}, // Async data must not require a sync word.
-      {CC1101_MDMCFG1, 0x02},
-      {CC1101_MDMCFG0, 0xF8},
       {CC1101_MCSM0, 0x18},
       {CC1101_BSCFG, 0x1C},
-      {CC1101_AGCCTRL2, 0xC7},
-      {CC1101_AGCCTRL1, 0x00},
-      {CC1101_AGCCTRL0, 0x91},
-      {CC1101_FREND1, 0x56},
       {CC1101_FSCAL3, 0xE9},
       {CC1101_FSCAL2, 0x2A},
       {CC1101_FSCAL1, 0x00},
@@ -477,12 +484,9 @@ configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, flo
   };
   for (size_t i = 0; i < sizeof(ASYNC_REGISTERS) / sizeof(ASYNC_REGISTERS[0]); ++i)
     CC1101_RETURN_ON_ERROR(write_reg_impl(ASYNC_REGISTERS[i][0], ASYNC_REGISTERS[i][1]));
-  uint8_t foc = modulation == CC1101_MOD_ASK ? CC1101_FOC_OOK : CC1101_FOC_FSK;
-  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FOCCFG, foc));
-  CC1101_RETURN_ON_ERROR(set_rx_bandwidth_impl(bandwidth_khz));
-  CC1101_RETURN_ON_ERROR(set_data_rate_impl(CC1101_DEFAULT_RATE_BAUD));
-  CC1101_RETURN_ON_ERROR(set_deviation_impl(deviation_khz));
-  CC1101_RETURN_ON_ERROR(set_modulation_impl(modulation));
+  for (size_t i = 0; i < CC1101_PROFILE_REGISTER_COUNT; ++i)
+    CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_PROFILE_REGISTERS[i], profile->values[i]));
+  CC1101_RETURN_ON_ERROR(set_modulation_impl(profile->modulation));
   CC1101_RETURN_ON_ERROR(set_frequency_impl(freq_hz));
   esp_err_t error = enter_rx_mode_impl();
   if (error != ESP_OK)
@@ -1053,13 +1057,11 @@ static esp_err_t recover_impl(void) {
 }
 
 static esp_err_t enable_async_mode_impl(uint32_t freq_hz) {
-  return configure_sniffer(
-      freq_hz, CC1101_MOD_ASK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
+  return configure_sniffer(freq_hz, cc1101_config_get_profile(CC1101_PRESET_OOK_800KHZ));
 }
 
 static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz) {
-  return configure_sniffer(
-      freq_hz, CC1101_MOD_2FSK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
+  return configure_sniffer(freq_hz, cc1101_config_get_profile(CC1101_PRESET_IDLE));
 }
 
 static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
@@ -1070,20 +1072,40 @@ static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
     s_active_preset_id = CC1101_PRESET_IDLE;
     return ESP_OK;
   }
-  static const float PRESET_BANDWIDTH_KHZ[CC1101_PRESET_COUNT] = {0, 270, 650, 58, 270, 540, 812};
-  static const float PRESET_DEVIATION_KHZ[CC1101_PRESET_COUNT] = {
-      0, 47, 47, 2.38f, 47.6f, 95.2f, 47};
-  bool is_fsk = preset >= CC1101_PRESET_2FSK_2KHZ && preset <= CC1101_PRESET_2FSK_95KHZ;
-  uint8_t modulation = is_fsk ? CC1101_MOD_2FSK : CC1101_MOD_ASK;
-  esp_err_t error = configure_sniffer(
-      freq_hz, modulation, PRESET_BANDWIDTH_KHZ[preset], PRESET_DEVIATION_KHZ[preset]);
-  CC1101_RETURN_ON_ERROR(error);
+  CC1101_RETURN_ON_ERROR(configure_sniffer(freq_hz, cc1101_config_get_profile(preset)));
   s_active_preset_id = (uint8_t)preset;
   return ESP_OK;
 }
 
 static uint8_t get_active_preset_id_impl(void) {
   return s_active_preset_id;
+}
+
+static esp_err_t set_radio_config_impl(const cc1101_radio_config_t *config, uint32_t freq_hz) {
+  CC1101_RETURN_ON_ERROR(cc1101_config_validate(config));
+  cc1101_async_profile_t profile = *cc1101_config_get_profile(config->preset);
+  profile.values[CC1101_PROFILE_MDMCFG4] = config->mdmcfg4;
+  profile.values[CC1101_PROFILE_MDMCFG3] = config->mdmcfg3;
+  profile.values[CC1101_PROFILE_DEVIATN] = config->deviatn;
+  profile.values[CC1101_PROFILE_AGCCTRL2] = config->agcctrl2;
+  CC1101_RETURN_ON_ERROR(configure_sniffer(freq_hz, &profile));
+  s_active_preset_id = config->preset;
+  return ESP_OK;
+}
+
+static esp_err_t get_radio_config_impl(cc1101_radio_config_t *out_config) {
+  if (out_config == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (!s_is_tuned || s_active_preset_id == CC1101_PRESET_IDLE)
+    return ESP_ERR_INVALID_STATE;
+  cc1101_radio_config_t config = {.preset = s_active_preset_id};
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG4, &config.mdmcfg4));
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_MDMCFG3, &config.mdmcfg3));
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_DEVIATN, &config.deviatn));
+  CC1101_RETURN_ON_ERROR(read_register(CC1101_AGCCTRL2, &config.agcctrl2));
+  CC1101_RETURN_ON_ERROR(cc1101_config_validate(&config));
+  *out_config = config;
+  return ESP_OK;
 }
 
 static esp_err_t enter_mode(uint8_t command, uint8_t state) {

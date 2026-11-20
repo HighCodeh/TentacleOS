@@ -129,6 +129,36 @@ typedef enum {
   CC1101_PRESET_COUNT,
 } cc1101_preset_t;
 
+typedef struct {
+  cc1101_preset_t preset;
+  uint8_t mdmcfg4;
+  uint8_t mdmcfg3;
+  uint8_t deviatn;
+  uint8_t agcctrl2;
+} cc1101_radio_config_t;
+
+typedef enum {
+  CC1101_CONFIG_BANDWIDTH = 0,
+  CC1101_CONFIG_DATA_RATE,
+  CC1101_CONFIG_DEVIATION,
+  CC1101_CONFIG_LNA_GAIN,
+  CC1101_CONFIG_DVGA_GAIN,
+  CC1101_CONFIG_COUNT,
+} cc1101_config_field_t;
+
+/* Pure configuration helpers: no peripheral access or lease acquisition. */
+esp_err_t cc1101_config_from_preset(cc1101_preset_t preset, cc1101_radio_config_t *out_config);
+esp_err_t cc1101_config_validate(const cc1101_radio_config_t *config);
+bool cc1101_config_is_custom(const cc1101_radio_config_t *config);
+bool cc1101_config_is_fsk(const cc1101_radio_config_t *config);
+uint32_t cc1101_config_value(const cc1101_radio_config_t *config, cc1101_config_field_t field);
+esp_err_t
+cc1101_config_step(cc1101_radio_config_t *config, cc1101_config_field_t field, int direction);
+
+/* Apply the entire base preset plus overrides in IDLE before calibration/RX. */
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t freq_hz);
+esp_err_t cc1101_get_radio_config(cc1101_radio_config_t *out_config);
+
 /**
  * @brief Initialize the CC1101 transceiver and SPI bus.
  */

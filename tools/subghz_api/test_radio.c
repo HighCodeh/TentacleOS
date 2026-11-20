@@ -201,8 +201,8 @@ static void test_paths(void) {
 }
 
 static void test_presets(void) {
-  const uint8_t bandwidth[] = {0, 0x60, 0x10, 0xF0, 0x60, 0x20, 0x00};
-  const uint8_t deviation[] = {0, 0x47, 0x47, 0x04, 0x47, 0x57, 0x47};
+  const uint8_t bandwidth[] = {0, 0x60, 0x10, 0x60, 0x60, 0x20, 0x00};
+  const uint8_t deviation[] = {0, 0x15, 0x15, 0x04, 0x47, 0x57, 0x47};
   for (int preset = 1; preset < CC1101_PRESET_COUNT; ++preset) {
     reset_test();
     cc1101_set_preset(preset, 433920000);
@@ -211,12 +211,21 @@ static void test_presets(void) {
     assert(s_registers[CC1101_FSCAL3] == 0xEA && s_registers[CC1101_TEST0] == 0x09);
     assert((s_registers[CC1101_MDMCFG4] & 0xF0) == bandwidth[preset]);
     assert(s_registers[CC1101_DEVIATN] == deviation[preset]);
-    assert((s_registers[CC1101_MDMCFG2] & 7) == 0);
+    bool is_flipper_am = preset == 1 || preset == 2;
+    bool is_flipper_fm = preset == 3 || preset == 4;
+    assert((s_registers[CC1101_MDMCFG2] & 7) == (is_flipper_fm ? 4 : 0));
     bool is_fsk = preset >= 3 && preset <= 5;
-    assert(s_registers[CC1101_FOCCFG] == (is_fsk ? 0x16 : 0x14));
+    assert(s_registers[CC1101_FOCCFG] == (is_fsk ? 0x16 : is_flipper_am ? 0x18 : 0x14));
+    assert(s_registers[CC1101_FREND1] == (is_flipper_am ? 0xB6 : 0x56));
+    assert(s_registers[CC1101_AGCCTRL2] == (preset == 1 ? 0x03 : preset <= 4 ? 0x07 : 0xC7));
+    assert(s_registers[CC1101_AGCCTRL0] == (preset == 1 ? 0x40 : 0x91));
+    assert(s_registers[CC1101_FIFOTHR] == (preset == 1 ? 0x47 : 0x07));
+    assert(s_registers[CC1101_PKTCTRL0] == 0x32);
+    assert(s_registers[CC1101_PKTCTRL1] == (preset <= 4 ? 0x04 : 0));
+    assert(s_registers[CC1101_IOCFG0] == 0x0D && s_registers[CC1101_IOCFG2] == 0x2E);
     double rate = (256 + s_registers[CC1101_MDMCFG3]) *
                   (1U << (s_registers[CC1101_MDMCFG4] & 15)) * 26000000.0 / 268435456.0;
-    assert(fabs(rate - 4800) < 10);
+    assert(fabs(rate - (is_flipper_am ? 3793.72 : 4797.94)) < 0.01);
     cc1101_enter_tx_mode();
     assert(s_error == ESP_OK && s_state == CC1101_MARCSTATE_TX);
     cc1101_set_preset(CC1101_PRESET_IDLE, 0);
@@ -230,6 +239,34 @@ static void test_presets(void) {
   assert(s_error == ESP_OK && s_registers[CC1101_TEST0] == 0x0B);
   cc1101_set_preset(CC1101_PRESET_OOK_270KHZ, 868350000);
   assert(s_error == ESP_OK && s_registers[CC1101_TEST0] == 0x09 && s_v1 == 0 && s_v2 == 1);
+}
+
+static void test_preset_transitions(void) {
+  uint8_t expected[CC1101_PRESET_COUNT][CC1101_TEST0 + 1];
+  for (int preset = 1; preset < CC1101_PRESET_COUNT; ++preset) {
+    reset_test();
+    assert(cc1101_set_preset(preset, 433920000) == ESP_OK);
+    memcpy(expected[preset], s_registers, sizeof(expected[preset]));
+  }
+  for (int from = 1; from < CC1101_PRESET_COUNT; ++from) {
+    for (int to = 1; to < CC1101_PRESET_COUNT; ++to) {
+      reset_test();
+      assert(cc1101_set_preset(from, 915000000) == ESP_OK);
+      assert(cc1101_set_preset(CC1101_PRESET_IDLE, 0) == ESP_OK);
+      // Simulate diagnostic/manual settings before selecting another complete preset.
+      assert(cc1101_set_data_rate(100000) == ESP_OK);
+      assert(cc1101_set_deviation(100) == ESP_OK);
+      cc1101_set_manchester(true);
+      cc1101_set_fec(true);
+      cc1101_set_dc_filter_off(true);
+      assert(cc1101_set_preset(to, 433920000) == ESP_OK);
+      assert(memcmp(expected[to], s_registers, sizeof(expected[to])) == 0);
+      assert(s_v1 == 0 && s_v2 == 0);
+      bool is_fsk = to >= 3 && to <= 5;
+      assert(s_pa[is_fsk ? 0 : 1] == 0xC0 && s_pa[is_fsk ? 1 : 0] == 0);
+      assert(cc1101_get_active_preset_id() == to);
+    }
+  }
 }
 
 static void test_math(void) {
@@ -275,6 +312,60 @@ static void test_math(void) {
       assert(s_error == ESP_ERR_INVALID_ARG && s_transactions == 0);
     }
   }
+}
+
+static void test_custom_config(void) {
+  reset_test();
+  cc1101_radio_config_t config, observed;
+  assert(cc1101_config_from_preset(CC1101_PRESET_OOK_270KHZ, &config) == ESP_OK);
+  assert(cc1101_config_value(&config, CC1101_CONFIG_BANDWIDTH) == 270833);
+  assert(cc1101_config_value(&config, CC1101_CONFIG_DATA_RATE) == 3794);
+  assert(!cc1101_config_is_custom(&config) && !cc1101_config_is_fsk(&config));
+  assert(cc1101_config_step(&config, CC1101_CONFIG_DEVIATION, 1) == ESP_ERR_NOT_SUPPORTED);
+  assert(!cc1101_config_is_custom(&config));
+  assert(cc1101_config_step(&config, CC1101_CONFIG_LNA_GAIN, 1) == ESP_OK);
+  assert(config.agcctrl2 == 0x0B);
+  assert(cc1101_config_step(&config, CC1101_CONFIG_DVGA_GAIN, 1) == ESP_OK);
+  assert(config.agcctrl2 == 0x4B);
+  assert(cc1101_config_step(&config, CC1101_CONFIG_BANDWIDTH, 1) == ESP_OK);
+  assert(cc1101_config_value(&config, CC1101_CONFIG_DATA_RATE) == 3794);
+  assert(cc1101_config_value(&config, CC1101_CONFIG_BANDWIDTH) == 325000);
+  for (unsigned i = 0; i < 26; ++i) {
+    uint32_t before = cc1101_config_value(&config, CC1101_CONFIG_DATA_RATE);
+    assert(cc1101_config_step(&config, CC1101_CONFIG_DATA_RATE, 1) == ESP_OK);
+    assert(cc1101_config_value(&config, CC1101_CONFIG_DATA_RATE) != before);
+    assert(cc1101_config_value(&config, CC1101_CONFIG_BANDWIDTH) == 325000);
+    assert(cc1101_config_validate(&config) == ESP_OK);
+  }
+  assert(cc1101_config_is_custom(&config));
+  assert(cc1101_set_radio_config(&config, 915000000) == ESP_OK);
+  assert(cc1101_get_radio_config(&observed) == ESP_OK);
+  assert(observed.mdmcfg4 == config.mdmcfg4 && observed.mdmcfg3 == config.mdmcfg3);
+  assert(observed.deviatn == config.deviatn && observed.agcctrl2 == config.agcctrl2);
+  assert(s_v1 == 0 && s_v2 == 1 && s_registers[CC1101_FSCAL1] == 0x2B);
+  assert(s_registers[CC1101_AGCCTRL0] == 0x40);
+  unsigned transactions = s_transactions;
+  config.deviatn |= 0x80;
+  assert(cc1101_set_radio_config(&config, 433920000) == ESP_ERR_INVALID_ARG);
+  assert(s_transactions == transactions);
+  assert(cc1101_config_from_preset(CC1101_PRESET_2FSK_47KHZ, &config) == ESP_OK);
+  assert(cc1101_config_step(&config, CC1101_CONFIG_DEVIATION, -1) == ESP_OK);
+  assert(config.deviatn == 0x46);
+  reset_test();
+  assert(cc1101_set_radio_config(&config, 433920000) == ESP_OK);
+  unsigned total = s_transactions;
+  for (unsigned failure = 1; failure <= total; ++failure) {
+    reset_test(); s_fail_transaction = failure;
+    assert(cc1101_set_radio_config(&config, 433920000) == ESP_FAIL);
+    assert(!s_is_tuned && s_active_preset_id == CC1101_PRESET_IDLE);
+  }
+  reset_test();
+  assert(cc1101_set_radio_config(&config, 433920000) == ESP_OK);
+  assert(cc1101_set_preset(CC1101_PRESET_OOK_650KHZ, 433920000) == ESP_OK);
+  assert(cc1101_get_radio_config(&observed) == ESP_OK && !cc1101_config_is_custom(&observed));
+  observed.agcctrl2 = 0xAB;
+  s_fail_transaction = s_transactions + 1;
+  assert(cc1101_get_radio_config(&observed) == ESP_FAIL && observed.agcctrl2 == 0xAB);
 }
 
 static void test_vco_thresholds(void) {
@@ -391,7 +482,9 @@ int main(void) {
   }
   test_paths();
   test_presets();
+  test_preset_transitions();
   test_math();
+  test_custom_config();
   test_vco_thresholds();
   test_failures();
   test_initialization();

@@ -30,6 +30,7 @@ idf_component_register(SRCS
   "bq25896/battery_service.c"
   "bq25896/bq27220.c"
   "cc1101/cc1101.c"
+  "cc1101/cc1101_config.c"
   "cc1101/cc1101_lease.c"
   "st7789/st7789.c"
   "led/led_control.c"
