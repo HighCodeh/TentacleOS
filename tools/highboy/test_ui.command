@@ -32,3 +32,5 @@ python3 "$repo/tools/highboy/tests/test_ux_flows.py" "$ui_test_dir"
 python3 "$repo/tools/highboy/tests/test_app_switcher_ui.py" "$ui_test_dir"
 python3 "$repo/tools/highboy/tests/test_nfc_guidance_ui.py" "$ui_test_dir"
 printf 'UI host evidence: %s\n' "$ui_test_dir"
+
+python3 "$repo/tools/rf_chamber/test_bench_ui.py" "$ui_test_dir"

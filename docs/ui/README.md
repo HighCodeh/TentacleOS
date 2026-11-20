@@ -859,3 +859,11 @@ acceptance remains a separate device check.
 `bash tools/highboy/test.command` also runs the prototype battery/LED, radio,
 NFC, storage and screen-lifecycle regressions. These host tests do not open
 serial devices or transmit over radios.
+
+### Laboratory switch and active tag reads
+
+The `lab/rf` full firmware exposes manual RF1–RF4 control and explicit NFC/LF
+searches in a shared bench menu. The RF switch page shows actual readback;
+identity pages show progress, stop, timeout and checked results. BACK waits for
+RF cleanup before returning. See [controls and scope](../rf_chamber/passive.md).
+The production `dev` menus remain separate from this laboratory profile.

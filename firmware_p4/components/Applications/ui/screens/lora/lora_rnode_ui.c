@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "lora_rnode_ui.h"
+#include "rf_bench_ui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -286,6 +287,7 @@ static void stop_owned(void) {
     rf_chamber_stop();
 }
 void ui_lora_rnode_close(void) {
+  ui_rf_bench_close();
   stop_owned();
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
@@ -556,7 +558,7 @@ static void build(bool live) {
         menu_component_add_item(&s_menu,
                                 "/assets/icons/tune.bin",
                                 field == FIELD_START     ? "Start test"
-                                : field == FIELD_PASSIVE ? "Passive switch / restart"
+                                : field == FIELD_PASSIVE ? "Switch + tags / restart"
                                                          : "Stop mesh session");
       else
         menu_component_add_selector(&s_menu, NULL, NAMES[field], text);
@@ -593,6 +595,10 @@ void ui_rf_lab_from_subghz(bool from_subghz) {
   s_from_subghz = from_subghz;
 }
 void ui_lora_rnode_open(void) {
+  if (rf_passive_is_boot()) {
+    ui_rf_bench_open();
+    return;
+  }
   // ui_switch_screen owns the outgoing screen, including orientation rebuilds.
   s_screen = s_readout = s_body = NULL;
   s_return = s_from_subghz ? SCREEN_SUBGHZ_MENU : SCREEN_MENU;

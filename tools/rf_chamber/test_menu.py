@@ -38,6 +38,7 @@ def main():
 #include "rf_chamber.h"
 /* DEFINITIONS */
 static rf_chamber_config_t s_config;
+static void ui_rf_bench_close(void){}
 static unsigned s_owned_run,starts,stops,errors,builds;
 static void *s_timer=(void*)1;
 static unsigned s_step;
