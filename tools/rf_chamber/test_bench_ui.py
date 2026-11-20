@@ -47,7 +47,7 @@ code=r"""
 #define INPUT_BTN_BACK 6
 typedef struct{int action,button;}input_event_t;
 typedef struct{int selected,count;lv_obj_t*root;}menu_component_t;
-static struct{lv_color_t screen_base,text_main;}current_theme;
+static struct{lv_color_t screen_base,text_main,text_secondary;}current_theme;
 static void(*handler)(const input_event_t*,void*);
 static rf_tag_test_status_t mock_scan;
 static rf_passive_status_t mock_bench={.path=1,.actual_path=1};
@@ -87,6 +87,27 @@ static void check_bounds(void){
  assert(body.x1>=0&&body.x2<ui_screen_w()&&body.y1>=UI_CHROME_HEADER_H);
  assert(body.y2<footer.y1&&footer.y2<ui_screen_h());
  assert(title.x1>=body.x1&&title.x2<=body.x2&&detail.x2<=body.x2);
+ if(s_view==VIEW_SWITCH){
+  lv_area_t diagram;lv_obj_get_coords(s_diagram,&diagram);
+  assert(diagram.x1>=body.x1&&diagram.x2<=body.x2&&diagram.y2<=body.y2);
+  assert(detail.y2<=body.y2);
+  for(unsigned i=0;i<PATH_COUNT;i++){
+   lv_area_t card;lv_obj_get_coords(s_cards[i],&card);
+   assert(card.x1>=diagram.x1&&card.x2<=diagram.x2&&card.y2<=diagram.y2);
+   assert(lv_obj_get_style_line_width(s_paths[i],0)==(mock_bench.actual_path==i+1?3:1));
+  }
+ }
+
+}
+static void preview(int wide,int light){
+ lv_draw_buf_t*img=lv_snapshot_take(s_screen,LV_COLOR_FORMAT_RGB565);assert(img);
+ char path[512];snprintf(path,sizeof(path),"PREVIEW_DIR/rf-switch-%d-%d.ppm",wide,light);
+ FILE*f=fopen(path,"wb");assert(f);fprintf(f,"P6\n%u %u\n255\n",img->header.w,img->header.h);
+ for(unsigned y=0;y<img->header.h;y++)for(unsigned x=0;x<img->header.w;x++){
+  uint8_t*p=img->data+y*img->header.stride+x*2;unsigned v=p[0]|p[1]<<8;
+  uint8_t rgb[3]={((v>>11)&31)*255/31,((v>>5)&63)*255/63,(v&31)*255/31};fwrite(rgb,1,3,f);
+ }
+ fclose(f);lv_draw_buf_destroy(img);
 }
 int main(void){
  lv_init();lv_display_t*d=lv_display_create(240,320);
@@ -94,10 +115,15 @@ int main(void){
  lv_display_set_buffers(d,buffer,NULL,sizeof(buffer),LV_DISPLAY_RENDER_MODE_PARTIAL);lv_display_set_flush_cb(d,flush);
  for(int wide=0;wide<2;wide++)for(int light=0;light<2;light++){
   lv_display_set_resolution(d,wide?320:240,wide?240:320);
+  current_theme.text_secondary=lv_color_hex(light?0x666666:0x999999);
   current_theme.screen_base=lv_color_hex(light?0xffffff:0);current_theme.text_main=lv_color_hex(light?0:0xffffff);
   unsigned before=starts;ui_rf_bench_open();assert(starts==before&&s_view==VIEW_MENU);
   key(INPUT_BTN_OK);check_bounds();assert(s_view==VIEW_SWITCH);
   for(int i=0;i<4;i++){key(INPUT_BTN_RIGHT);check_bounds();assert(mock_bench.path>=1&&mock_bench.path<=4);}
+  preview(wide,light);
+  mock_bench.actual_path=0;mock_bench.error=ESP_FAIL;refresh(NULL);check_bounds();
+  assert(strstr(lv_label_get_text(s_detail),"Readback unavailable"));
+  mock_bench.actual_path=mock_bench.path;mock_bench.error=0;refresh(NULL);
   key(INPUT_BTN_BACK);key(INPUT_BTN_DOWN);key(INPUT_BTN_OK);check_bounds();assert(s_view==VIEW_NFC&&starts==before);
   key(INPUT_BTN_OK);assert(mock_scan.busy&&starts==before+1);key(INPUT_BTN_BACK);assert(s_wait_back&&s_view==VIEW_NFC);
   mock_scan.busy=false;refresh(NULL);assert(s_view==VIEW_MENU);
@@ -113,6 +139,12 @@ int main(void){
  puts("PASS: actual LVGL bench portrait/landscape, themes, switch controls, explicit start, cancelled/held OFF, 5/10-byte IDs and teardown");
 }
 """
-test=base/'bench_ui_test.c';test.write_text(notice+code)
+test=base/'bench_ui_test.c';test.write_text(notice+code.replace('PREVIEW_DIR',str(base)))
 subprocess.run(['cc','-std=gnu11','-g','-Wall','-Wextra','-Werror','-fsanitize=undefined','-DLV_CONF_INCLUDE_SIMPLE','-DLV_KCONFIG_IGNORE',str(test),'-I'+str(stubs),'-I'+str(base),'-I'+str(UI/'screens/lora/include'),'-I'+str(UI/'include'),'-I'+str(ROOT/'firmware_p4/components/Service/rf_chamber/include'),'-I'+str(ROOT/'firmware_p4/components/Drivers/rf_lab/include'),'-I'+str(ROOT/'firmware_p4/managed_components/lvgl__lvgl'),str(base/'build/lvgl-build/lib/liblvgl.a'),'-lm','-o',str(base/'bench_ui_test')],check=True)
 subprocess.run([str(base/'bench_ui_test')],check=True,timeout=20)
+
+from PIL import Image
+for ppm in base.glob('rf-switch-*.ppm'):
+ ppm.with_name(ppm.name+'.license').write_text(notice)
+ png=ppm.with_suffix('.png');Image.open(ppm).save(png)
+ png.with_name(png.name+'.license').write_text(notice)

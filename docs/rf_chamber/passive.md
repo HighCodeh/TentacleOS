@@ -23,7 +23,10 @@ The full laboratory firmware starts this profile from **Sub-GHz > RF Lab >
 Switch + tags / restart > OK**. It remembers the profile across reboot.
 The screen offers:
 
-- **Manual RF switch**: LEFT/RIGHT select RF1–RF4. The display shows the selected
+- **Manual RF switch**: LEFT/RIGHT select RF1–RF4. A diagram of U10 (PE613050)
+  shows all four matching branches and their fitted inductors, with the GPIO-readback
+  branch highlighted (green when confirmed, amber on error). These are shunt
+  matching options on one antenna feed, not four antennas. The display shows the selected
   branch, actual GPIO readback and save errors. BACK returns to the lab menu.
 - **Read NFC identity**: OK actively polls NFC-A/B/F/V for up to 30 seconds and
   displays the UID/PUPI/IDm and technology. This reads identity, not card memory.

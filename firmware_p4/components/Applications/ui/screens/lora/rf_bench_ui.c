@@ -35,6 +35,10 @@
 #define GAP            8
 #define PATH_COUNT     4U
 #define UID_LINE_BYTES 5U
+#define DIAGRAM_H      94
+#define SWITCH_H       22
+#define BRANCH_Y       42
+#define BRANCH_GAP     6
 #define VIEW_MENU      0
 #define VIEW_SWITCH    1
 #define VIEW_NFC       2
@@ -48,6 +52,13 @@ static lv_obj_t *s_body;
 static lv_obj_t *s_title;
 static lv_obj_t *s_detail;
 static lv_obj_t *s_footer;
+static lv_obj_t *s_diagram;
+static lv_obj_t *s_paths[PATH_COUNT];
+static lv_obj_t *s_cards[PATH_COUNT];
+static lv_point_precise_t s_path_points[PATH_COUNT][3];
+static const char *PARTS[] = {"L16\n51 nH", "L17\n16 nH", "L18\n1.8 nH", "L19\n1.5 nH"};
+static int s_drawn_path = -1;
+static bool s_drawn_confirmed;
 static lv_timer_t *s_timer;
 static menu_component_t s_menu;
 static unsigned s_view;
@@ -57,6 +68,69 @@ static esp_err_t s_error;
 
 static void build(unsigned view);
 static void refresh(lv_timer_t *timer);
+/* Functional view of U10's shunt branches, not four separate antennas. */
+static lv_obj_t *diagram_box(lv_obj_t *parent, int x, int y, int w, int h) {
+  lv_obj_t *box = lv_obj_create(parent);
+  lv_obj_set_pos(box, x, y);
+  lv_obj_set_size(box, w, h);
+  lv_obj_set_style_pad_all(box, 0, 0);
+  lv_obj_set_style_radius(box, 6, 0);
+  lv_obj_set_style_border_width(box, 1, 0);
+  lv_obj_set_style_border_color(box, current_theme.text_secondary, 0);
+  lv_obj_set_style_bg_color(box, current_theme.screen_base, 0);
+  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  return box;
+}
+static void diagram_create(lv_obj_t *parent) {
+  int width = ui_screen_w() - MARGIN * 2;
+  int card_w = (width - BRANCH_GAP * (PATH_COUNT - 1)) / PATH_COUNT;
+  s_diagram = diagram_box(parent, 0, 0, width, DIAGRAM_H);
+  lv_obj_set_style_border_width(s_diagram, 0, 0);
+  lv_obj_set_style_bg_opa(s_diagram, LV_OPA_TRANSP, 0);
+  lv_obj_t *chip = diagram_box(s_diagram, (width - 116) / 2, 0, 116, SWITCH_H);
+  lv_obj_t *label = lv_label_create(chip);
+  lv_label_set_text(label, "U10  PE613050");
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+  lv_obj_center(label);
+  for (unsigned i = 0; i < PATH_COUNT; i++) {
+    int x = i * (card_w + BRANCH_GAP);
+    s_path_points[i][0] = (lv_point_precise_t){width / 2, SWITCH_H};
+    s_path_points[i][1] = (lv_point_precise_t){x + card_w / 2, BRANCH_Y - GAP};
+    s_path_points[i][2] = (lv_point_precise_t){x + card_w / 2, BRANCH_Y};
+    s_paths[i] = lv_line_create(s_diagram);
+    lv_line_set_points(s_paths[i], s_path_points[i], 3);
+    lv_obj_set_style_line_rounded(s_paths[i], true, 0);
+    s_cards[i] = diagram_box(s_diagram, x, BRANCH_Y, card_w, DIAGRAM_H - BRANCH_Y);
+    label = lv_label_create(s_cards[i]);
+    lv_label_set_text_fmt(label, "RF%u\n%s", i + 1, PARTS[i]);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(label, current_theme.text_main, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(label);
+  }
+  s_drawn_path = -1;
+}
+static void diagram_update(uint8_t actual, bool confirmed) {
+  if (s_diagram == NULL || (s_drawn_path == actual && s_drawn_confirmed == confirmed))
+    return;
+  s_drawn_path = actual;
+  s_drawn_confirmed = confirmed;
+  lv_color_t accent = lv_color_hex(confirmed ? UI_COL_SUCCESS : UI_COL_WARNING);
+  for (unsigned i = 0; i < PATH_COUNT; i++) {
+    bool selected = actual == i + 1;
+    lv_obj_set_style_line_color(s_paths[i], selected ? accent : current_theme.text_secondary, 0);
+    lv_obj_set_style_line_width(s_paths[i], selected ? 3 : 1, 0);
+    lv_obj_set_style_line_opa(s_paths[i], selected ? LV_OPA_COVER : LV_OPA_40, 0);
+    lv_obj_set_style_border_color(s_cards[i], selected ? accent : current_theme.text_secondary, 0);
+    lv_obj_set_style_border_width(s_cards[i], selected ? 2 : 1, 0);
+    lv_obj_set_style_border_opa(s_cards[i], selected ? LV_OPA_COVER : LV_OPA_40, 0);
+    lv_obj_set_style_bg_color(s_cards[i],
+                              selected ? lv_color_mix(accent, current_theme.screen_base, 30)
+                                       : current_theme.screen_base,
+                              0);
+  }
+}
 static void report_error(esp_err_t error) {
   s_error = error;
   ESP_LOGE(TAG, "Request: %s", esp_err_to_name(error));
@@ -73,7 +147,7 @@ static void deleted(lv_event_t *event) {
   if (lv_event_get_target(event) != s_screen)
     return;
   ui_rf_bench_close();
-  s_screen = s_title = s_detail = s_footer = NULL;
+  s_screen = s_body = s_title = s_detail = s_footer = s_diagram = NULL;
 }
 static void input(const input_event_t *event, void *ctx) {
   (void)ctx;
@@ -159,15 +233,16 @@ static void refresh(lv_timer_t *timer) {
                           bench.path,
                           bench.path >= 1 && bench.path <= PATH_COUNT ? BRANCHES[bench.path - 1]
                                                                       : "Invalid path");
+    diagram_update(bench.actual_path,
+                   valid && bench.actual_path == bench.path && bench.error == ESP_OK);
     if (valid)
       snprintf(text,
                sizeof(text),
-               "Readback: RF%u\nGPIO17 / V1: %u\nGPIO18 / V2: %u\n\nSub-GHz matching switch\nC5 "
-               "held; CC/LoRa idle\n%s",
+               "Readback: RF%u | %s\nGPIO17 / V1: %u   GPIO18 / V2: %u",
                bench.actual_path,
+               bench.error == ESP_OK ? "Selection saved" : esp_err_to_name(bench.error),
                (bench.actual_path - 1) >> 1,
-               (bench.actual_path - 1) & 1,
-               bench.error == ESP_OK ? "Selection saved" : esp_err_to_name(bench.error));
+               (bench.actual_path - 1) & 1);
     else
       snprintf(text, sizeof(text), "Readback unavailable\n%s", esp_err_to_name(bench.error));
   } else if (s_view == VIEW_EXIT) {
@@ -256,7 +331,7 @@ static void build(unsigned view) {
   s_wait_back = false;
   s_started = false;
   s_error = ESP_OK;
-  s_body = s_title = s_detail = s_footer = NULL;
+  s_body = s_title = s_detail = s_footer = s_diagram = NULL;
   lv_obj_clean(s_screen);
   if (view == VIEW_MENU) {
     s_menu = menu_component_create(s_screen, "RF LAB", "/assets/icons/tune.bin");
@@ -285,6 +360,8 @@ static void build(unsigned view) {
   lv_obj_set_style_pad_row(body, GAP, 0);
   lv_obj_set_scroll_dir(body, LV_DIR_VER);
   s_title = lv_label_create(body);
+  if (view == VIEW_SWITCH)
+    diagram_create(body);
   s_detail = lv_label_create(body);
   lv_obj_t *labels[] = {s_title, s_detail};
   for (unsigned i = 0; i < sizeof(labels) / sizeof(labels[0]); i++) {
@@ -292,8 +369,10 @@ static void build(unsigned view) {
     lv_obj_set_style_text_font(labels[i], &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(labels[i], current_theme.text_main, 0);
   }
-  s_footer = ui_chrome_footer(
-      s_screen, view == VIEW_SWITCH ? "L/R Switch   BACK Return" : "OK Apply   BACK Return");
+  s_footer = ui_chrome_footer(s_screen,
+                              view == VIEW_SWITCH ? LV_SYMBOL_LEFT " Switch " LV_SYMBOL_RIGHT
+                                                                   "   BACK Return"
+                                                  : "OK Apply   BACK Return");
   refresh(NULL);
 }
 void ui_rf_bench_open(void) {
