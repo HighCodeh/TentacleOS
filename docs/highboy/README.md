@@ -221,20 +221,29 @@ The P4 CI job runs it separately from the SDK-free offline suite.
 
 ### Continuous integration and release boundary
 
-Pull requests to `main`/`dev` and pushes to `dev` build the P4 and C5 in separate
-version-pinned IDF containers. A separate job runs the offline source contracts,
-Muse preservation, Sub-GHz, DOOM DMA and USB ownership tests. CI artifacts are
+Pull requests to `main`/`dev`, pushes to `dev` and manual `workflow_dispatch`
+runs build the P4 and C5 in separate version-pinned IDF containers. A separate
+job runs the offline source contracts, Muse preservation, Sub-GHz, DOOM DMA
+and USB ownership tests. CI artifacts are
 explicitly named `highboy-<target>-app-only`; they are build evidence, not a
 verified full-flash or hardware-tested release.
+
+To start CI manually, select **Actions → CI → Run workflow** and choose the
+branch, or run `gh workflow run ci.yml --ref dev`. GitHub requires the workflow
+to be present on the repository's default branch (`main`) for manual dispatch.
+Manual runs validate the selected revision with the same build and regression
+jobs; formatting checks compare it with its first parent, and commitlint checks
+only its tip commit because there is no previous push range.
 
 Each target's build requires its generated `sdkconfig` after configuration and
 again after compilation. The C5 check enforces all eight pinned target/memory
 settings, rather than accepting the source defaults as build evidence. Offline
 source-only jobs may run without build outputs; build jobs may not.
 
-Commit validation runs on both pull requests and pushes to `dev`. It checks the
-PR base-to-head range or the previous-to-current push range. A first push with a
-zero previous SHA checks only the new tip, avoiding a retrospective check of
+Commit validation runs on pull requests, pushes to `dev` and manual runs. For
+pull requests and pushes, it checks the PR base-to-head range or the
+previous-to-current push range. A first push with a zero previous SHA checks
+only the new tip, avoiding a retrospective check of
 legacy history. Invalid or unavailable nonzero refs fail validation. Commitlint
 uses exact package versions and the root `package-lock.json` through
 `npm ci --ignore-scripts`; its accepted types match `AGENTS.md`.

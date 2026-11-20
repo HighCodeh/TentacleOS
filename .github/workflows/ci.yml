@@ -16,6 +16,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [dev]
   pull_request:
@@ -64,7 +65,7 @@ jobs:
 
       - name: Validate incoming commits
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || (github.event_name == 'workflow_dispatch' && '0000000000000000000000000000000000000000') }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash tools/ci/lint_commits.sh "$BASE_SHA" "$HEAD_SHA"
 
