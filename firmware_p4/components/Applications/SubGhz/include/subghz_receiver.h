@@ -69,6 +69,10 @@ bool subghz_receiver_get_result(subghz_rx_result_t *out);
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
+/* Copies the configuration before creating the RX worker. */
+esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
+                                           const cc1101_radio_config_t *config,
+                                           uint32_t freq);
 
 /**
  * @brief Request receiver shutdown; its worker retains the radio until RMT cleanup succeeds.

@@ -50,6 +50,7 @@ typedef enum { NORMAL, FAIL_CHANNEL, FAIL_QUEUE, FAIL_ALLOC, FAIL_CALLBACK, FAIL
 static _Atomic(fault_t) s_fault;
 static unsigned s_allocations,s_fail_allocation,s_callbacks;
 static atomic_uint s_calls;
+static cc1101_radio_config_t s_applied_radio;
 static atomic_bool s_allowed=true,s_stopped,s_stop_locked,s_lock_timeout,s_ready=true;
 static bool s_gate;
 static atomic_bool s_pause_session;
@@ -131,6 +132,15 @@ esp_err_t cc1101_set_preset(cc1101_preset_t preset,uint32_t freq) {
 
   return ESP_OK;
 }
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t freq) {
+  assert(cc1101_config_validate(config) == ESP_OK);
+  s_applied_radio = *config;
+  return cc1101_set_preset(config->preset, freq);
+}
+esp_err_t cc1101_get_radio_config(cc1101_radio_config_t *out) {
+  return cc1101_config_from_preset(CC1101_PRESET_OOK_800KHZ, out);
+}
+
 esp_err_t cc1101_strobe(uint8_t command) {
   assert_worker();assert(command==CC1101_SIDLE || command==CC1101_SRX);
   if(command==CC1101_SIDLE)s_sweep_phase=0;else {assert(s_sweep_phase==1);s_sweep_phase=2;}if(s_fault==FAIL_IDLE || (s_fault==FAIL_SWEEP_CLEANUP && s_reads==240))cc1101_lease_record_error(ESP_ERR_TIMEOUT);
@@ -293,6 +303,10 @@ static FILE *open_capture(const char *path,const char *mode) {
     fwrite("xx\0xx",1,5,file);
   } else if(strcmp(path,"/sdcard/decoded.sub")==0) {
     fputs("Frequency: 433920000\nPreset: 6\nProtocol: CAME\nBit: 12\nKey: 00 00 00 00 00 00 00 2A\n",file);
+  } else if(strcmp(path,"/sdcard/custom.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 4\nRadio: 103 131 80 15\nRAW_Data: 350 -700 350\n",file);
+  } else if(strcmp(path,"/sdcard/bad-custom.sub")==0) {
+    fputs("Frequency: 433920000\nPreset: 4\nRadio: 103 131 136 15\nRAW_Data: 350 -700 350\n",file);
   } else if(strcmp(path,"/sdcard/band.sub")==0) {
     fputs("Frequency: 350000000\nPreset: 6\nRAW_Data: 350 -700 350\n",file);
   } else if(strcmp(path,"/sdcard/preset.sub")==0) {
@@ -322,6 +336,7 @@ static void test_replay(void) {
   assert(tos_api_subghz_replay("/sdcard/nul.sub")==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_replay("/sdcard/band.sub")==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_replay("/sdcard/preset.sub")==ESP_ERR_INVALID_ARG);
+  assert(tos_api_subghz_replay("/sdcard/bad-custom.sub")==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_replay("/sdcard/pulses.sub")==ESP_ERR_INVALID_ARG);
   assert(tos_api_subghz_replay("/sdcard/too-many.sub")==ESP_ERR_INVALID_ARG);
   assert(s_calls==calls);clean();
@@ -331,6 +346,10 @@ static void test_replay(void) {
   }
   s_fault=NORMAL;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_OK);clean();
   assert(tos_api_subghz_replay("/sdcard/decoded.sub")==ESP_OK);clean();
+  assert(tos_api_subghz_replay("/sdcard/custom.sub")==ESP_OK);clean();
+  assert(s_applied_radio.preset == CC1101_PRESET_2FSK_47KHZ);
+  assert(s_applied_radio.mdmcfg4 == 103 && s_applied_radio.mdmcfg3 == 131);
+  assert(s_applied_radio.deviatn == 80 && s_applied_radio.agcctrl2 == 15);
   s_fault=FAIL_DISABLE;assert(tos_api_subghz_replay("/sdcard/one.sub")!=ESP_OK);
   assert(s_resource_live && s_symbols!=NULL);
   s_fault=NORMAL;assert(tos_api_subghz_replay("/sdcard/one.sub")==ESP_OK);clean();

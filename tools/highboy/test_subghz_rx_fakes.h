@@ -28,6 +28,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NO_MEM 0x101
 #define ESP_ERR_INVALID_ARG 0x102
 #define ESP_ERR_INVALID_STATE 0x103
+#define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_LOGE(tag, ...) ((void)(tag))
 #define ESP_LOGD(tag, ...) ((void)(tag))
 #define ESP_LOGI(tag, ...) ((void)(tag))
@@ -58,10 +59,7 @@ typedef struct { int clk_src, resolution_hz, mem_block_symbols, gpio_num;
   struct { bool invert_in, with_dma; } flags; } rmt_rx_channel_config_t;
 typedef struct { bool (*on_recv_done)(rmt_channel_handle_t, const rmt_rx_done_event_data_t *, void *); } rmt_rx_event_callbacks_t;
 typedef struct { uint32_t signal_range_min_ns, signal_range_max_ns; } rmt_receive_config_t;
-typedef int cc1101_preset_t;
-#define CC1101_PRESET_OOK_800KHZ 3
-#define CC1101_PRESET_IDLE 0
-#define CC1101_PRESET_COUNT 7
+#include "cc1101.h"
 typedef uint32_t res_handle_t;
 #define RES_HANDLE_NONE 0
 #define RES_SUBGHZ 2

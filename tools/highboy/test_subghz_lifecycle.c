@@ -209,6 +209,13 @@ esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t frequency) {
   }
   return preset != CC1101_PRESET_IDLE && s_failure == FAIL_PRESET ? ESP_FAIL : ESP_OK;
 }
+static cc1101_radio_config_t s_applied_radio;
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t frequency) {
+  assert(cc1101_config_validate(config) == ESP_OK);
+  s_applied_radio = *config;
+  return cc1101_set_preset(config->preset, frequency);
+}
+
 void subghz_tx_stop(void) { ++s_tx_stops; }
 esp_err_t resource_acquire(const res_request_t *request, res_handle_t *out) {
   if (s_failure == FAIL_RESOURCE)
@@ -245,12 +252,20 @@ static void run(failure_t failure, bool is_cancelled, bool has_cleanup_failure) 
   s_test_hopping = failure == FAIL_HOP || failure == FAIL_RX_ENTRY;
   s_clock_calls = 0;
   s_stale_events = s_test_hopping ? 1 : 0;
-  esp_err_t error = subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, s_test_hopping ? 0 : DEFAULT_FREQ);
+  cc1101_radio_config_t radio;
+  assert(cc1101_config_from_preset(CC1101_PRESET_2FSK_2KHZ, &radio) == ESP_OK);
+  assert(cc1101_config_step(&radio, CC1101_CONFIG_LNA_GAIN, 1) == ESP_OK);
+  uint8_t gain = radio.agcctrl2;
+  esp_err_t error = subghz_receiver_start_configured(
+      SUBGHZ_MODE_SCAN, &radio, s_test_hopping ? 0 : DEFAULT_FREQ);
+  radio.agcctrl2 = 0;
   if (failure == FAIL_RESOURCE || failure == FAIL_MUTEX || failure == FAIL_TASK) {
     assert(error != ESP_OK && s_worker == NULL);
   } else {
     assert(error == ESP_OK && s_worker != NULL);
     s_worker(NULL);
+    if (s_receive_calls != 0)
+      assert(s_applied_radio.agcctrl2 == gain);
   }
   assert(!s_has_resource && !subghz_receiver_is_running());
   assert(!s_has_channel && !s_has_queue && s_dma == NULL && s_decode == NULL);

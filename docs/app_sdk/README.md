@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Writing an app for TentacleOS
 
 This is the practical guide to building a **functional app** that runs on the
@@ -666,6 +683,13 @@ share the native parser; decoded replay requires a registered encoder, including
 the existing decorated protocol names. Missing decoded preset uses OOK 800 kHz
 for legacy files. Numeric fields must fit their destination types; decoded keys
 use eight bytes with the upper four zero, matching the stored 32-bit ABI value.
+
+The optional native `Radio` field preserves custom bandwidth/rate, deviation and
+LNA/DVGA limits as four register bytes. Replay validates and copies these values
+into the worker request and applies them with the base preset. Files without the
+field retain preset defaults. Malformed custom configuration fails before radio
+acquisition. This extends native file handling without changing the public ABI;
+see the [serializer format](../SubGhz/README.md#protocol-serializer-subghz_protocol_serializer).
 
 The complete pulse train must fit 512 timings, each 1..32767 us in magnitude and
 at most 2 seconds total. Frequency must fit a CC1101 supported band and preset

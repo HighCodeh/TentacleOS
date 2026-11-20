@@ -72,6 +72,11 @@ esp_err_t subghz_replay_file(const char *name) {
       content, pulses, REPLAY_MAX_PULSES, &count, &frequency, &preset);
   if (err != ESP_OK)
     goto cleanup;
+  subghz_tx_config_t config = {
+      .frequency_hz = frequency, .preset = (cc1101_preset_t)preset, .has_radio_config = true};
+  err = subghz_protocol_parse_radio(content, config.preset, &config.radio);
+  if (err != ESP_OK)
+    goto cleanup;
   if (subghz_receiver_is_running()) {
     subghz_receiver_stop();
     vTaskDelay(pdMS_TO_TICKS(REPLAY_RX_DRAIN_MS));
@@ -79,7 +84,6 @@ esp_err_t subghz_replay_file(const char *name) {
   err = subghz_tx_init();
   if (err != ESP_OK)
     goto cleanup;
-  const subghz_tx_config_t config = {.frequency_hz = frequency, .preset = (cc1101_preset_t)preset};
   err = subghz_tx_send_configured(pulses, count, &config);
 cleanup:
   free(pulses);

@@ -89,6 +89,7 @@ static atomic_uint s_state;
 static atomic_int s_error;
 static subghz_mode_t s_rx_mode = SUBGHZ_MODE_SCAN;
 static cc1101_preset_t s_rx_preset = CC1101_PRESET_OOK_800KHZ;
+static cc1101_radio_config_t s_rx_radio;
 static uint32_t s_rx_freq = DEFAULT_FREQ;
 static bool s_is_hopping_active = false;
 static int s_hop_idx = 0;
@@ -352,7 +353,7 @@ static void subghz_rx_task(void *pvParameters) {
   if (err != ESP_OK)
     goto cleanup;
   has_radio_config = true;
-  err = cc1101_set_preset(s_rx_preset, s_rx_freq);
+  err = cc1101_set_radio_config(&s_rx_radio, s_rx_freq);
   if (err != ESP_OK)
     goto cleanup;
   err = rmt_enable(s_rx_channel);
@@ -466,6 +467,17 @@ cleanup:
 }
 
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq) {
+  cc1101_radio_config_t config;
+  esp_err_t error = cc1101_config_from_preset(preset, &config);
+  return error == ESP_OK ? subghz_receiver_start_configured(mode, &config, freq) : error;
+}
+
+esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
+                                           const cc1101_radio_config_t *config,
+                                           uint32_t freq) {
+  if (cc1101_config_validate(config) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
+  cc1101_preset_t preset = config->preset;
   if (mode < SUBGHZ_MODE_SCAN || mode >= SUBGHZ_MODE_COUNT || preset <= CC1101_PRESET_IDLE ||
       preset >= CC1101_PRESET_COUNT ||
       (freq != 0 && cc1101_rf_path_for_frequency(freq) == CC1101_RF_PATH_NONE))
@@ -491,6 +503,7 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
 
   s_rx_mode = mode;
   s_rx_preset = preset;
+  s_rx_radio = *config;
 
   if (s_result_mutex == NULL)
     s_result_mutex = xSemaphoreCreateMutex();

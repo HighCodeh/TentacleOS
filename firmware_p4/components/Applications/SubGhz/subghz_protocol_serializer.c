@@ -28,6 +28,10 @@
 #include "cc1101.h"
 #include "subghz_protocol_registry.h"
 
+#define RADIO_TEXT_SIZE   96
+#define RADIO_VALUE_COUNT 4
+#define RADIO_RADIX       10
+
 #define CAPTURE_PROTOCOL_MAX   40
 #define CAPTURE_KEY_BYTES      8
 #define CAPTURE_KEY_HIGH_BYTES 4
@@ -40,6 +44,8 @@ static const char FREQ_KEY[] = "Frequency: ";
 static const char PRESET_KEY[] = "Preset: ";
 static const char RAW_DATA_KEY[] = "RAW_Data:";
 
+static bool format_radio(char *out_text, size_t size, uint8_t *out_preset);
+
 uint8_t subghz_protocol_get_preset_id(void) {
   return cc1101_get_active_preset_id();
 }
@@ -51,13 +57,17 @@ size_t subghz_protocol_serialize_decoded(
   }
 
   uint32_t val = data->raw_value;
-
+  char radio_text[RADIO_TEXT_SIZE];
+  uint8_t preset;
+  if (!format_radio(radio_text, sizeof(radio_text), &preset))
+    return 0;
   int written = snprintf(out_buf,
                          out_size,
                          "Filetype: High Boy SubGhz File\n"
                          "Version 1\n"
                          "Frequency: %lu\n"
                          "Preset: %u\n"
+                         "%s"
                          "Protocol: %s\n"
                          "Bit: %d\n"
                          "Key: 00 00 00 00 %02X %02X %02X %02X\n"
@@ -65,7 +75,8 @@ size_t subghz_protocol_serialize_decoded(
                          "Btn: %u\n"
                          "TE: %lu\n",
                          (unsigned long)frequency,
-                         (unsigned int)subghz_protocol_get_preset_id(),
+                         (unsigned int)preset,
+                         radio_text,
                          data->protocol_name,
                          (int)data->bit_count,
                          (unsigned int)((val >> 24) & 0xFF),
@@ -89,16 +100,22 @@ size_t subghz_protocol_serialize_raw(
     return 0;
   }
 
+  char radio_text[RADIO_TEXT_SIZE];
+  uint8_t preset;
+  if (!format_radio(radio_text, sizeof(radio_text), &preset))
+    return 0;
   int written = snprintf(out_buf,
                          out_size,
                          "Filetype: High Boy SubGhz File\n"
                          "Version 1\n"
                          "Frequency: %lu\n"
                          "Preset: %u\n"
+                         "%s"
                          "Protocol: RAW\n"
                          "RAW_Data:",
                          (unsigned long)frequency,
-                         (unsigned int)subghz_protocol_get_preset_id());
+                         (unsigned int)preset,
+                         radio_text);
 
   if (written < 0 || (size_t)written >= out_size) {
     out_buf[0] = '\0';
@@ -162,6 +179,50 @@ static bool parse_metadata(const char *content, const char *key, uint32_t limit,
   return true;
 }
 
+esp_err_t subghz_protocol_parse_radio(const char *content,
+                                      cc1101_preset_t preset,
+                                      cc1101_radio_config_t *out_config) {
+  if (content == NULL || out_config == NULL)
+    return ESP_ERR_INVALID_ARG;
+  cc1101_radio_config_t config;
+  if (cc1101_config_from_preset(preset, &config) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
+  const char *text = find_field(content, "Radio:");
+  if (text == NULL) {
+    if (strstr(content, "Radio:") != NULL)
+      return ESP_ERR_INVALID_ARG;
+    *out_config = config;
+    return ESP_OK;
+  }
+  uint8_t values[RADIO_VALUE_COUNT];
+  for (size_t i = 0; i < RADIO_VALUE_COUNT; ++i) {
+    while (*text == ' ' || *text == '\t')
+      ++text;
+    if (!isdigit((unsigned char)*text))
+      return ESP_ERR_INVALID_ARG;
+    errno = 0;
+    char *end;
+    unsigned long value = strtoul(text, &end, RADIO_RADIX);
+    if (errno != 0 || value > UINT8_MAX ||
+        (i + 1 < RADIO_VALUE_COUNT && *end != ' ' && *end != '\t'))
+      return ESP_ERR_INVALID_ARG;
+    values[i] = (uint8_t)value;
+    text = end;
+  }
+  while (*text == ' ' || *text == '\t' || *text == '\r')
+    ++text;
+  if (*text != '\0' && *text != '\n')
+    return ESP_ERR_INVALID_ARG;
+  config.mdmcfg4 = values[0];
+  config.mdmcfg3 = values[1];
+  config.deviatn = values[2];
+  config.agcctrl2 = values[3];
+  if (cc1101_config_validate(&config) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
+  *out_config = config;
+  return ESP_OK;
+}
+
 size_t subghz_protocol_parse_raw(const char *content,
                                  int32_t *out_pulses,
                                  size_t max_count,
@@ -172,6 +233,9 @@ size_t subghz_protocol_parse_raw(const char *content,
   uint32_t frequency, preset;
   if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) ||
       !parse_metadata(content, PRESET_KEY, UINT8_MAX, &preset))
+    return 0;
+  cc1101_radio_config_t radio;
+  if (subghz_protocol_parse_radio(content, (cc1101_preset_t)preset, &radio) != ESP_OK)
     return 0;
   const char *text = find_field(content, RAW_DATA_KEY);
   if (text == NULL)
@@ -282,8 +346,31 @@ esp_err_t subghz_protocol_parse_capture(const char *content,
     if (count == 0)
       return ESP_ERR_NOT_SUPPORTED;
   }
+  cc1101_radio_config_t radio;
+  if (subghz_protocol_parse_radio(content, (cc1101_preset_t)preset, &radio) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
   *out_count = count;
   *out_frequency = frequency;
   *out_preset = (uint8_t)preset;
   return ESP_OK;
+}
+
+static bool format_radio(char *out_text, size_t size, uint8_t *out_preset) {
+  cc1101_radio_config_t radio;
+  if (cc1101_get_radio_config(&radio) != ESP_OK) {
+    ESP_LOGW(TAG, "Cannot read capture radio settings");
+    return false;
+  }
+  *out_preset = radio.preset;
+  out_text[0] = '\0';
+  if (!cc1101_config_is_custom(&radio))
+    return true;
+  int written = snprintf(out_text,
+                         size,
+                         "Radio: %u %u %u %u\n",
+                         radio.mdmcfg4,
+                         radio.mdmcfg3,
+                         radio.deviatn,
+                         radio.agcctrl2);
+  return written > 0 && (size_t)written < size;
 }

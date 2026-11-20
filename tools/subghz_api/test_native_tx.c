@@ -125,6 +125,19 @@ esp_err_t cc1101_set_preset(cc1101_preset_t preset,uint32_t frequency) {
     assert(frequency==s_expected.frequency_hz && preset==s_expected.preset);
   return radio_result();
 }
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t freq) {
+  assert(cc1101_config_validate(config) == ESP_OK);
+  assert(s_expected.has_radio_config);
+  assert(config->mdmcfg4 == s_expected.radio.mdmcfg4);
+  assert(config->mdmcfg3 == s_expected.radio.mdmcfg3);
+  assert(config->deviatn == s_expected.radio.deviatn);
+  assert(config->agcctrl2 == s_expected.radio.agcctrl2);
+  return cc1101_set_preset(config->preset, freq);
+}
+esp_err_t cc1101_get_radio_config(cc1101_radio_config_t *out) {
+  return cc1101_config_from_preset(CC1101_PRESET_OOK_800KHZ, out);
+}
+
 esp_err_t cc1101_write_reg(uint8_t reg,uint8_t value) { assert(s_grant_live);
   return radio_result();
 }
@@ -215,7 +228,17 @@ int main(void) {
   }
   subghz_tx_stop();join_worker();
   s_fault=0;s_fail_alloc=0;s_expected=(subghz_tx_config_t){.frequency_hz=868350000,.preset=CC1101_PRESET_2FSK_47KHZ};
+  assert(cc1101_config_from_preset(s_expected.preset, &s_expected.radio) == ESP_OK);
+  assert(cc1101_config_step(&s_expected.radio, CC1101_CONFIG_LNA_GAIN, 1) == ESP_OK);
+  assert(cc1101_config_step(&s_expected.radio, CC1101_CONFIG_DEVIATION, 1) == ESP_OK);
+  s_expected.has_radio_config = true;
   s_tx_entered=false;assert(subghz_tx_init()==ESP_OK);
+  subghz_tx_config_t invalid_radio = s_expected;
+  invalid_radio.radio.deviatn = 0x88;
+  assert(subghz_tx_send_configured(timings, 3, &invalid_radio) == ESP_ERR_INVALID_ARG);
+  invalid_radio = s_expected;
+  invalid_radio.radio.preset = CC1101_PRESET_OOK_270KHZ;
+  assert(subghz_tx_send_configured(timings, 3, &invalid_radio) == ESP_ERR_INVALID_ARG);
   assert(subghz_tx_send_configured(timings,3,&s_expected)==ESP_OK);
   while(!s_tx_entered) { pause_tick(); }
   subghz_tx_stop();join_worker();

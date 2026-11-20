@@ -21,6 +21,7 @@
 
 #include "esp_err.h"
 
+#include "cc1101.h"
 #include "subghz_types.h"
 
 #ifdef __cplusplus
@@ -33,6 +34,11 @@ extern "C" {
  * @return Preset identifier.
  */
 uint8_t subghz_protocol_get_preset_id(void);
+
+/* Old files without Radio use their preset defaults; malformed overrides are rejected. */
+esp_err_t subghz_protocol_parse_radio(const char *content,
+                                      cc1101_preset_t preset,
+                                      cc1101_radio_config_t *out_config);
 
 /**
  * @brief Serialize decoded signal data into a text buffer.

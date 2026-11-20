@@ -88,11 +88,15 @@ Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX periphera
 
 ```c
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
+esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
+                                         const cc1101_radio_config_t *config, uint32_t freq);
 void subghz_receiver_stop(void);
 bool subghz_receiver_is_running(void);
 esp_err_t subghz_receiver_get_error(void);
 ```
 - `freq = 0` enables frequency hopping mode.
+- Configured starts validate and copy the radio settings before worker creation;
+  the caller can release or change its copy. The legacy entry point loads defaults.
 - Returns `ESP_OK` on success, `ESP_ERR_INVALID_STATE` if already running, `ESP_ERR_NO_MEM` on task creation failure.
 - Task stack: 8192 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
 
@@ -118,7 +122,7 @@ DMA behavior on the board.
 ### Transmitter (`subghz_transmitter`)
 
 Asynchronous queue-based transmitter using CC1101 GDO0 in async mode.
-Each queued frame owns a copy of timings **and frequency/preset**. Radio configuration
+Each queued frame owns a copy of timings **and frequency/preset/custom radio settings**. Radio configuration
 occurs in the worker with RMT disabled; both GDO outputs are high impedance before
 RMT resumes. Replay accepts up to 64 KiB text / 8192 pulses and preserves long gaps
 by splitting equal-level RMT halves, rather than truncating at 32767 us.
@@ -240,6 +244,16 @@ Protocol: RAW
 RAW_Data: 350 -700 350 -350 700 -350 ...
 ```
 
+Customized captures add an optional line before `Protocol`:
+`Radio: <MDMCFG4> <MDMCFG3> <DEVIATN> <AGCCTRL2>` (four decimal bytes).
+These preserve bandwidth/rate, deviation and gain limits exactly. Remaining modem
+registers come from the numeric base preset. Default captures omit this extension;
+older files without it load preset defaults. Both native and bounded app replay
+validate and apply it. Duplicate, incomplete, out-of-range or unsupported values
+fail before TX. Serialization reads the active radio configuration and fails if
+it cannot obtain a complete snapshot; it does not silently substitute menu values.
+This is a High Boy file extension, not Flipper's custom-preset file format.
+
 #### API
 
 ```c
@@ -247,6 +261,8 @@ uint8_t subghz_protocol_get_preset_id(void);
 size_t subghz_protocol_serialize_decoded(const subghz_data_t *data, uint32_t frequency, uint32_t te, char *out_buf, size_t out_size);
 size_t subghz_protocol_serialize_raw(const int32_t *pulses, size_t count, uint32_t frequency, char *out_buf, size_t out_size);
 size_t subghz_protocol_parse_raw(const char *content, int32_t *out_pulses, size_t max_count, uint32_t *out_frequency, uint8_t *out_preset);
+esp_err_t subghz_protocol_parse_radio(const char *content, cc1101_preset_t preset,
+                                    cc1101_radio_config_t *out_config);
 ```
 
 ### Storage (`subghz_storage`)

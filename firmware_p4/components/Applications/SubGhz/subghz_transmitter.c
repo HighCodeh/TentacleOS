@@ -169,6 +169,9 @@ subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_
   if (config == NULL || cc1101_rf_path_for_frequency(config->frequency_hz) == CC1101_RF_PATH_NONE ||
       config->preset <= CC1101_PRESET_IDLE || config->preset >= CC1101_PRESET_COUNT)
     return ESP_ERR_INVALID_ARG;
+  if (config->has_radio_config &&
+      (config->radio.preset != config->preset || cc1101_config_validate(&config->radio) != ESP_OK))
+    return ESP_ERR_INVALID_ARG;
   return enqueue(timings, count, config);
 }
 
@@ -291,7 +294,8 @@ static rmt_symbol_word_t *make_symbols(const subghz_tx_item_t *item, size_t *out
 static esp_err_t configure_tx(const subghz_tx_config_t *config) {
   esp_err_t error;
   if (config != NULL) {
-    error = cc1101_set_preset(config->preset, config->frequency_hz);
+    error = config->has_radio_config ? cc1101_set_radio_config(&config->radio, config->frequency_hz)
+                                     : cc1101_set_preset(config->preset, config->frequency_hz);
     if (error != ESP_OK)
       return error;
     error = cc1101_set_pa(TX_PA_DBM);

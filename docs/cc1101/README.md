@@ -193,7 +193,8 @@ See [TI's CC1101 datasheet, AGCCTRL2](https://www.ti.com/lit/ds/symlink/cc1101.p
 profile with those four overrides, calibrates and enters RX under the existing
 radio lease. `cc1101_get_radio_config(out)` reads the active register values under
 that lease; it rejects an untuned/idle radio and publishes output only on complete
-success.
+success. RX startup and TX/replay workers apply copied configurations, so later
+menu edits cannot change a queued capture/transmission.
 
 #### `cc1101_get_active_preset_id`
 ```c

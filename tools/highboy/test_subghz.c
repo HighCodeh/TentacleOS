@@ -45,7 +45,13 @@ static cc1101_preset_t s_sent_preset;
 static bool s_is_running;
 static bool s_has_assets;
 
+static bool s_has_custom_radio;
+static cc1101_radio_config_t s_custom_radio, s_sent_radio;
 uint8_t cc1101_get_active_preset_id(void) { return TEST_PRESET; }
+esp_err_t cc1101_get_radio_config(cc1101_radio_config_t *out) {
+  if (s_has_custom_radio) { *out=s_custom_radio; return ESP_OK; }
+  return cc1101_config_from_preset(TEST_PRESET, out);
+}
 esp_err_t cc1101_set_frequency(uint32_t frequency) {
   s_frequency = frequency;
   return ESP_OK;
@@ -58,6 +64,7 @@ esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
   assert(config != NULL);
   s_frequency = config->frequency_hz;
   s_sent_preset = config->preset;
+  assert(config->has_radio_config); s_sent_radio = config->radio;
   return subghz_tx_send_raw(timings, count);
 }
 esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count) {
@@ -264,10 +271,48 @@ static void test_keeloq_vectors(void) {
   assert(result.counter == TEST_COUNTER + 1);
 }
 
+static void test_custom_radio_replay(void) {
+  const int32_t raw[] = {350, -700, 700, -350};
+  assert(cc1101_config_from_preset(CC1101_PRESET_2FSK_47KHZ, &s_custom_radio) == ESP_OK);
+  assert(cc1101_config_step(&s_custom_radio, CC1101_CONFIG_LNA_GAIN, 1) == ESP_OK);
+  assert(cc1101_config_step(&s_custom_radio, CC1101_CONFIG_DEVIATION, 1) == ESP_OK);
+  assert(cc1101_config_step(&s_custom_radio, CC1101_CONFIG_DATA_RATE, 1) == ESP_OK);
+  s_has_custom_radio = true;
+  for (unsigned decoded = 0; decoded < 2; ++decoded) {
+    if (decoded) {
+      subghz_data_t data = {.protocol_name = "Nice Flo 12bit", .bit_count = 12,
+                           .serial = 0xabc, .raw_value = 0xabc, .btn = TEST_BUTTON};
+      assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 700,
+                                             s_capture, sizeof(s_capture)) > 0);
+    } else {
+      assert(subghz_protocol_serialize_raw(raw, 4, TEST_FREQUENCY_HZ,
+                                         s_capture, sizeof(s_capture)) > 0);
+    }
+    assert(strstr(s_capture, "Radio:") != NULL);
+    assert(subghz_replay_file("custom") == ESP_OK);
+    assert(s_sent_radio.mdmcfg4 == s_custom_radio.mdmcfg4 &&
+           s_sent_radio.mdmcfg3 == s_custom_radio.mdmcfg3 &&
+           s_sent_radio.deviatn == s_custom_radio.deviatn &&
+           s_sent_radio.agcctrl2 == s_custom_radio.agcctrl2);
+  }
+  const char *bad[] = {"Radio: 103 131 71", "Radio: 103 131 71 7 garbage",
+      "Radio: 103 131 199 7", "Radio: 256 131 71 7", "Radio: -1 131 71 7",
+      "Radio: 103 131 71 7\nRadio: 103 131 71 7", "Radio: 0 0 0 0"};
+  for (size_t i = 0; i < sizeof(bad)/sizeof(bad[0]); ++i) {
+    snprintf(s_capture, sizeof(s_capture),
+        "Frequency: 433920000\nPreset: 4\n%s\nProtocol: RAW\nRAW_Data: 350 -700\n", bad[i]);
+    size_t before = s_sent_count;
+    assert(subghz_replay_file("bad_custom") == ESP_ERR_INVALID_ARG);
+    assert(s_sent_count == before);
+  }
+  s_has_custom_radio = false;
+}
+
 int main(void) {
   test_registry();
   test_pwm_vector();
   test_serialization_replay();
+  test_custom_radio_replay();
   test_large_raw_replay();
   test_raw_validation();
   test_decoded_validation();

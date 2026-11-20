@@ -60,6 +60,8 @@ esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
 typedef struct {
   uint32_t frequency_hz;
   cc1101_preset_t preset;
+  bool has_radio_config;
+  cc1101_radio_config_t radio;
 } subghz_tx_config_t;
 esp_err_t
 subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_config_t *config);

@@ -87,6 +87,8 @@ typedef struct {
   uint32_t timeout_ms;
   size_t count;
   uint8_t preset;
+  bool has_radio_config;
+  cc1101_radio_config_t radio;
   bool has_no_signal;
   bool is_cleanup_complete;
 } tos_api_subghz_request_t;
@@ -147,8 +149,10 @@ static esp_err_t sweep_once(tos_api_subghz_request_t *request);
 static esp_err_t run_operation(void *context);
 static esp_err_t begin_call(uint32_t capability);
 static esp_err_t begin_operation(uint32_t capability);
-static esp_err_t
-transmit_checked(const int32_t *timings, int count, uint32_t frequency, uint8_t preset);
+static esp_err_t transmit_checked(const int32_t *timings,
+                                  int count,
+                                  uint32_t frequency,
+                                  const cc1101_radio_config_t *radio);
 static bool valid_path(const char *path);
 static esp_err_t cleanup_session(void *context);
 static void session_task(void *context);
@@ -190,7 +194,10 @@ esp_err_t tos_api_subghz_tx_raw(const int32_t *timings, int count, uint32_t freq
     goto cleanup;
   }
   memcpy(copy, timings, (size_t)count * sizeof(*copy));
-  error = transmit_checked(copy, count, frequency, CC1101_PRESET_OOK_800KHZ);
+  cc1101_radio_config_t radio;
+  error = cc1101_config_from_preset(CC1101_PRESET_OOK_800KHZ, &radio);
+  if (error == ESP_OK)
+    error = transmit_checked(copy, count, frequency, &radio);
 cleanup:
   free(copy);
   host_local_rf_unlock();
@@ -285,7 +292,10 @@ esp_err_t tos_api_subghz_replay(const char *path) {
     error = ESP_ERR_INVALID_STATE;
     goto cleanup;
   }
-  error = transmit_checked(pulses, (int)count, frequency, preset);
+  cc1101_radio_config_t radio;
+  error = subghz_protocol_parse_radio(content, (cc1101_preset_t)preset, &radio);
+  if (error == ESP_OK)
+    error = transmit_checked(pulses, (int)count, frequency, &radio);
 cleanup:
   if (file != NULL)
     fclose(file);
@@ -664,7 +674,10 @@ static esp_err_t run_operation(void *context) {
   error = cc1101_recover();
   if (error != ESP_OK)
     goto cleanup;
-  cc1101_set_preset(request->preset, request->frequency);
+  if (request->has_radio_config)
+    cc1101_set_radio_config(&request->radio, request->frequency);
+  else
+    cc1101_set_preset(request->preset, request->frequency);
   error = cc1101_lease_take_error();
   if (error != ESP_OK)
     goto cleanup;
@@ -723,9 +736,11 @@ static esp_err_t begin_operation(uint32_t capability) {
   return ESP_OK;
 }
 
-static esp_err_t
-transmit_checked(const int32_t *timings, int count, uint32_t frequency, uint8_t preset) {
-  if (!valid_frequency(frequency) || preset == CC1101_PRESET_IDLE || preset >= CC1101_PRESET_COUNT)
+static esp_err_t transmit_checked(const int32_t *timings,
+                                  int count,
+                                  uint32_t frequency,
+                                  const cc1101_radio_config_t *radio) {
+  if (!valid_frequency(frequency) || cc1101_config_validate(radio) != ESP_OK)
     return ESP_ERR_INVALID_ARG;
   uint32_t duration = 0;
   for (int i = 0; i < count; ++i) {
@@ -737,8 +752,12 @@ transmit_checked(const int32_t *timings, int count, uint32_t frequency, uint8_t 
   if (duration > SUBGHZ_TX_MAX_US) {
     return ESP_ERR_INVALID_ARG;
   }
-  tos_api_subghz_request_t request = {
-      .timings = timings, .count = count, .frequency = frequency, .preset = preset};
+  tos_api_subghz_request_t request = {.timings = timings,
+                                      .count = count,
+                                      .frequency = frequency,
+                                      .preset = radio->preset,
+                                      .has_radio_config = true,
+                                      .radio = *radio};
   return host_local_rf_call(run_operation, &request);
 }
 
