@@ -18,12 +18,13 @@
 #include "esp_log.h"
 
 #include "spi_bridge.h"
+#include "spi_timeouts.h"
 #include "spi_protocol.h"
 
 static const char *TAG = "BLE_HID_KEYBOARD";
 
 #define HID_SPI_INIT_TIMEOUT_MS       15000
-#define HID_SPI_DEINIT_TIMEOUT_MS     2000
+#define HID_SPI_DEINIT_TIMEOUT_MS     SPI_TIMEOUT_BLE_LIFECYCLE_MS
 #define HID_SPI_QUERY_TIMEOUT_MS      2000
 #define HID_SPI_SEND_KEY_TIMEOUT_MS   1000
 #define HID_SPI_SEND_MOUSE_TIMEOUT_MS 1000

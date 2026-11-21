@@ -696,6 +696,16 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 
 ### Bluetooth (`0x02`)
 
+P4 uses a 10-second response budget for generic BLE init/start/stop/deinit,
+scan start, application startup and HID lifecycle commands. Companion/mesh BLE
+lifecycle commands share that budget; status polling retains the 1-second
+default. These are response deadlines, not scan durations. Generic C5 teardown
+bounds its wait for the SDK stop worker at 3 seconds plus 500 ms for host exit;
+if incomplete, it returns an error and retains resources for a later retry.
+INIT/START and application acquisition reject a competing active session or
+async scan before attempting fault recovery. No wire layout or opcode changes
+are involved. See [Bluetooth lifecycle](../bluetooth/README.md).
+
 | Command | Op | `spi_id_t` |
 |---------|----|------------|
 | `SPI_ID_BT_SCAN` | `0x50` | `0x0250` |

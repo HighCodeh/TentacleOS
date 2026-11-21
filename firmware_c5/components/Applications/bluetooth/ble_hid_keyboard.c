@@ -27,6 +27,8 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+#define HID_NAME_MAX_BYTES 29
+
 static const char *TAG = "BLE_HID_COMPOSITE";
 
 #define HID_KEYBOARD_REPORT_SIZE 8
@@ -35,8 +37,6 @@ static const char *TAG = "BLE_HID_COMPOSITE";
 #define HID_REPORT_ID_MOUSE      2
 #define KEY_DEBOUNCE_MS          15
 #define HID_APPEARANCE_GENERIC   0x03C0
-#define HID_ADV_NAME             "HighBoy HID"
-#define HID_ADV_NAME_LEN         (sizeof(HID_ADV_NAME) - 1)
 
 // BLE GATT UUID constants
 #define UUID_DEVICE_INFO_SVC    0x180A
@@ -358,9 +358,6 @@ static esp_err_t hid_start_advertising(void) {
   struct ble_hs_adv_fields fields = {0};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.appearance = HID_APPEARANCE_GENERIC;
-  fields.name = (uint8_t *)HID_ADV_NAME;
-  fields.name_len = HID_ADV_NAME_LEN;
-  fields.name_is_complete = 1;
   fields.uuids16 = (ble_uuid16_t[]){BLE_UUID16_INIT(UUID_HID_SVC)};
   fields.num_uuids16 = 1;
   fields.uuids16_is_complete = 1;
@@ -371,6 +368,14 @@ static esp_err_t hid_start_advertising(void) {
     return ESP_FAIL;
   }
 
+  const char *name = ble_svc_gap_device_name();
+  struct ble_hs_adv_fields scan_response = {0};
+  scan_response.name = (uint8_t *)name;
+  scan_response.name_len = strnlen(name, HID_NAME_MAX_BYTES);
+  scan_response.name_is_complete = strlen(name) <= HID_NAME_MAX_BYTES;
+  if (ble_gap_adv_rsp_set_fields(&scan_response) != 0)
+    return ESP_FAIL;
+
   uint8_t own_addr_type = bluetooth_service_get_own_addr_type();
   rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, hid_gap_event, NULL);
   if (rc != 0) {
@@ -379,7 +384,7 @@ static esp_err_t hid_start_advertising(void) {
     return ESP_FAIL;
   }
 
-  ESP_LOGI(TAG, "HID advertising as %s (addr_type=%u)", HID_ADV_NAME, own_addr_type);
+  ESP_LOGI(TAG, "HID advertising as %s (addr_type=%u)", name, own_addr_type);
   return ESP_OK;
 }
 

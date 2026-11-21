@@ -15,7 +15,7 @@
 
 #include "bluetooth_service.h"
 
-#include <assert.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "esp_bt.h"
@@ -37,6 +37,8 @@
 #include "gatt_explorer.h"
 #include "storage_assets.h"
 #include "storage_write.h"
+#include "ble_hid_keyboard.h"
+#include "sys_prio.h"
 
 static const char *TAG = "BLE_SERVICE";
 
@@ -46,6 +48,11 @@ static const char *TAG = "BLE_SERVICE";
 #define BLE_SPAM_LIST_PATH       "/assets/" BLE_SPAM_LIST_FILE
 #define MAX_BLE_CONNECTIONS      8
 #define BLE_SYNC_TIMEOUT_MS      2000
+#define BLE_STOP_TIMEOUT_MS      3000
+#define BLE_HOST_EXIT_TIMEOUT_MS 500
+#define BLE_STOP_STACK_SIZE      3072
+#define BLE_SCAN_MAX_MS          30000
+#define BLE_SCAN_MARGIN_MS       2000
 #define BLE_CONNECT_TIMEOUT_MS   30000
 #define BLE_NAME_MAX_LEN         31
 #define BLE_MAC_LEN              6
@@ -55,17 +62,33 @@ static const char *TAG = "BLE_SERVICE";
 #define BLE_SUPERVISION_TIMEOUT  0x0100
 #define BLE_MIN_CE_LEN           0x0010
 #define BLE_MAX_CE_LEN           0x0300
-#define DEFAULT_MAX_CONN         4
+#define DEFAULT_MAX_CONN         CONFIG_BT_NIMBLE_MAX_CONNECTIONS
+#define BLE_ADVERTISED_NAME_MAX  29
 
 static uint8_t s_own_addr_type;
-static bool s_is_initialized = false;
-static bool s_is_running = false;
-static bool s_adv_requested = false;
+static atomic_bool s_is_initialized;
+static atomic_bool s_is_running;
+static atomic_bool s_is_synced;
+static atomic_bool s_has_fault;
+static atomic_bool s_is_stopping;
+static atomic_bool s_is_scanning;
+static atomic_bool s_adv_requested;
+static atomic_flag s_lifecycle_busy = ATOMIC_FLAG_INIT;
+static atomic_bool s_has_host;
+static atomic_bool s_has_controller;
+static TaskHandle_t s_host_task;
+static TaskHandle_t s_stop_task;
+static bool s_has_stop_ack;
+static SemaphoreHandle_t s_host_exited_sem;
+static SemaphoreHandle_t s_stop_done_sem;
+static atomic_int s_sync_error;
+static atomic_int s_stop_error;
 static SemaphoreHandle_t s_hs_synced_sem = NULL;
 static uint16_t s_conn_handles[MAX_BLE_CONNECTIONS];
-static int s_conn_count = 0;
-static bluetooth_service_sniffer_cb_t s_sniffer_cb = NULL;
-static bluetooth_service_tracker_cb_t s_tracker_cb = NULL;
+static atomic_int s_conn_count = 0;
+static _Atomic(uint8_t) s_max_conn = DEFAULT_MAX_CONN;
+static _Atomic(bluetooth_service_sniffer_cb_t) s_sniffer_cb;
+static _Atomic(bluetooth_service_tracker_cb_t) s_tracker_cb;
 static uint8_t s_tracker_target_addr[BLE_MAC_LEN];
 static bluetooth_service_scan_result_t s_scan_results[BLE_SCAN_LIST_SIZE];
 static uint16_t s_scan_count = 0;
@@ -77,129 +100,50 @@ static void host_task(void *param);
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void load_announce_config(char *out_name, uint8_t *out_max_conn);
 
-// Public function implementations
+static esp_err_t init_locked(void);
+static esp_err_t start_locked(void);
+static esp_err_t stop_locked(void);
+static esp_err_t deinit_locked(void);
+static void stop_task(void *param);
 
 esp_err_t bluetooth_service_init(void) {
-  if (s_is_initialized) {
-    ESP_LOGW(TAG, "BLE already initialized");
-    return ESP_OK;
-  }
-
-  esp_err_t ret = nvs_flash_init();
-  // Integrated build: never erase existing NVS on an init error.
-  // Fail closed below; migration/recovery requires a separate reviewed action.
-  ESP_ERROR_CHECK(ret);
-
-  ret = nimble_port_init();
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to initialize NimBLE: %s", esp_err_to_name(ret));
-    return ret;
-  }
-
-  ble_hs_cfg.reset_cb = on_reset;
-  ble_hs_cfg.sync_cb = on_sync;
-  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-
-  char device_name[32] = "Darth Maul";
-  uint8_t max_conn = DEFAULT_MAX_CONN;
-  load_announce_config(device_name, &max_conn);
-
-  ret = ble_svc_gap_device_name_set(device_name);
-  assert(ret == 0);
-
-  s_hs_synced_sem = xSemaphoreCreateBinary();
-  if (s_hs_synced_sem == NULL) {
-    ESP_LOGE(TAG, "Failed to create semaphore");
-    return ESP_ERR_NO_MEM;
-  }
-
-  s_conn_count = 0;
-  s_is_initialized = true;
-  ESP_LOGI(TAG, "BLE initialized");
-  return ESP_OK;
+  if (atomic_flag_test_and_set(&s_lifecycle_busy))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = init_locked();
+  atomic_flag_clear(&s_lifecycle_busy);
+  return error;
 }
 
 esp_err_t bluetooth_service_start(void) {
-  if (!s_is_initialized) {
-    ESP_LOGE(TAG, "BLE not initialized");
-    return ESP_FAIL;
-  }
-  if (s_is_running) {
-    ESP_LOGW(TAG, "BLE already running");
-    return ESP_OK;
-  }
-
-  nimble_port_freertos_init(host_task);
-  s_is_running = true;
-
-  ESP_LOGI(TAG, "Waiting for BLE host synchronization");
-  if (xSemaphoreTake(s_hs_synced_sem, pdMS_TO_TICKS(BLE_SYNC_TIMEOUT_MS)) == pdFALSE) {
-    ESP_LOGE(TAG, "Timeout syncing BLE host");
-    bluetooth_service_stop();
-    return ESP_ERR_TIMEOUT;
-  }
-
-  ESP_LOGI(TAG, "BLE started");
-  return ESP_OK;
+  if (atomic_flag_test_and_set(&s_lifecycle_busy))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = start_locked();
+  atomic_flag_clear(&s_lifecycle_busy);
+  return error;
 }
 
 esp_err_t bluetooth_service_stop(void) {
-  if (gatt_explorer_is_busy())
+  if (atomic_flag_test_and_set(&s_lifecycle_busy))
     return ESP_ERR_INVALID_STATE;
-  if (!s_is_running) {
-    ESP_LOGW(TAG, "BLE not running");
-    return ESP_OK;
-  }
-
-  ESP_LOGI(TAG, "Stopping BLE host task");
-  int rc = nimble_port_stop();
-  if (rc != 0) {
-    ESP_LOGE(TAG, "Failed to stop NimBLE port: %d", rc);
-    return ESP_FAIL;
-  }
-
-  s_is_running = false;
-  return ESP_OK;
+  esp_err_t error = stop_locked();
+  atomic_flag_clear(&s_lifecycle_busy);
+  return error;
 }
 
 esp_err_t bluetooth_service_deinit(void) {
-  s_adv_requested = false;
-  if (s_is_running) {
-    esp_err_t stopped = bluetooth_service_stop();
-    if (stopped != ESP_OK)
-      return stopped;
-  }
-  if (!s_is_initialized) {
-    ESP_LOGW(TAG, "BLE not initialized");
-    return ESP_OK;
-  }
-
-  esp_err_t explorer_error = gatt_explorer_deinit();
-  if (explorer_error != ESP_OK)
-    return explorer_error;
-  esp_err_t deinitialized = nimble_port_deinit();
-  if (deinitialized != ESP_OK)
-    return deinitialized;
-
-  if (s_hs_synced_sem != NULL) {
-    vSemaphoreDelete(s_hs_synced_sem);
-    s_hs_synced_sem = NULL;
-  }
-
-  s_is_initialized = false;
-  s_is_running = false;
-  s_sniffer_cb = NULL;
-  s_tracker_cb = NULL;
-  ESP_LOGI(TAG, "BLE deinitialized");
-  return ESP_OK;
+  if (atomic_flag_test_and_set(&s_lifecycle_busy))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t error = deinit_locked();
+  atomic_flag_clear(&s_lifecycle_busy);
+  return error;
 }
 
 bool bluetooth_service_is_initialized(void) {
-  return s_is_initialized;
+  return s_has_host || s_has_controller;
 }
 
 bool bluetooth_service_is_running(void) {
-  return s_is_running;
+  return s_is_running && s_is_synced && !s_has_fault && !s_is_stopping;
 }
 
 void bluetooth_service_disconnect_all(void) {
@@ -294,12 +238,12 @@ esp_err_t bluetooth_service_connect(const uint8_t *addr,
 }
 
 esp_err_t bluetooth_service_start_advertising(void) {
-  if (!s_is_initialized) {
-    ESP_LOGE(TAG, "BLE not initialized");
-    return ESP_FAIL;
-  }
+  if (!bluetooth_service_is_running())
+    return ESP_ERR_INVALID_STATE;
 
   s_adv_requested = true;
+  if (s_conn_count >= s_max_conn)
+    return ESP_OK;
   if (ble_gap_adv_active()) {
     ESP_LOGI(TAG, "Advertising already active");
     return ESP_OK;
@@ -316,14 +260,21 @@ esp_err_t bluetooth_service_start_advertising(void) {
   fields.num_uuids16 = 1;
   fields.uuids16_is_complete = 1;
 
-  const char *device_name = ble_svc_gap_device_name();
-  fields.name = (uint8_t *)device_name;
-  fields.name_len = strlen(device_name);
-  fields.name_is_complete = 1;
-
   int rc = ble_gap_adv_set_fields(&fields);
   if (rc != 0) {
     ESP_LOGE(TAG, "Error setting advertisement fields: rc=%d", rc);
+    return ESP_FAIL;
+  }
+
+  const char *device_name = ble_svc_gap_device_name();
+  struct ble_hs_adv_fields scan_response = {0};
+  scan_response.name = (uint8_t *)device_name;
+  size_t name_length = strlen(device_name);
+  scan_response.name_len =
+      name_length > BLE_ADVERTISED_NAME_MAX ? BLE_ADVERTISED_NAME_MAX : name_length;
+  scan_response.name_is_complete = name_length <= BLE_ADVERTISED_NAME_MAX;
+  if (ble_gap_adv_rsp_set_fields(&scan_response) != 0) {
+    s_adv_requested = false;
     return ESP_FAIL;
   }
 
@@ -379,25 +330,28 @@ uint8_t bluetooth_service_get_own_addr_type(void) {
 }
 
 esp_err_t bluetooth_service_save_announce_config(const char *name, uint8_t max_conn) {
-  if (name == NULL) {
+  if (name == NULL || strnlen(name, BLE_NAME_MAX_LEN + 1) == 0 ||
+      strnlen(name, BLE_NAME_MAX_LEN + 1) > BLE_ADVERTISED_NAME_MAX || max_conn < 1 ||
+      max_conn > CONFIG_BT_NIMBLE_MAX_CONNECTIONS) {
     return ESP_ERR_INVALID_ARG;
   }
 
   cJSON *root = cJSON_CreateObject();
-  if (root == NULL) {
-    return ESP_ERR_NO_MEM;
-  }
-
-  cJSON_AddStringToObject(root, "ssid", name);
-  cJSON_AddNumberToObject(root, "max_conn", max_conn);
-
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
+  if (root == NULL || cJSON_AddStringToObject(root, "ssid", name) == NULL ||
+      cJSON_AddNumberToObject(root, "max_conn", max_conn) == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate BLE settings");
     cJSON_Delete(root);
     return ESP_ERR_NO_MEM;
   }
 
-  esp_err_t err = storage_write_string(BLE_ANNOUNCE_CONFIG_PATH, json_string);
+  char *json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    ESP_LOGE(TAG, "Cannot serialize BLE settings");
+    cJSON_Delete(root);
+    return ESP_ERR_NO_MEM;
+  }
+
+  esp_err_t err = storage_assets_write_file(BLE_ANNOUNCE_CONFIG_FILE, json_string);
   if (err == ESP_OK) {
     ESP_LOGI(TAG, "BLE config saved to: %s", BLE_ANNOUNCE_CONFIG_PATH);
   } else {
@@ -486,43 +440,41 @@ void bluetooth_service_free_spam_list(char **list, size_t count) {
 }
 
 void bluetooth_service_scan(uint32_t duration_ms) {
-  if (!s_is_initialized) {
-    ESP_LOGE(TAG, "BLE not initialized");
+  if (atomic_flag_test_and_set(&s_lifecycle_busy))
+    return;
+  bool expected = false;
+  if (!bluetooth_service_is_running() || duration_ms == 0 || duration_ms > BLE_SCAN_MAX_MS ||
+      !atomic_compare_exchange_strong(&s_is_scanning, &expected, true)) {
+    ESP_LOGW(TAG, "BLE scan unavailable");
+    atomic_flag_clear(&s_lifecycle_busy);
     return;
   }
-
-  if (s_scan_sem == NULL) {
-    s_scan_sem = xSemaphoreCreateBinary();
-  }
-
+  bool was_advertising = s_adv_requested;
   bluetooth_service_stop_advertising();
-
+  xSemaphoreTake(s_scan_sem, 0);
   s_scan_count = 0;
   memset(s_scan_results, 0, sizeof(s_scan_results));
-
-  struct ble_gap_disc_params disc_params;
-  memset(&disc_params, 0, sizeof(disc_params));
-  disc_params.filter_duplicates = 0;
-  disc_params.passive = 0;
-  disc_params.itvl = 0;
-  disc_params.window = 0;
-  disc_params.filter_policy = 0;
-  disc_params.limited = 0;
-
-  ESP_LOGI(TAG, "Starting BLE scan for %lu ms", duration_ms);
-
+  struct ble_gap_disc_params disc_params = {0};
   int rc = ble_gap_disc(s_own_addr_type, duration_ms, &disc_params, gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Error initiating GAP discovery: %d", rc);
-    return;
+    s_has_fault = true;
+  } else if (xSemaphoreTake(s_scan_sem, pdMS_TO_TICKS(duration_ms + BLE_SCAN_MARGIN_MS)) !=
+             pdTRUE) {
+    ESP_LOGE(TAG, "BLE scan timed out");
+    ble_gap_disc_cancel();
+    s_has_fault = true;
   }
-
-  xSemaphoreTake(s_scan_sem, portMAX_DELAY);
-  bluetooth_service_start_advertising();
+  if (s_has_fault)
+    s_scan_count = 0;
+  else if (was_advertising)
+    bluetooth_service_start_advertising();
+  s_is_scanning = false;
+  atomic_flag_clear(&s_lifecycle_busy);
 }
 
 esp_err_t bluetooth_service_start_sniffer(bluetooth_service_sniffer_cb_t cb) {
-  if (!s_is_initialized || !s_is_running) {
+  if (!bluetooth_service_is_running()) {
     return ESP_FAIL;
   }
 
@@ -540,6 +492,7 @@ esp_err_t bluetooth_service_start_sniffer(bluetooth_service_sniffer_cb_t cb) {
   int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &disc_params, gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Sniffer start failed: %d", rc);
+    s_has_fault = true;
     s_sniffer_cb = NULL;
     return ESP_FAIL;
   }
@@ -547,7 +500,7 @@ esp_err_t bluetooth_service_start_sniffer(bluetooth_service_sniffer_cb_t cb) {
 }
 
 void bluetooth_service_stop_sniffer(void) {
-  if (ble_gap_disc_active()) {
+  if (s_is_initialized && ble_gap_disc_active()) {
     ble_gap_disc_cancel();
   }
   s_sniffer_cb = NULL;
@@ -555,7 +508,7 @@ void bluetooth_service_stop_sniffer(void) {
 }
 
 esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, bluetooth_service_tracker_cb_t cb) {
-  if (!s_is_initialized || !s_is_running) {
+  if (!bluetooth_service_is_running()) {
     return ESP_FAIL;
   }
 
@@ -574,6 +527,7 @@ esp_err_t bluetooth_service_start_tracker(const uint8_t *addr, bluetooth_service
   int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &disc_params, gap_event, NULL);
   if (rc != 0) {
     ESP_LOGE(TAG, "Tracker start failed: %d", rc);
+    s_has_fault = true;
     s_tracker_cb = NULL;
     return ESP_FAIL;
   }
@@ -601,26 +555,236 @@ bluetooth_service_scan_result_t *bluetooth_service_get_scan_result(uint16_t inde
 
 // Static function implementations
 
+static esp_err_t init_locked(void) {
+  if (s_is_initialized && !s_has_fault && !s_is_stopping)
+    return ESP_OK;
+  esp_err_t error = deinit_locked();
+  if (error != ESP_OK)
+    return error;
+  if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE)
+    return ESP_ERR_INVALID_STATE;
+  error = nvs_flash_init();
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "NVS unavailable: %s", esp_err_to_name(error));
+    return error;
+  }
+  s_hs_synced_sem = xSemaphoreCreateBinary();
+  s_host_exited_sem = xSemaphoreCreateBinary();
+  s_stop_done_sem = xSemaphoreCreateBinary();
+  s_scan_sem = xSemaphoreCreateBinary();
+  if (!s_hs_synced_sem || !s_host_exited_sem || !s_stop_done_sem || !s_scan_sem) {
+    ESP_LOGE(TAG, "Cannot allocate BLE lifecycle semaphores");
+    error = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+  error = nimble_port_init();
+  s_has_controller = esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE;
+  if (error != ESP_OK)
+    goto cleanup;
+  s_has_host = true;
+  ble_hs_cfg.reset_cb = on_reset;
+  ble_hs_cfg.sync_cb = on_sync;
+  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+  char device_name[BLE_NAME_MAX_LEN + 1] = "Darth Maul";
+  uint8_t max_conn = DEFAULT_MAX_CONN;
+  load_announce_config(device_name, &max_conn);
+  s_max_conn =
+      max_conn >= 1 && max_conn <= CONFIG_BT_NIMBLE_MAX_CONNECTIONS ? max_conn : DEFAULT_MAX_CONN;
+  if (ble_svc_gap_device_name_set(device_name) != 0) {
+    error = ESP_FAIL;
+    goto cleanup;
+  }
+  s_is_initialized = true;
+  s_has_fault = false;
+  ESP_LOGI(TAG, "BLE initialized");
+  return ESP_OK;
+cleanup:
+  ESP_LOGE(TAG, "BLE initialization failed: %s", esp_err_to_name(error));
+  s_has_fault = true;
+  esp_err_t cleanup_error = deinit_locked();
+  if (cleanup_error != ESP_OK)
+    ESP_LOGE(TAG, "BLE cleanup pending: %s", esp_err_to_name(cleanup_error));
+  return error;
+}
+
+static esp_err_t start_locked(void) {
+  esp_err_t error = init_locked();
+  if (error != ESP_OK)
+    return error;
+  if (bluetooth_service_is_running())
+    return ESP_OK;
+  if (s_host_task != NULL)
+    return ESP_ERR_INVALID_STATE;
+  xSemaphoreTake(s_hs_synced_sem, 0);
+  xSemaphoreTake(s_host_exited_sem, 0);
+  s_sync_error = ESP_ERR_TIMEOUT;
+  s_is_running = true;
+  if (xTaskCreatePinnedToCore(host_task,
+                              "ble_host",
+                              NIMBLE_HS_STACK_SIZE,
+                              NULL,
+                              SYS_PRIO_BLE_HOST,
+                              &s_host_task,
+                              SYS_CORE_MAIN) != pdPASS) {
+    s_is_running = false;
+    s_host_task = NULL;
+    error = ESP_ERR_NO_MEM;
+  } else if (xSemaphoreTake(s_hs_synced_sem, pdMS_TO_TICKS(BLE_SYNC_TIMEOUT_MS)) != pdTRUE) {
+    error = ESP_ERR_TIMEOUT;
+  } else {
+    error = s_sync_error;
+    if (!bluetooth_service_is_running())
+      error = ESP_FAIL;
+  }
+  if (error == ESP_OK) {
+    ESP_LOGI(TAG, "BLE ready");
+    return ESP_OK;
+  }
+  ESP_LOGE(TAG, "BLE start failed: %s", esp_err_to_name(error));
+  s_has_fault = true;
+  esp_err_t cleanup_error = deinit_locked();
+  if (cleanup_error != ESP_OK)
+    ESP_LOGE(TAG, "BLE cleanup pending: %s", esp_err_to_name(cleanup_error));
+  return error;
+}
+
+static esp_err_t stop_locked(void) {
+  if (gatt_explorer_is_busy() || s_is_scanning)
+    return ESP_ERR_INVALID_STATE;
+  s_adv_requested = false;
+  s_is_stopping = true;
+  s_is_synced = false;
+  if (s_host_task == NULL)
+    return ESP_OK;
+  if (s_stop_task == NULL && s_is_running && !s_has_stop_ack) {
+    xSemaphoreTake(s_stop_done_sem, 0);
+    s_stop_error = ESP_FAIL;
+    if (xTaskCreatePinnedToCore(stop_task,
+                                "ble_stop",
+                                BLE_STOP_STACK_SIZE,
+                                NULL,
+                                SYS_PRIO_SERVICE_HI,
+                                &s_stop_task,
+                                SYS_CORE_MAIN) != pdPASS) {
+      s_stop_task = NULL;
+      s_has_fault = true;
+      ESP_LOGE(TAG, "Cannot allocate BLE stop task");
+      return ESP_ERR_NO_MEM;
+    }
+  }
+  if (s_stop_task != NULL) {
+    if (xSemaphoreTake(s_stop_done_sem, pdMS_TO_TICKS(BLE_STOP_TIMEOUT_MS)) != pdTRUE) {
+      s_has_fault = true;
+      ESP_LOGE(TAG, "BLE stop pending; retaining host resources");
+      return ESP_ERR_TIMEOUT;
+    }
+    vTaskDelete(s_stop_task);
+    s_stop_task = NULL;
+    if (s_stop_error != 0) {
+      s_has_fault = true;
+      ESP_LOGE(TAG, "NimBLE stop failed: %d", (int)s_stop_error);
+      return ESP_FAIL;
+    }
+    s_has_stop_ack = true;
+  }
+  if (xSemaphoreTake(s_host_exited_sem, pdMS_TO_TICKS(BLE_HOST_EXIT_TIMEOUT_MS)) != pdTRUE) {
+    s_has_fault = true;
+    return ESP_ERR_TIMEOUT;
+  }
+  vTaskDelete(s_host_task);
+  s_host_task = NULL;
+  s_has_stop_ack = false;
+  s_is_running = false;
+  // A stopped NimBLE event loop must be rebuilt before its next start.
+  s_has_fault = true;
+  return ESP_OK;
+}
+
+static esp_err_t deinit_locked(void) {
+  esp_err_t error = stop_locked();
+  if (error != ESP_OK)
+    return error;
+  if (s_has_host) {
+    error = gatt_explorer_deinit();
+    if (error != ESP_OK)
+      return error;
+    error = esp_nimble_deinit();
+    if (error != ESP_OK)
+      return error;
+    s_has_host = false;
+    s_is_initialized = false;
+    ble_hid_stack_reset();
+  }
+  // Retry only the unfinished controller phase after a partial teardown.
+  if (s_has_controller) {
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+      error = esp_bt_controller_disable();
+      if (error != ESP_OK)
+        return error;
+    }
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) {
+      error = esp_bt_controller_deinit();
+      if (error != ESP_OK)
+        return error;
+    }
+    s_has_controller = false;
+  }
+  SemaphoreHandle_t *semaphores[] = {
+      &s_hs_synced_sem, &s_host_exited_sem, &s_stop_done_sem, &s_scan_sem};
+  for (size_t i = 0; i < sizeof(semaphores) / sizeof(semaphores[0]); ++i) {
+    if (*semaphores[i] != NULL) {
+      vSemaphoreDelete(*semaphores[i]);
+      *semaphores[i] = NULL;
+    }
+  }
+  s_is_initialized = s_is_running = s_is_synced = s_is_stopping = s_has_fault = false;
+  s_sniffer_cb = NULL;
+  s_tracker_cb = NULL;
+  s_conn_count = 0;
+  return ESP_OK;
+}
+
 static void on_reset(int reason) {
-  ESP_LOGE(TAG, "Resetting state; reason=%d", reason);
+  s_is_synced = false;
+  s_has_fault = true;
+  s_adv_requested = false;
+  s_conn_count = 0;
+  s_sync_error = ESP_FAIL;
+  if (s_hs_synced_sem != NULL)
+    xSemaphoreGive(s_hs_synced_sem);
+  if (s_is_scanning && s_scan_sem != NULL)
+    xSemaphoreGive(s_scan_sem);
+  ESP_LOGE(TAG, "BLE host reset: reason=%d; recovery required", reason);
 }
 
 static void on_sync(void) {
-  ESP_LOGI(TAG, "BLE synced");
-  int rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "Error inferring address type: %d", rc);
+  if (s_is_stopping)
     return;
+  int rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
+  s_sync_error = rc == 0 ? ESP_OK : ESP_FAIL;
+  s_is_synced = rc == 0;
+  if (rc != 0) {
+    s_has_fault = true;
+    ESP_LOGE(TAG, "Error inferring address type: %d", rc);
   }
-  if (s_hs_synced_sem != NULL) {
+  if (s_hs_synced_sem != NULL)
     xSemaphoreGive(s_hs_synced_sem);
-  }
 }
 
 static void host_task(void *param) {
-  ESP_LOGI(TAG, "BLE host task started");
+  (void)param;
   nimble_port_run();
-  nimble_port_freertos_deinit();
+  s_is_running = false;
+  s_is_synced = false;
+  xSemaphoreGive(s_host_exited_sem);
+  vTaskSuspend(NULL);
+}
+
+static void stop_task(void *param) {
+  (void)param;
+  s_stop_error = nimble_port_stop();
+  xSemaphoreGive(s_stop_done_sem);
+  vTaskSuspend(NULL);
 }
 
 static int gap_event(struct ble_gap_event *event, void *arg) {
@@ -631,9 +795,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                event->connect.status,
                event->connect.conn_handle);
       if (event->connect.status == 0) {
-        if (s_conn_count < MAX_BLE_CONNECTIONS) {
-          s_conn_handles[s_conn_count++] = event->connect.conn_handle;
+        if (s_conn_count >= s_max_conn) {
+          ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+          break;
         }
+        s_conn_handles[s_conn_count++] = event->connect.conn_handle;
+        if (s_adv_requested && s_conn_count < s_max_conn)
+          bluetooth_service_start_advertising();
       } else if (s_adv_requested) {
         bluetooth_service_start_advertising();
       }
@@ -661,18 +829,20 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
       break;
 
     case BLE_GAP_EVENT_DISC: {
-      if (s_sniffer_cb != NULL) {
-        s_sniffer_cb(event->disc.addr.val,
-                     event->disc.addr.type,
-                     event->disc.rssi,
-                     event->disc.data,
-                     event->disc.length_data);
+      bluetooth_service_sniffer_cb_t sniffer_cb = s_sniffer_cb;
+      bluetooth_service_tracker_cb_t tracker_cb = s_tracker_cb;
+      if (sniffer_cb != NULL) {
+        sniffer_cb(event->disc.addr.val,
+                   event->disc.addr.type,
+                   event->disc.rssi,
+                   event->disc.data,
+                   event->disc.length_data);
         return 0;
       }
 
-      if (s_tracker_cb != NULL) {
+      if (tracker_cb != NULL) {
         if (memcmp(event->disc.addr.val, s_tracker_target_addr, BLE_MAC_LEN) == 0) {
-          s_tracker_cb(event->disc.rssi);
+          tracker_cb(event->disc.rssi);
         }
         return 0;
       }
@@ -823,7 +993,8 @@ static void load_announce_config(char *out_name, uint8_t *out_max_conn) {
         strncpy(out_name, j_name->valuestring, BLE_NAME_MAX_LEN);
         out_name[BLE_NAME_MAX_LEN] = '\0';
       }
-      if (cJSON_IsNumber(j_conn)) {
+      if (cJSON_IsNumber(j_conn) && j_conn->valueint >= 1 &&
+          j_conn->valueint <= CONFIG_BT_NIMBLE_MAX_CONNECTIONS) {
         *out_max_conn = (uint8_t)j_conn->valueint;
       }
 

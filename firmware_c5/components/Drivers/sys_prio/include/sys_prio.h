@@ -39,6 +39,8 @@
 //   SYS_PRIO_BACKGROUND_LO lowest non-idle background work
 //   SYS_PRIO_MONITOR      health monitor
 
+// Match the ESP-IDF NimBLE host scheduling priority.
+#define SYS_PRIO_BLE_HOST      (configMAX_PRIORITIES - 4)
 #define SYS_PRIO_REALTIME      10
 #define SYS_PRIO_SERVICE_HI    5
 #define SYS_PRIO_SERVICE_LO    4

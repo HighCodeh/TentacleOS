@@ -69,13 +69,15 @@ static void killed_spam(spi_id_t id) {
 }
 
 static bool bt_ensure_service_ready(void) {
+  if (spi_bridge_async_scan_busy() || session_manager_is_active())
+    return false;
   if (meshcore_gatt_is_running())
     meshcore_gatt_stop();
   if (host_link_gatt_is_running())
     host_link_gatt_stop();
   if (meshtastic_gatt_is_running())
     meshtastic_gatt_stop();
-  if (!bluetooth_service_is_initialized() && bluetooth_service_init() != ESP_OK)
+  if (bluetooth_service_init() != ESP_OK)
     return false;
   if (!bluetooth_service_is_running() && bluetooth_service_start() != ESP_OK)
     return false;
@@ -84,6 +86,8 @@ static bool bt_ensure_service_ready(void) {
 }
 
 static bool bt_prepare_hid_service(void) {
+  if (spi_bridge_async_scan_busy() || session_manager_is_active())
+    return false;
   if (meshcore_gatt_is_running())
     meshcore_gatt_stop();
   if (host_link_gatt_is_running())
@@ -94,8 +98,10 @@ static bool bt_prepare_hid_service(void) {
   // HID is an exclusive GATT mode. Its service table must be present before
   // nimble_port_run() starts, otherwise a central can see the advertisement
   // but discover no keyboard/mouse reports.
+  if (bluetooth_service_init() != ESP_OK)
+    return false;
   if (!ble_hid_services_registered()) {
-    if (bluetooth_service_is_initialized()) {
+    if (bluetooth_service_is_running()) {
       if (bluetooth_service_deinit() != ESP_OK)
         return false;
       ble_hid_stack_reset();
@@ -167,6 +173,8 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
 
   switch (id) {
     case SPI_ID_BT_INIT:
+      if (spi_bridge_async_scan_busy() || session_manager_is_active())
+        return SPI_STATUS_BUSY;
       if (meshcore_gatt_is_running())
         meshcore_gatt_stop();
       if (host_link_gatt_is_running())
@@ -186,9 +194,15 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_BT_START:
+      if (spi_bridge_async_scan_busy() || session_manager_is_active())
+        return SPI_STATUS_BUSY;
       return (bluetooth_service_start() == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
     case SPI_ID_BT_SCAN: {
+      if (session_manager_is_active())
+        return SPI_STATUS_BUSY;
+      if (!bt_ensure_service_ready())
+        return SPI_STATUS_ERROR;
       uint32_t duration = BT_SCAN_DEFAULT_DURATION_MS;
       if (len >= sizeof(duration))
         memcpy(&duration, payload, sizeof(duration));

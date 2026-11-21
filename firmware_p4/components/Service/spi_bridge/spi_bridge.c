@@ -698,6 +698,20 @@ uint32_t spi_bridge_get_timeout(spi_id_t id) {
     return SPI_TIMEOUT_WIFI_MS;
   }
   switch (id) {
+    case SPI_ID_BT_INIT:
+    case SPI_ID_BT_START:
+    case SPI_ID_BT_STOP:
+    case SPI_ID_BT_DEINIT:
+    case SPI_ID_BT_SCAN:
+    case SPI_ID_BT_HID_INIT:
+    case SPI_ID_BT_HID_DEINIT:
+    case SPI_ID_BT_APP_SCANNER:
+    case SPI_ID_BT_APP_SNIFFER:
+    case SPI_ID_BT_APP_SPAM:
+    case SPI_ID_BT_APP_FLOOD:
+    case SPI_ID_BT_APP_SKIMMER:
+    case SPI_ID_BT_APP_TRACKER:
+    case SPI_ID_BT_APP_GATT_EXP:
     case SPI_ID_MESH_BLE_INIT:
     case SPI_ID_MESH_BLE_STOP:
     case SPI_ID_MCORE_BLE_INIT:

@@ -46,23 +46,40 @@ Allocates resources and prepares the BLE stack.
 ```c
 esp_err_t bluetooth_service_start(void);
 ```
-Spawns the NimBLE host task and waits (up to 10s) for the controller to synchronize.
+Creates a checked, pinned NimBLE host task and waits up to 2 seconds for
+synchronization. A prior fault or completed stop triggers cleanup and a fresh
+initialization. Failed allocation, task creation or synchronization unwinds
+resources; incomplete cleanup remains owned for the next attempt.
 
 #### `bluetooth_service_stop`
 ```c
 esp_err_t bluetooth_service_stop(void);
 ```
-Stops the NimBLE host task. The service is "paused", but resources remain allocated in memory.
+On C5, stops the host while retaining initialized resources. A subsequent start
+rebuilds the stopped stack. On P4, STOP releases the remote stack through DEINIT.
+
+C5 runs the SDK's blocking stop in an owned worker, waits up to 3 seconds for it
+and up to 500 ms for host exit. Timeout returns an error while retaining the
+worker, host and synchronization objects. Another attempt resumes pending
+cleanup; it never frees a still-running stack. An unresponsive SDK/controller
+can still prevent shutdown and requires diagnosis on hardware.
 
 #### `bluetooth_service_deinit`
 ```c
 esp_err_t bluetooth_service_deinit(void);
 ```
-Completely shuts down the stack and frees all allocated memory and semaphores.
+Shuts down the stack and frees resources only after host exit is confirmed.
+Host teardown and controller disable/deinit are tracked separately so retrying
+a partial failure cannot deinitialize the host twice. HID registration is reset
+when its underlying host is released. Concurrent lifecycle operations, active
+scans and owned application sessions reject competing transitions.
 
 #### `Status Checks`
-- `bluetooth_service_is_initialized()`: Returns `true` if resources are allocated.
-- `bluetooth_service_is_running()`: Returns `true` if the host task is active.
+- `bluetooth_service_is_initialized()`: Returns `true` while owned host/controller
+  resources remain, including cleanup pending after an error.
+- `bluetooth_service_is_running()`: Returns `true` only after synchronization and
+  while neither faulted nor stopping. A host reset invalidates readiness and
+  wakes pending start/scan waits; the next initialization can recover it.
 
 ### Scanning
 
@@ -70,7 +87,11 @@ Completely shuts down the stack and frees all allocated memory and semaphores.
 ```c
 void bluetooth_service_scan(uint32_t duration_ms);
 ```
-Performs a blocking discovery procedure for the specified duration. Results are stored in an internal cache.
+Performs a blocking discovery procedure for 1–30000 ms. Results are stored in an
+internal cache. The wait is bounded by the requested duration plus 2 seconds.
+Timeout cancels discovery, discards partial results and marks the service for
+reinitialization. Scan completion restores advertising only if it was requested
+before scanning.
 
 #### `Scan Results`
 - `bluetooth_service_get_scan_count()`: Returns the number of unique devices found.
@@ -129,7 +150,10 @@ Stops the RSSI tracker.
 ### Advertising Management
 
 #### `bluetooth_service_start_advertising` / `stop_advertising`
-Standard connectable advertising using the configured device name. Advertising automatically restarts on disconnection.
+Standard connectable advertising using the configured device name. Advertising restarts on disconnection only while advertising remains requested.
+The generic advertiser respects its saved client limit, bounded by the three
+connections configured in NimBLE. HID remains single-peer and also uses the
+configured name. Names occupy the scan response and allow up to 29 bytes.
 
 ### Connection Management
 
@@ -275,5 +299,20 @@ cleanup removes both timers and releases HID, except when moving between its
 pairing and control screens, which intentionally share the connection. C5
 clears advertising intent and old scan callbacks during deinit. Routine BLE
 startup/result-list diagnostics are DEBUG to preserve P4 flash space.
-Run `python3 tools/bluetooth/test_screen_cleanup.py` for timer/operation cleanup
-and repeated-stop regression checks.
+
+## Lifecycle regression validation
+
+- `python3 tools/bluetooth/test_lifecycle.py` compiles production C5 lifecycle
+  functions with threaded host/controller fakes and ASan/UBSan. It covers allocation,
+  task creation, synchronization, reset, stop timeout, phased teardown retry,
+  scan timeout and repeated init/start/stop/deinit.
+- `python3 tools/bluetooth/test_announce_settings.py` covers packet size, configured
+  names, client limits and advertisement failures.
+- `python3 tools/bluetooth/test_screen_cleanup.py` covers timer/operation cleanup
+  and repeated screen stops.
+- `python3 tools/highboy/tests/test_ble_ui_lifecycle.py` covers application worker
+  allocation and advertisement-stream ownership.
+
+These are host regressions, not device qualification. Build and update both C5
+and P4 for the paired lifecycle change. Validate repeated entry/exit, HID/GATT
+handover and recovery after a real controller or SPI error on hardware.

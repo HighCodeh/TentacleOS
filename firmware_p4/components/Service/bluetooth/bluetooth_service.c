@@ -15,6 +15,7 @@
 
 #include "bluetooth_service.h"
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,42 +23,47 @@
 
 #include "spi_bridge.h"
 #include "spi_session.h"
+#include "spi_timeouts.h"
 
 static const char *TAG = "BT_SERVICE_P4";
 
-#define SPI_TIMEOUT_MS          2000
-#define SPI_DATA_TIMEOUT_MS     1000
-#define SPI_CONNECT_TIMEOUT_MS  5000
-#define SPI_SCAN_TIMEOUT_MS     10000
-#define SPI_BT_START_TIMEOUT_MS 6000
-#define BLE_MAC_LEN             6
+#define SPI_TIMEOUT_MS         2000
+#define SPI_DATA_TIMEOUT_MS    1000
+#define SPI_CONNECT_TIMEOUT_MS 5000
+#define SPI_SCAN_TIMEOUT_MS    10000
+#define BLE_MAC_LEN            6
 
 static bluetooth_service_sniffer_cb_t s_sniffer_cb = NULL;
 static uint32_t s_sniffer_session = SPI_SESSION_INVALID_ID;
 static bluetooth_service_scan_result_t s_cached_scan_record;
-static volatile bool s_running_cached = false;
+static atomic_bool s_running_cached;
 
 static bool get_info(spi_bt_info_t *out_info);
 
 // Public function implementations
 
 esp_err_t bluetooth_service_init(void) {
-  return spi_bridge_send_command(SPI_ID_BT_INIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  return spi_bridge_send_command(
+      SPI_ID_BT_INIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_BLE_LIFECYCLE_MS);
 }
 
 esp_err_t bluetooth_service_deinit(void) {
-  esp_err_t err = spi_bridge_send_command(SPI_ID_BT_DEINIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  esp_err_t err = spi_bridge_send_command(
+      SPI_ID_BT_DEINIT, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_BLE_LIFECYCLE_MS);
   if (err == ESP_OK)
     s_running_cached = false;
   return err;
 }
 
 esp_err_t bluetooth_service_start(void) {
-  return spi_bridge_send_command(SPI_ID_BT_START, NULL, 0, NULL, NULL, 0, SPI_BT_START_TIMEOUT_MS);
+  esp_err_t error = spi_bridge_send_command(
+      SPI_ID_BT_START, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_BLE_LIFECYCLE_MS);
+  s_running_cached = error == ESP_OK;
+  return error;
 }
 
 esp_err_t bluetooth_service_stop(void) {
-  return spi_bridge_send_command(SPI_ID_BT_STOP, NULL, 0, NULL, NULL, 0, SPI_TIMEOUT_MS);
+  return bluetooth_service_deinit();
 }
 
 bool bluetooth_service_is_initialized(void) {
@@ -360,6 +366,7 @@ static bool get_info(spi_bt_info_t *out_info) {
                               (uint8_t *)out_info,
                               sizeof(*out_info),
                               SPI_DATA_TIMEOUT_MS) == ESP_OK) {
+    s_running_cached = out_info->running != 0;
     return true;
   }
   return false;

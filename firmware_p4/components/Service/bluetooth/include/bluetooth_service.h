@@ -67,7 +67,7 @@ typedef void (*bluetooth_service_tracker_cb_t)(int rssi);
 esp_err_t bluetooth_service_init(void);
 
 /**
- * @brief Deinitialize the BLE subsystem and release resources.
+ * @brief Release BLE resources after confirmed host exit; failed cleanup is retryable.
  *
  * @return ESP_OK on success, or an error code.
  */
@@ -81,21 +81,21 @@ esp_err_t bluetooth_service_deinit(void);
 esp_err_t bluetooth_service_start(void);
 
 /**
- * @brief Stop the BLE host task.
+ * @brief Stop and deinitialize the remote BLE stack.
  *
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t bluetooth_service_stop(void);
 
 /**
- * @brief Check if the BLE subsystem is initialized.
+ * @brief Check whether BLE host/controller resources remain allocated.
  *
- * @return true if initialized, false otherwise.
+ * @return true while resources remain, including cleanup pending after an error.
  */
 bool bluetooth_service_is_initialized(void);
 
 /**
- * @brief Check if the BLE host task is running.
+ * @brief Check if the BLE host is synchronized, healthy and not stopping.
  *
  * @return true if running, false otherwise.
  */
