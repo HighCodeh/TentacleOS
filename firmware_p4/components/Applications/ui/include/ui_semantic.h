@@ -49,6 +49,10 @@ extern "C" {
 /** @brief Absolute black, absolute by intent. */
 #define UI_COL_BLACK 0x000000
 
+/** @brief QR symbols retain scanner contrast under every theme, including SD themes. */
+#define UI_COL_QR_DARK  UI_COL_BLACK
+#define UI_COL_QR_LIGHT UI_COL_WHITE
+
 #ifdef __cplusplus
 }
 #endif

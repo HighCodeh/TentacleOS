@@ -59,7 +59,9 @@ if the OS requests it. On Linux, BlueZ must be running.
 1. The CLI reads the default device PSK from `.highboy-pc-monitor.psk` at the repository root.
    Save its 64 hex digits there once; this personal file is ignored by Git.
    For another device, set `HB_PSK`. To obtain its key, open **Bluetooth > Companion** on Highboy;
-   its pairing screen displays the existing key. Copy it, then leave that screen.
+   its screen displays the existing key as a QR; OK switches to readable text.
+   PC Monitor also displays this QR while waiting for a connection. A phone
+   scanner reads the complete hexadecimal PSK, ready to copy into the client.
    No USB console is needed to obtain the key.
 2. Open **Developer > PC Monitor**. The screen requests the existing companion
    BLE service, advertised as `Tentacle-XXXX`. If BLE cannot start, it shows an
@@ -85,7 +87,9 @@ if the OS requests it. On Linux, BlueZ must be running.
    `--device` also accepts the BLE address on Linux/Windows or the OS UUID on
    macOS. Only advertisements containing the Host Link service UUID are eligible.
 4. Keep **PC Monitor** open while connecting over BLE; the CLI uses its default
-   PSK or `HB_PSK` override automatically. There is no confirmation code or OK press.
+   PSK or `HB_PSK` override automatically. The waiting QR is for copying the PSK;
+   OK toggles its text view. No confirmation PIN or approval is required.
+   Authenticated connections automatically replace the QR with the PC metrics.
 
 Authentication has no screen-controlled waiting window. Each cryptographic
 exchange expires after 30 seconds, and a fresh HELLO can retry immediately.

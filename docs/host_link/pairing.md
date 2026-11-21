@@ -24,8 +24,12 @@ Companion** or `hostlink psk`, then configure it in the client. The selected
 transport must still be enabled and available; BLE requires its companion relay
 running. Authentication is independent of the visible screen.
 
-Companion displays the provisioning PSK and connection status. PC Monitor shows
-telemetry or its waiting/error state; OK only retries an unavailable BLE service.
+Companion and the PC Monitor waiting screen show the provisioning PSK as a QR.
+The payload is exactly the 64 hexadecimal PSK characters, without a URI or prefix,
+so a phone scanner can copy it directly into the client's PSK field. OK toggles
+to the same key in text. PC Monitor switches to metrics after authentication;
+when BLE is unavailable, OK retries the service. QR scanning does not alter the
+handshake or require confirmation. See [UI layout](../ui/README.md#companion-connection-screens).
 Leaving either screen releases its status timer and an unlinked BLE relay it
 started. It does not invalidate an unrelated USB handshake. An authenticated
 session can remain active after navigation. After USB authentication, Companion

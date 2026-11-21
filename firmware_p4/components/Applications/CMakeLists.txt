@@ -132,6 +132,7 @@ idf_component_register(SRCS
   "ui/components/notify/include"
   "ui/components/octobit/include"
   "ui/components/power_policy/include"
+  "ui/components/psk_qr/include"
   "ui/components/reboot/include"
   "ui/components/page_dots/include"
   "ui/components/sigwave/include"

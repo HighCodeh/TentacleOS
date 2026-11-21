@@ -199,8 +199,8 @@ After authentication, `process_frame` routes each `CMD` by id:
   authenticated (valid MAC, fresh counter) or it is dropped + logged.
 - Per-direction HKDF keys bind both ephemeral public keys, nonces and device
   identity; a valid PSK proof and signed FINISH are required. See [pairing](pairing.md).
-- The PSK is provisioned out-of-band: shown as hex on the P4 Companion
-  screen (Bluetooth → Companion) and via the `hostlink psk` console command.
+- The PSK is provisioned out-of-band: shown as QR/hex on the P4 Companion
+  screen (Bluetooth → Companion) and PC Monitor waiting screen and via the `hostlink psk` console command.
 - BLE bonding is "just works" (LE Secure Connections, no MITM) on top of the PSK
   envelope, which is the real trust boundary.
 

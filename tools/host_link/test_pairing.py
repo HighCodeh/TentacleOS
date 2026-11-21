@@ -137,9 +137,12 @@ def ui_test(command,tmp):
 #define INPUT_BTN_BACK 2
 #define SCREEN_BLE_MENU 3
 typedef struct {int action,button;} input_event_t;
-static void *s_phase_timer;
-static bool s_started_ble, authenticated;
-static unsigned stops,exits,timer_deletes;
+static void *s_phase_timer,*s_screen,*s_body;
+static bool s_started_ble, authenticated,s_is_linked;
+static unsigned stops,exits,timer_deletes,key_toggles;
+static void lv_obj_clean(void *obj) {assert(obj);}
+static void *lv_obj_get_child(void *obj,int index) {(void)obj;assert(index==0);return &key_toggles;}
+static void psk_qr_ui_toggle_key(void *view) {assert(view);++key_toggles;}
 static bool host_link_sec_is_authenticated(void) {return authenticated;}
 static void lv_timer_delete(void *p) {assert(p);++timer_deletes;}
 static void host_link_ble_stop(void) {++stops;}
@@ -149,7 +152,7 @@ static void ui_switch_screen(int id) {assert(id==3);++exits;ui_companion_pairing
     suffix=r"""
 int main(void) {
  input_event_t event={.action=INPUT_ACTION_PRESS,.button=INPUT_BTN_OK};
- companion_input(&event,NULL);assert(!exits && !stops);
+ companion_input(&event,NULL);assert(!exits && !stops && key_toggles==1);
  s_phase_timer=&stops;s_started_ble=true;
  event.action=0;event.button=INPUT_BTN_BACK;companion_input(&event,NULL);assert(!exits);
  event.action=INPUT_ACTION_PRESS;companion_input(&event,NULL);
@@ -167,7 +170,7 @@ int main(void) {
     subprocess.run([str(tmp/'ui')],check=True,timeout=30)
     manager=(ROOT/'firmware_p4/components/Applications/ui/ui_manager.c').read_text()
     assert 'case SCREEN_COMPANION_PAIRING:\n      return ui_companion_pairing_stop;' in manager
-    print('PASS: Companion needs no OK, BACK releases its timer/unlinked BLE, and linked sessions survive navigation')
+    print('PASS: Companion OK only shows the key, BACK releases its timer/unlinked BLE, and linked sessions survive navigation')
 
 
 def core_hello_test(command, ldflags, tmp):

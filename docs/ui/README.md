@@ -467,12 +467,36 @@ height bounds, PSRAM allocation failure, registration failure and deletion owner
 
 ## Companion connection screens
 
-Companion displays the provisioning PSK and link status; PC Monitor shows PC
-telemetry. Both use [automatic PSK authentication](../host_link/pairing.md),
+Companion and the PC Monitor waiting screen display a centered QR containing
+only the complete 64-character hexadecimal PSK, without a URI, prefix or newline.
+OK toggles between QR and four readable text rows. PC Monitor replaces the QR
+with telemetry after authentication and restores it after disconnection. Both use
+[automatic PSK authentication](../host_link/pairing.md),
 without a comparison PIN or OK approval. Screen close hooks release timers and
 an unlinked BLE relay started by that screen, while authenticated connections
-survive navigation. PC Monitor's OK action only retries an unavailable BLE relay.
+survive navigation. When BLE startup fails, PC Monitor's OK retries that relay.
 USB authentication does not require either screen to remain open.
+
+The shared `components/psk_qr` view uses the parent's content bounds between
+chrome bars. It renders version-5 QR modules at an integer scale, with four white
+modules of quiet space on every side: 180 px in 240x320 and 135 px in 320x240.
+The QR is static, with black/white scanner colors centralized in `ui_semantic.h`;
+labels and screen surfaces follow the selected theme, including SD themes.
+Theme/orientation rebuilds release the old view and generate a fresh one.
+
+QR scratch and 1-bit pixels allocate explicitly in PSRAM. Scratch is released
+after encoding; pixel storage belongs to the canvas and is released on view
+cleanup/deletion. The screen close hooks clean the view before navigation.
+Failure to allocate/render a QR leaves the complete text key available and
+reports an error. Missing PSK and timer errors keep BACK usable; radio startup
+requires the status timer. No QR or PSK file is written to storage.
+
+Use the host LVGL build prepared by `tools/highboy/tests/test_keyboard_ui.py`.
+`tools/highboy/tests/test_psk_qr_ui.py <lvgl-host-build>` renders the production
+widget and both screens against host LVGL, checking bounds, centering, quiet
+space, text toggling, themes, both orientations, allocation failures and cleanup.
+Its PPM captures use a fixed test PSK and can be decoded independently; they are
+not evidence of scanning the physical LCD.
 
 ## Theme path limits
 

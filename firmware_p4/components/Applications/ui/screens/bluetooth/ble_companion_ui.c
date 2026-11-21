@@ -28,12 +28,22 @@
 #include "ui_metrics.h"
 #include "ui_semantic.h"
 #include "ui_theme.h"
-#include "waves_ui.h"
+#include "psk_qr_ui.h"
 
 static const char *TAG = "BLE_COMPANION_UI";
 
-#define CONN_POLL_MS   500
-#define COMPANION_ICON "/assets/icons/app_shortcut.bin"
+#define CONN_POLL_MS         500
+#define COMPANION_ICON       "/assets/icons/app_shortcut.bin"
+#define SUCCESS_SEAL_SIZE    36
+#define SUCCESS_GAP          8
+#define SUCCESS_LABEL_HEIGHT 18
+#define SUCCESS_BADGE_HEIGHT 66
+#define SUCCESS_BADGE_WIDTH  200
+#define SUCCESS_PADDING      10
+#define SUCCESS_RADIUS       14
+#define SUCCESS_GLOW         18
+#define SUCCESS_POP_SIZE     30
+#define SUCCESS_POP_MS       360
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_body = NULL;
@@ -103,40 +113,9 @@ static lv_obj_t *make_body(lv_obj_t *parent) {
 }
 
 static void build_pairing(void) {
-  waves_create(s_body, LV_ALIGN_CENTER, 0, -34, LV_SYMBOL_BLUETOOTH, NULL);
-
-  lv_obj_t *status = lv_label_create(s_body);
-  lv_label_set_text(status, "Waiting for app...");
-  lv_obj_set_style_text_color(status, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(status, LV_ALIGN_CENTER, 0, 50);
-
-  lv_obj_t *caption = lv_label_create(s_body);
-  lv_label_set_text(caption, "Pairing key (PSK):");
-  lv_obj_set_style_text_color(caption, current_theme.text_secondary, 0);
-  lv_obj_set_style_text_font(caption, &lv_font_montserrat_12, 0);
-  lv_obj_align(caption, LV_ALIGN_CENTER, 0, 78);
-
-  lv_obj_t *card = lit_panel(s_body, 224, 56, 13, 16);
-  lv_obj_set_style_pad_all(card, 6, 0);
-  lv_obj_align(card, LV_ALIGN_CENTER, 0, 116);
-
-  lv_obj_t *code = lv_label_create(card);
   char psk[HOST_LINK_PSK_HEX_SIZE];
-  if (host_link_sec_get_psk_hex(psk, sizeof(psk)) == ESP_OK)
-    lv_label_set_text(code, psk);
-  else
-    lv_label_set_text(code, "PSK unavailable");
-  lv_label_set_long_mode(code, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(code, 224 - 12);
-  lv_obj_set_style_text_color(code, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(code, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_align(code, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_center(code);
-
-  fade_in(status, UI_CONTENT_FADE_MS);
-  fade_in(card, UI_CONTENT_FADE_MS);
+  bool has_psk = host_link_sec_get_psk_hex(psk, sizeof(psk)) == ESP_OK;
+  psk_qr_ui_create(s_body, has_psk ? psk : NULL, "Waiting for app...");
 }
 
 static void show_success(void) {
@@ -144,15 +123,17 @@ static void show_success(void) {
     host_link_ble_stop();
   lv_obj_clean(s_body);
 
-  waves_create(s_body, LV_ALIGN_CENTER, 0, -34, LV_SYMBOL_OK, NULL);
+  int32_t group_height =
+      SUCCESS_SEAL_SIZE + SUCCESS_LABEL_HEIGHT + SUCCESS_BADGE_HEIGHT + SUCCESS_GAP * 2;
+  int32_t top = (ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H - group_height) / 2;
 
   lv_obj_t *seal_slot = lv_obj_create(s_body);
   lv_obj_remove_flag(seal_slot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(seal_slot, 36, 36);
+  lv_obj_set_size(seal_slot, SUCCESS_SEAL_SIZE, SUCCESS_SEAL_SIZE);
   lv_obj_set_style_bg_opa(seal_slot, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(seal_slot, 0, 0);
   lv_obj_set_style_pad_all(seal_slot, 0, 0);
-  lv_obj_align(seal_slot, LV_ALIGN_CENTER, 0, -34);
+  lv_obj_align(seal_slot, LV_ALIGN_TOP_MID, 0, top);
 
   lv_obj_t *seal = lv_obj_create(seal_slot);
   lv_obj_remove_flag(seal, LV_OBJ_FLAG_SCROLLABLE);
@@ -175,11 +156,16 @@ static void show_success(void) {
   lv_obj_set_style_text_color(status, lv_color_hex(UI_COL_SUCCESS), 0);
   lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(status, LV_ALIGN_CENTER, 0, 42);
+  lv_obj_align(status, LV_ALIGN_TOP_MID, 0, top + SUCCESS_SEAL_SIZE + SUCCESS_GAP);
 
-  lv_obj_t *badge = lit_panel(s_body, 200, 66, 14, 18);
-  lv_obj_align(badge, LV_ALIGN_CENTER, 0, 92);
-  lv_obj_set_style_pad_all(badge, 10, 0);
+  lv_obj_t *badge = lit_panel(s_body,
+                              LV_MIN(ui_screen_w() - SUCCESS_PADDING * 2, SUCCESS_BADGE_WIDTH),
+                              SUCCESS_BADGE_HEIGHT,
+                              SUCCESS_RADIUS,
+                              SUCCESS_GLOW);
+  lv_obj_align(
+      badge, LV_ALIGN_TOP_MID, 0, top + SUCCESS_SEAL_SIZE + SUCCESS_LABEL_HEIGHT + SUCCESS_GAP * 2);
+  lv_obj_set_style_pad_all(badge, SUCCESS_PADDING, 0);
   lv_obj_set_flex_flow(badge, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(badge, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_row(badge, 4, 0);
@@ -194,7 +180,7 @@ static void show_success(void) {
   lv_obj_set_style_text_color(ver, current_theme.text_secondary, 0);
   lv_obj_set_style_text_font(ver, &lv_font_montserrat_12, 0);
 
-  pop_in(seal, 30, 360);
+  pop_in(seal, SUCCESS_POP_SIZE, SUCCESS_POP_MS);
   fade_in(status, UI_CONTENT_FADE_MS);
   fade_in(badge, UI_CONTENT_FADE_MS);
 
@@ -212,7 +198,7 @@ void ui_companion_pairing_open(void) {
   s_screen = ui_chrome_screen_create();
 
   ui_chrome_header(s_screen, "COMPANION", COMPANION_ICON);
-  s_footer = ui_chrome_footer(s_screen, "BACK  Cancel");
+  s_footer = ui_chrome_footer(s_screen, "OK QR / key    BACK Exit");
 
   s_body = make_body(s_screen);
   s_is_linked = false;
@@ -246,6 +232,8 @@ void ui_companion_pairing_stop(void) {
   if (s_started_ble && !host_link_sec_is_authenticated())
     host_link_ble_stop();
   s_started_ble = false;
+  if (s_screen != NULL)
+    lv_obj_clean(s_body);
 }
 
 static void phase_timer_cb(lv_timer_t *timer) {
@@ -263,6 +251,10 @@ static void phase_timer_cb(lv_timer_t *timer) {
 
 static void companion_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
-  if (ev->action == INPUT_ACTION_PRESS && ev->button == INPUT_BTN_BACK)
+  if (ev->action != INPUT_ACTION_PRESS)
+    return;
+  if (ev->button == INPUT_BTN_BACK)
     ui_switch_screen(SCREEN_BLE_MENU);
+  else if (ev->button == INPUT_BTN_OK && !s_is_linked)
+    psk_qr_ui_toggle_key(lv_obj_get_child(s_body, 0));
 }
