@@ -1,4 +1,19 @@
-"""Host-link v2: PSK-authenticated ephemeral X25519 and physical confirmation."""
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+"""Host-link v2: PSK-authenticated ephemeral X25519."""
 import hashlib
 import hmac
 import os
@@ -67,8 +82,6 @@ class Handshake:
         self._private = None
         self.k_a2d = derive(shared, self.psk, b"tos-host-v2-a2d", transcript)
         self.k_d2a = derive(shared, self.psk, b"tos-host-v2-d2a", transcript)
-        code = derive(shared, self.psk, b"tos-host-v2-code", transcript)
-        self.code = struct.unpack_from("<I", code)[0] % 1000000
         return ack[49:55]
 
 
@@ -82,14 +95,13 @@ def perform_handshake(link, psk):
     while True:
         frame = link._read_frame(deadline)
         if frame is None:
-            raise TimeoutError("no HELLO_ACK; open the Companion pairing screen on the device")
+            raise TimeoutError("no HELLO_ACK; check the PSK and the USB/BLE companion transport")
         length = struct.unpack_from("<H", frame, 8)[0]
         body = frame[HEADER_SIZE:HEADER_SIZE + length]
         if body[:3] == bytes([TYPE_ACK, 0, 0]) and frame[:4] == MAGIC + bytes([ENVELOPE_VERSION, 0]):
             device_id = exchange.accept(body[3:])
             break
     link.k_a2d, link.k_d2a = exchange.k_a2d, exchange.k_d2a
-    print(f"Compare code {exchange.code:06d} on the device, then press its OK button.")
     deadline = time.monotonic() + 30.0
     try:
         while time.monotonic() < deadline:
@@ -107,7 +119,7 @@ def perform_handshake(link, psk):
                 verify_frame(frame, link.k_d2a)
                 link.tx_counter = 2
                 return device_id.hex(":")
-        raise TimeoutError("pairing was not confirmed on the device before expiry")
+        raise TimeoutError("device did not complete PSK authentication before expiry")
     except BaseException:
         link.k_a2d = link.k_d2a = None
         raise

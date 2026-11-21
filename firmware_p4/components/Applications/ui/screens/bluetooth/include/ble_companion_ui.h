@@ -23,6 +23,9 @@ extern "C" {
 /** @brief Open host-link BLE pairing and display authenticated session status. */
 void ui_companion_pairing_open(void);
 
+/** @brief Release the status timer and an unlinked BLE relay owned by this screen. */
+void ui_companion_pairing_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

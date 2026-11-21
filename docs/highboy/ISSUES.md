@@ -142,9 +142,10 @@ broker/device interoperability and cross-interface acceptance remain under #156.
 ## Ephemeral companion pairing completion
 
 The [paired build record](TESTS.md#companion-ephemeral-pairing-build-record)
-validates the #151 implementation. Every connection now requires the Companion
-screen, a matching code and device OK; the old HELLO format is rejected. This is
-a client compatibility change, with updated CLI/file-transfer clients included.
+validates the original #151 implementation. The current
+[authentication policy](../host_link/pairing.md) uses the PSK without a PIN or
+device OK; fresh X25519 and signed FINISH/READY remain required. The old HELLO
+format is rejected, with updated CLI/file-transfer clients included.
 The frame envelope remains version 1, handshake payloads use version 2, and Muse
 pairing is unchanged. Physical acceptance remains under #156.
 

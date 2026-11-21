@@ -45,9 +45,8 @@ passed on macOS. Hardware acceptance is pending.
    Use `/dev/ttyACM0` on Linux or `COM5` on Windows as appropriate. Omitting
    `--port` selects the device only when exactly one Highboy VID/PID matches.
 4. The CLI uses the local `.highboy-pc-monitor.psk` file automatically. Set `HB_PSK`
-   to override it for another device. Compare the six-digit
-   code printed by the CLI with the Highboy display; press **OK** to approve.
-   PC Monitor keeps pairing available while this screen remains open.
+   to override it for another device. The PSK authenticates automatically;
+   no PIN, code comparison or OK press is required.
 5. Ctrl-C stops the CLI. BACK leaves the screen; an authenticated companion
    connection remains usable, following the existing Host Link lifecycle.
 
@@ -85,19 +84,16 @@ if the OS requests it. On Linux, BlueZ must be running.
 
    `--device` also accepts the BLE address on Linux/Windows or the OS UUID on
    macOS. Only advertisements containing the Host Link service UUID are eligible.
-4. Keep **PC Monitor** open; the CLI uses its default PSK or `HB_PSK` override;
-   no navigation or extra Enter prompt is required. The screen refreshes its
-   waiting window while visible, so scanning and typing the key do not exhaust
-   it. The six-digit code appears automatically after the device accepts HELLO;
-   compare it with the CLI and press OK on Highboy.
+4. Keep **PC Monitor** open while connecting over BLE; the CLI uses its default
+   PSK or `HB_PSK` override automatically. There is no confirmation code or OK press.
 
-The screen refresh does not reset an active handshake or authenticated session.
-Pending codes still expire after 30 seconds and still require physical approval.
-A new code scrolls the screen to the top so it cannot be hidden below metrics.
-Leaving the screen closes the window and cancels pending approval. This behavior
-requires the updated P4 firmware; the C5 BLE implementation is unchanged.
+Authentication has no screen-controlled waiting window. Each cryptographic
+exchange expires after 30 seconds, and a fresh HELLO can retry immediately.
+Leaving the screen releases its timer and an unlinked BLE relay it started;
+it preserves authenticated sessions and does not cancel a USB handshake.
+This policy requires the updated P4 firmware; the C5 BLE implementation is unchanged.
 
-The telemetry contract and physical pairing are identical across transports.
+The telemetry contract and PSK authentication are identical across transports.
 Each scan lasts ten seconds. After selection and PSK validation, the CLI subscribes
 to TX notifications, reassembles the
 ordered byte stream, and uses acknowledged GATT writes split to the negotiated
@@ -143,8 +139,8 @@ restart it and pair again after reconnecting. UP/DOWN scroll long IP/path labels
 
 Authenticated Host Link SYSTEM `0x4E` (`SPI_ID_SYSTEM_PC_MONITOR`), P4-local.
 Both SPI headers reserve the identifier; no SPI transport version change or C5
-forwarding is involved. Response is status only. The normal Host Link physical
-confirmation, MAC and replay protection apply; no unauthenticated telemetry is accepted.
+forwarding is involved. Response is status only. The normal Host Link PSK
+authentication, MAC and replay protection apply; no unauthenticated telemetry is accepted.
 
 Payload is exactly **180 bytes**, little-endian, Python format
 `<BBHHHIIII32s32s46s46s`:
@@ -178,23 +174,23 @@ write failures and context cleanup.
 
 Hardware checklist: pair over USB and BLE, compare values with the PC system monitor,
 select another disk/interface, stop/restart CLI, unplug/reconnect USB, disable/re-enable Bluetooth, disconnect
-Internet and verify unavailable IP, reject pairing, and repeatedly enter/leave
+Internet and verify unavailable IP, try an incorrect PSK, and repeatedly enter/leave
 the screen while updates arrive. No hardware flashing is performed by the CLI.
 
 ## No HELLO_ACK over BLE
 
 Finding an advertisement and accepting GATT writes do not prove that the P4
-accepted the handshake. An expired physical pairing window, wrong device PSK,
-occupied Host Link session, or BLE/SPI forwarding failure can all prevent ACK.
+accepted the handshake. A wrong device PSK, occupied Host Link session, or
+BLE/SPI forwarding failure can prevent ACK.
 The CLI reports accepted GATT write bytes and received notification bytes on
 this timeout; these counts contain no PSK or payload contents. Zero received
 bytes does not identify which part of the forwarding/security path failed.
 
-If no six-digit code appears on Highboy, keep PC Monitor open, verify the
-selected device PSK and capture the diagnostic counters before retrying. If a code appears on Highboy but not in the CLI,
-the return path or ACK validation needs investigation. Preserve the CLI error
-and, when accessible, P4 `HOST_LINK`/`HOST_BLE` and C5 `HOST_TRANSPORT`/GATT logs.
-Do not disable physical confirmation or MAC checks to bypass a timeout.
+Keep PC Monitor open for the BLE relay, verify the selected device PSK and
+capture the diagnostic counters before retrying. No code is displayed during
+authentication. Preserve the CLI error and, when accessible, P4
+`HOST_LINK`/`HOST_BLE` and C5 `HOST_TRANSPORT`/GATT logs. MAC and transcript-proof
+validation remain required.
 
 ## Telemetry acknowledgement timeouts
 

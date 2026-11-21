@@ -176,8 +176,8 @@ async def _run(selector, callback, prepare):
                             f"(GATT writes accepted: {stream.tx_bytes} bytes; "
                             f"notifications received: {stream.rx_bytes} bytes). "
                             "This does not prove the PSK is wrong. Check the selected device's PSK "
-                            "and keep PC Monitor open while retrying. If its screen shows a pairing "
-                            "code but the CLI does not, report it: the return path needs diagnosis."
+                            "and keep PC Monitor open while retrying. A valid PSK connects "
+                            "automatically; no confirmation code or OK press is required."
                         ) from error
                     raise
             finally:

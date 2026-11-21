@@ -32,9 +32,6 @@ SERVICE=ROOT/'firmware_p4/components/Service'
 sys.path.insert(0,str(ROOT/'tools/host_link'))
 from hb_pairing import Handshake, mac16, verify_frame
 
-class Pairing(ctypes.Structure):
-    _fields_=[('token',ctypes.c_uint32),('code',ctypes.c_uint32),('is_approved',ctypes.c_bool),('can_pair',ctypes.c_bool)]
-
 def fixtures(path):
     files={
       'esp_err.h': '#pragma once\n#include <stdint.h>\n#include <stddef.h>\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL -1\n#define ESP_ERR_NO_MEM 0x101\n#define ESP_ERR_INVALID_ARG 0x102\n#define ESP_ERR_INVALID_STATE 0x103\n#define ESP_ERR_INVALID_SIZE 0x104\n#define ESP_ERR_INVALID_CRC 0x109\nconst char *esp_err_to_name(esp_err_t);\n',
@@ -55,9 +52,6 @@ def fixtures(path):
 def interop(path):
     lib=ctypes.CDLL(str(path))
     lib.pairing_test_boot()
-    lib.host_link_sec_pairing_window(True)
-    lib.host_link_sec_pairing_get.argtypes=[ctypes.POINTER(Pairing)]
-    lib.host_link_sec_pairing_get.restype=ctypes.c_bool
     lib.host_link_sec_is_authenticated.restype=ctypes.c_bool
     lib.host_link_sec_finish.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_void_p,ctypes.c_uint32]
     lib.host_link_sec_finish.restype=ctypes.c_bool
@@ -71,21 +65,18 @@ def interop(path):
         except PermissionError:pass
         else:raise AssertionError('client accepted altered handshake transcript')
     assert client.accept(ack.raw)==b'ABCDEF'
-    pairing=Pairing();assert lib.host_link_sec_pairing_get(ctypes.byref(pairing))
-    assert pairing.code==client.code and not lib.host_link_sec_is_authenticated()
+    assert not lib.host_link_sec_is_authenticated()
     span=bytes.fromhex('0101010000000300120000');mac=mac16(client.k_a2d,span)
-    assert not lib.host_link_sec_finish(span,len(span),mac,1)
-    assert lib.host_link_sec_pairing_confirm(pairing.token,True)==0
     assert lib.host_link_sec_finish(span,len(span),mac,1)
     out=ctypes.create_string_buffer(16)
     assert lib.host_link_sec_sign_outbound(span,len(span),out)==1
     assert out.raw==mac16(client.k_d2a,span)
-    print('PASS: production C security interoperates with Python cryptography X25519 and matches confirmation code/directional keys')
+    print('PASS: production C security interoperates with Python cryptography X25519 and authenticates automatically with matching directional keys')
 
 def clients(lib):
     class Serial:
-        def __init__(self):
-            self.queue=bytearray();self.finishes=0
+        def __init__(self,drop_ready):
+            self.queue=bytearray();self.finishes=0;self.drop_ready=drop_ready
         def write(self,frame):
             body=frame[10:-16] if frame[3] else frame[10:]
             if body[0]==0x10:
@@ -95,12 +86,10 @@ def clients(lib):
                 self.queue+=b'HB'+bytes([1,0])+struct.pack('<IH',0,len(payload))+payload
             elif body[0]==0x12:
                 self.finishes+=1
-                if self.finishes==1:
-                    assert not lib.host_link_sec_finish(frame[2:-16],len(frame)-18,frame[-16:],1)
-                    pairing=Pairing();assert lib.host_link_sec_pairing_get(ctypes.byref(pairing))
-                    assert lib.host_link_sec_pairing_confirm(pairing.token,True)==0
                 assert lib.host_link_sec_finish(frame[2:-16],len(frame)-18,frame[-16:],1)
-                ready=b'HB'+bytes([1,1])+struct.pack('<IH',1,3)+bytes([0x13,0,0])
+                if self.drop_ready and self.finishes == 1:
+                    return
+                ready=b'HB'+bytes([1,1])+struct.pack('<IH',self.finishes,3)+bytes([0x13,0,0])
                 out=ctypes.create_string_buffer(16)
                 assert lib.host_link_sec_sign_outbound(ready[2:],len(ready)-2,out)
                 self.queue+=ready+out.raw
@@ -111,14 +100,14 @@ def clients(lib):
     serial=types.ModuleType('serial');tools=types.ModuleType('serial.tools')
     tools.list_ports=types.SimpleNamespace(comports=lambda:[])
     for name in ('cli','hb_push'):
-        lib.host_link_sec_reset();lib.host_link_sec_pairing_window(True)
+        lib.host_link_sec_reset()
         spec=importlib.util.spec_from_file_location('pairing_test_'+name,ROOT/'tools/host_link'/f'{name}.py')
         module=importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules,{'serial':serial,'serial.tools':tools}):spec.loader.exec_module(module)
-        link=object.__new__(module.Link);link.ser=Serial();link.buf=bytearray();link.k_a2d=link.k_d2a=None;link.tx_counter=0
+        link=object.__new__(module.Link);link.ser=Serial(name=='hb_push');link.buf=bytearray();link.k_a2d=link.k_d2a=None;link.tx_counter=0
         assert link.handshake(bytes(range(1,33)))=='41:42:43:44:45:46'
-        assert lib.host_link_sec_is_authenticated() and link.tx_counter==2 and link.rx_counter==1
-        valid=b'HB'+bytes([1,1])+struct.pack('<IH',2,3)+bytes([2,0,0])
+        assert lib.host_link_sec_is_authenticated() and link.tx_counter==2 and link.rx_counter==link.ser.finishes
+        valid=b'HB'+bytes([1,1])+struct.pack('<IH',link.rx_counter+1,3)+bytes([2,0,0])
         valid+=mac16(link.k_d2a,valid[2:]);link.ser.queue+=valid
         assert link._read_frame(1e30)==valid
         link.ser.queue+=valid
@@ -129,14 +118,17 @@ def clients(lib):
         try:link._read_frame(1e30)
         except PermissionError:pass
         else:raise AssertionError('client accepted a forged response')
-    print('PASS: both actual USB clients finish the C handshake and reject replayed/forged responses; serial/UI approval are explicit fakes')
+    print('PASS: both actual USB clients authenticate with PSK alone, recover a lost READY and reject replayed/forged responses; serial is a fake')
 
 
 def ui_test(command,tmp):
     source=(ROOT/'firmware_p4/components/Applications/ui/screens/bluetooth/ble_companion_ui.c').read_text()
+    start=source.index('void ui_companion_pairing_stop(void) {')
+    stop=source[start:source.index('static void phase_timer_cb(lv_timer_t *timer) {',start)]
     start=source.index('static void companion_input(const input_event_t *ev, void *ctx) {')
     function=source[start:]
-    prefix='''#include <assert.h>
+    prefix=r"""
+#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -144,37 +136,38 @@ def ui_test(command,tmp):
 #define INPUT_BTN_OK 1
 #define INPUT_BTN_BACK 2
 #define SCREEN_BLE_MENU 3
-#define ESP_OK 0
 typedef struct {int action,button;} input_event_t;
-static void *s_phase_timer,*s_footer;
-static uint32_t s_pairing_token;
-static bool s_is_linked;
-static unsigned allows,rejects,stops,exits,footers,resets;
-static int host_link_sec_pairing_confirm(uint32_t token,bool approved) {assert(token==17);if(approved)++allows;else++rejects;return 0;}
-static void host_link_sec_pairing_window(bool open) {assert(!open);}
-static void ui_chrome_footer_set_text(void *p,const char *text) {(void)p;assert(text);++footers;}
-static void lv_timer_delete(void *p) {assert(p);}
-static void host_link_reset_rx(void) {++resets;}
+static void *s_phase_timer;
+static bool s_started_ble, authenticated;
+static unsigned stops,exits,timer_deletes;
+static bool host_link_sec_is_authenticated(void) {return authenticated;}
+static void lv_timer_delete(void *p) {assert(p);++timer_deletes;}
 static void host_link_ble_stop(void) {++stops;}
-static void ui_switch_screen(int id) {assert(id==3);++exits;}
-'''
-    suffix='''
+void ui_companion_pairing_stop(void);
+static void ui_switch_screen(int id) {assert(id==3);++exits;ui_companion_pairing_stop();}
+"""
+    suffix=r"""
 int main(void) {
  input_event_t event={.action=INPUT_ACTION_PRESS,.button=INPUT_BTN_OK};
- companion_input(&event,NULL);assert(!allows);
- s_pairing_token=17;companion_input(&event,NULL);assert(allows==1 && footers==1);
- event.action=0;companion_input(&event,NULL);assert(allows==1);
- event.action=INPUT_ACTION_PRESS;event.button=INPUT_BTN_BACK;companion_input(&event,NULL);
- assert(rejects==1 && stops==1 && exits==1 && resets==1);
- s_is_linked=true;s_pairing_token=0;companion_input(&event,NULL);assert(stops==1 && exits==2 && resets==1);
+ companion_input(&event,NULL);assert(!exits && !stops);
+ s_phase_timer=&stops;s_started_ble=true;
+ event.action=0;event.button=INPUT_BTN_BACK;companion_input(&event,NULL);assert(!exits);
+ event.action=INPUT_ACTION_PRESS;companion_input(&event,NULL);
+ assert(stops==1 && exits==1 && timer_deletes==1 && !s_phase_timer && !s_started_ble);
+ ui_companion_pairing_stop();assert(stops==1 && timer_deletes==1);
+ s_phase_timer=&stops;s_started_ble=true;authenticated=true;
+ companion_input(&event,NULL);assert(stops==1 && exits==2 && timer_deletes==2);
+ authenticated=false;s_started_ble=false;ui_companion_pairing_stop();assert(stops==1);
  return 0;
 }
-'''
-    (tmp/'ui.c').write_text(prefix+function+suffix)
+"""
+    (tmp/'ui.c').write_text(source.split('#include')[0]+prefix+stop+function+suffix)
     cc=[*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined']
     subprocess.run([*cc,str(tmp/'ui.c'),'-o',str(tmp/'ui')],check=True,timeout=60)
     subprocess.run([str(tmp/'ui')],check=True,timeout=30)
-    print('PASS: production physical OK/BACK handler confirms only a displayed token and cancels unlinked pairing')
+    manager=(ROOT/'firmware_p4/components/Applications/ui/ui_manager.c').read_text()
+    assert 'case SCREEN_COMPANION_PAIRING:\n      return ui_companion_pairing_stop;' in manager
+    print('PASS: Companion needs no OK, BACK releases its timer/unlinked BLE, and linked sessions survive navigation')
 
 
 def core_hello_test(command, ldflags, tmp):
@@ -229,23 +222,23 @@ size_t core_test_hello(const uint8_t *payload, uint16_t length, uint8_t *ack) {
     lib.pairing_test_boot()
     lib.core_test_hello.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_void_p]
     lib.core_test_hello.restype = ctypes.c_size_t
-    lib.host_link_sec_pairing_get.argtypes = [ctypes.POINTER(Pairing)]
-    lib.host_link_sec_pairing_get.restype = ctypes.c_bool
+    lib.host_link_sec_is_authenticated.restype = ctypes.c_bool
+    lib.host_link_sec_finish.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint32]
+    lib.host_link_sec_finish.restype = ctypes.c_bool
     ack = ctypes.create_string_buffer(71)
     client = Handshake(bytes(range(1, 33)))
-    for payload in (bytes([1]) + bytes(16), client.hello[:-1], bytes([1]) + client.hello[1:]):
-        lib.host_link_sec_reset(); lib.host_link_sec_pairing_window(True)
+    wrong_psk = Handshake(bytes(32))
+    for payload in (bytes([1]) + bytes(16), client.hello[:-1], bytes([1]) + client.hello[1:], wrong_psk.hello):
+        lib.host_link_sec_reset()
         assert lib.core_test_hello(payload, len(payload), ack) == 0
-        assert not lib.host_link_sec_pairing_get(ctypes.byref(Pairing()))
-    lib.host_link_sec_pairing_window(False)
-    assert lib.core_test_hello(client.hello, len(client.hello), ack) == 0
-    lib.host_link_sec_pairing_window(True)
+        assert not lib.host_link_sec_is_authenticated()
     assert lib.core_test_hello(client.hello, len(client.hello), ack) == 71, 'production core discarded v2 HELLO'
     client.accept(ack.raw)
-    pairing = Pairing()
-    assert lib.host_link_sec_pairing_get(ctypes.byref(pairing))
-    assert pairing.code == client.code and not pairing.is_approved
-    print('PASS: production HELLO handler reaches real v2 crypto, emits ACK and exposes matching pending code')
+    assert not lib.host_link_sec_is_authenticated()
+    span=bytes.fromhex('0101010000000300120000')
+    assert lib.host_link_sec_finish(span,len(span),mac16(client.k_a2d,span),1)
+    assert lib.host_link_sec_is_authenticated()
+    print('PASS: production HELLO handler rejects wrong PSK and authenticates v2 with no UI/window')
 
 
 def main():

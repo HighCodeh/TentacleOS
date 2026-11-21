@@ -1,6 +1,23 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Host Link Protocol - Companion App ↔ TentacleOS
 
-**Status: frame envelope v1, physical/X25519 pairing v2 (firmware-owned).**
+**Status: frame envelope v1, PSK/X25519 handshake v2 (firmware-owned).**
 The **firmware is the source of truth** for the wire protocol; the desktop/web
 companion app only follows it. This document is the agreed contract - the
 `[FW]` decisions from the original proposal are resolved below. A few hardware
@@ -136,16 +153,17 @@ Pre-auth handshake frames (`HELLO` / `HELLO_ACK`, §6) travel with
 
 ---
 
-## 6. Authentication and physical pairing
+## 6. Authentication and ephemeral key confirmation
 
-The initial PSK-only handshake is superseded by **handshake v2**. The frame
+The legacy HELLO format is superseded by **handshake v2**. The frame
 header remains version 1. Fresh X25519 keys, PSK-authenticated transcript proofs,
-HKDF direction keys and physical confirmation are required for every connection.
+and HKDF direction keys are required for every connection. The PSK is the only
+user credential; no PIN, physical OK or pairing window is required.
 HELLO/ACK remain unauthenticated envelopes; signed FINISH and READY complete the
 exchange. Only then are commands and application output authorized.
 
 The complete fixed-size payloads, proof/derivation labels, counter rules,
-window/token behavior and limits are in [pairing.md](pairing.md). Legacy HELLO
+handshake expiry and limits are in [pairing.md](pairing.md). Legacy HELLO
 payloads are rejected, and the updated CLI and file-transfer tool implement v2.
 The command categories and P4/C5 relay framing remain unchanged.
 

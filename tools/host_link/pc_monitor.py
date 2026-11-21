@@ -246,7 +246,7 @@ def main(argv=None):
         if args.interface and args.interface not in psutil.net_if_addrs():
             raise ValueError("unknown network interface")
         port = None if args.ble else (args.port or find_port())
-        print("Open Developer > PC Monitor, then compare and approve the pairing code on Highboy.")
+        print("Open Developer > PC Monitor on Highboy; the configured PSK authenticates automatically.")
         if args.ble:
             import pc_monitor_ble
             return pc_monitor_ble.run(args.device, lambda stream, name, psk: monitor_session(

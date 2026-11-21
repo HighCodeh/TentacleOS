@@ -36,11 +36,8 @@ static const char *TAG = "HOST_LINK_SEC";
 #define HL_NVS_NAMESPACE "hostlink"
 #define HL_NVS_PSK_KEY   "psk"
 
-#define HL_PAIR_WINDOW_MS    60000
 #define HL_PAIR_PENDING_MS   30000
 #define HL_US_PER_MS         1000
-#define HL_CODE_MODULUS      1000000
-#define HL_CODE_BITS         8
 #define HL_PUBLIC_OFFSET     (1 + HOST_LINK_NONCE_SIZE)
 #define HL_HELLO_PREFIX_SIZE (HL_PUBLIC_OFFSET + HOST_LINK_ECDH_SIZE)
 #define HL_ACK_PREFIX_SIZE   (HL_PUBLIC_OFFSET + HOST_LINK_ECDH_SIZE + HOST_LINK_DEVICE_ID_SIZE)
@@ -56,11 +53,8 @@ static const char HL_INFO_D2A[] = "tos-host-v2-d2a";
 
 static const char HL_CLIENT_PROOF[] = "tos-host-v2-client";
 static const char HL_SERVER_PROOF[] = "tos-host-v2-server";
-static const char HL_INFO_CODE[] = "tos-host-v2-code";
-static int64_t s_window_deadline;
 static int64_t s_pending_deadline;
-static uint32_t s_next_token;
-static host_link_pairing_t s_pairing;
+static bool s_is_pending;
 
 _Static_assert(HOST_LINK_ECDH_SIZE == crypto_scalarmult_curve25519_BYTES,
                "X25519 wire size mismatch");
@@ -113,7 +107,6 @@ static esp_err_t persist_psk(void) {
 
 static esp_err_t sec_init_locked(void) {
   host_link_sec_reset();
-  s_window_deadline = 0;
   if (sodium_init() < 0) {
     ESP_LOGE(TAG, "Cannot initialize pairing cryptography");
     return ESP_FAIL;
@@ -150,7 +143,7 @@ static esp_err_t sec_init_locked(void) {
 
 static void sec_reset_locked(void) {
   __atomic_store_n(&s_authed, false, __ATOMIC_RELEASE);
-  memset(&s_pairing, 0, sizeof(s_pairing));
+  s_is_pending = false;
   s_pending_deadline = 0;
   s_rx_valid = false;
   s_rx_counter = 0;
@@ -184,7 +177,7 @@ derive_key(const uint8_t *secret, const uint8_t *transcript, const char *label, 
 }
 
 static void expire_pairing(void) {
-  if (s_pairing.token != 0 && esp_timer_get_time() >= s_pending_deadline)
+  if (s_is_pending && esp_timer_get_time() >= s_pending_deadline)
     sec_reset_locked();
 }
 
@@ -192,7 +185,7 @@ static esp_err_t sec_hello_locked(
     const uint8_t *payload, uint16_t plen, uint8_t *ack_out, size_t ack_cap, size_t *out_len) {
   if (out_len != NULL)
     *out_len = 0;
-  if (!s_psk_loaded || esp_timer_get_time() >= s_window_deadline)
+  if (!s_psk_loaded)
     return ESP_ERR_INVALID_STATE;
   if (payload == NULL || plen != HOST_LINK_HELLO_SIZE || payload[0] != HOST_LINK_PAIR_VERSION ||
       ack_out == NULL || out_len == NULL)
@@ -207,7 +200,6 @@ static esp_err_t sec_hello_locked(
   esp_err_t error = ESP_FAIL;
   uint8_t private_key[HOST_LINK_ECDH_SIZE] = {0};
   uint8_t secret[HOST_LINK_ECDH_SIZE] = {0};
-  uint8_t code_key[HOST_LINK_KEY_SIZE] = {0};
   uint8_t transcript[HL_TRANSCRIPT_SIZE];
   uint8_t ack[HOST_LINK_HELLO_ACK_SIZE] = {HOST_LINK_PAIR_VERSION};
   esp_fill_random(private_key, sizeof(private_key));
@@ -222,25 +214,16 @@ static esp_err_t sec_hello_locked(
   if (!transcript_proof(
           HL_SERVER_PROOF, transcript, sizeof(transcript), ack + HL_ACK_PREFIX_SIZE) ||
       derive_key(secret, transcript, HL_INFO_A2D, s_k_a2d) != 0 ||
-      derive_key(secret, transcript, HL_INFO_D2A, s_k_d2a) != 0 ||
-      derive_key(secret, transcript, HL_INFO_CODE, code_key) != 0)
+      derive_key(secret, transcript, HL_INFO_D2A, s_k_d2a) != 0)
     goto cleanup;
-  uint32_t code = 0;
-  for (uint32_t index = 0; index < sizeof(code); ++index)
-    code |= (uint32_t)code_key[index] << (index * HL_CODE_BITS);
-  if (++s_next_token == 0)
-    ++s_next_token;
-  s_pairing = (host_link_pairing_t){.token = s_next_token, .code = code % HL_CODE_MODULUS};
+  s_is_pending = true;
   s_pending_deadline = esp_timer_get_time() + (int64_t)HL_PAIR_PENDING_MS * HL_US_PER_MS;
-  if (s_pending_deadline > s_window_deadline)
-    s_pending_deadline = s_window_deadline;
   memcpy(ack_out, ack, sizeof(ack));
   *out_len = sizeof(ack);
   error = ESP_OK;
 cleanup:
   mbedtls_platform_zeroize(private_key, sizeof(private_key));
   mbedtls_platform_zeroize(secret, sizeof(secret));
-  mbedtls_platform_zeroize(code_key, sizeof(code_key));
   if (error != ESP_OK)
     sec_reset_locked();
   return error;
@@ -319,59 +302,6 @@ esp_err_t host_link_sec_init(void) {
   return err;
 }
 
-void host_link_sec_pairing_window(bool is_open) {
-  if (s_crypto_lock == NULL)
-    return;
-  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
-  s_window_deadline =
-      is_open ? esp_timer_get_time() + (int64_t)HL_PAIR_WINDOW_MS * HL_US_PER_MS : 0;
-  if (s_pairing.token != 0)
-    sec_reset_locked();
-  xSemaphoreGiveRecursive(s_crypto_lock);
-}
-
-void host_link_sec_pairing_refresh(void) {
-  if (s_crypto_lock == NULL)
-    return;
-  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
-  expire_pairing();
-  // Extend only an explicitly opened window, never an active transcript or session.
-  if (s_window_deadline != 0 && !s_authed && s_pairing.token == 0)
-    s_window_deadline = esp_timer_get_time() + (int64_t)HL_PAIR_WINDOW_MS * HL_US_PER_MS;
-  xSemaphoreGiveRecursive(s_crypto_lock);
-}
-
-bool host_link_sec_pairing_get(host_link_pairing_t *out) {
-  if (out == NULL)
-    return false;
-  memset(out, 0, sizeof(*out));
-  if (s_crypto_lock == NULL)
-    return false;
-  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
-  expire_pairing();
-  *out = s_pairing;
-  out->can_pair = esp_timer_get_time() < s_window_deadline;
-  xSemaphoreGiveRecursive(s_crypto_lock);
-  return out->token != 0;
-}
-
-esp_err_t host_link_sec_pairing_confirm(uint32_t token, bool is_approved) {
-  if (s_crypto_lock == NULL)
-    return ESP_ERR_INVALID_STATE;
-  xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
-  expire_pairing();
-  esp_err_t error = ESP_ERR_INVALID_STATE;
-  if (token != 0 && token == s_pairing.token) {
-    if (is_approved)
-      s_pairing.is_approved = true;
-    else
-      sec_reset_locked();
-    error = ESP_OK;
-  }
-  xSemaphoreGiveRecursive(s_crypto_lock);
-  return error;
-}
-
 bool host_link_sec_finish(const uint8_t *span,
                           size_t length,
                           const uint8_t *mac,
@@ -381,11 +311,11 @@ bool host_link_sec_finish(const uint8_t *span,
   xSemaphoreTakeRecursive(s_crypto_lock, portMAX_DELAY);
   expire_pairing();
   uint8_t expected[HL_MAC_SIZE];
-  bool can_finish = (s_authed || (s_pairing.token != 0 && s_pairing.is_approved)) &&
+  bool can_finish = (s_authed || s_is_pending) &&
                     hmac_trunc(s_k_a2d, sizeof(s_k_a2d), span, length, expected) &&
                     ct_equal(expected, mac, sizeof(expected));
   if (can_finish && !s_authed) {
-    memset(&s_pairing, 0, sizeof(s_pairing));
+    s_is_pending = false;
     s_pending_deadline = 0;
     s_rx_counter = counter;
     s_rx_valid = true;

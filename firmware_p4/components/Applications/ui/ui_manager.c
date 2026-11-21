@@ -488,6 +488,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_ble_spam_stop;
     case SCREEN_BLE_FLOOD:
       return ui_ble_flood_stop;
+    case SCREEN_COMPANION_PAIRING:
+      return ui_companion_pairing_stop;
     case SCREEN_PC_MONITOR:
       return pc_monitor_ui_stop;
     case SCREEN_WIFI_ESP_SCAN:

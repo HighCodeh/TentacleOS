@@ -24,7 +24,7 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 
 - Companion app implementation guide: [`app-guide.md`](./app-guide.md)
 - Wire spec: [`protocol.md`](./protocol.md)
-- Ephemeral pairing and physical confirmation: [`pairing.md`](./pairing.md)
+- PSK authentication and ephemeral keys: [`pairing.md`](./pairing.md)
 - WiFi command reference (per-command payloads): [`wifi-commands.md`](./wifi-commands.md)
 - Bluetooth command reference (per-command payloads): [`bluetooth-commands.md`](./bluetooth-commands.md)
 - System command reference (housekeeping, data pipe, OTA): [`system-commands.md`](./system-commands.md)
@@ -78,11 +78,11 @@ shared by app, P4 and C5. Types: `CMD`, `RESP`, `STREAM`, `LOG`, `HELLO`,
 ## Security (P4 only)
 
 The [v2 pairing contract](pairing.md) combines the existing out-of-band PSK with
-fresh X25519 keys and transcript-bound HKDF direction keys. Every connection
-requires a matching six-digit code and physical OK on the Companion screen,
-followed by signed FINISH/READY. Pending keys do not authorize commands or logs.
-The window and pending exchange expire; cancellation invalidates the transport
-generation. Both USB reference clients verify response MACs and replay counters.
+fresh X25519 keys and transcript-bound HKDF direction keys. The PSK is the only
+user credential; signed FINISH/READY completes automatically without a PIN,
+physical OK or pairing window. Pending keys expire after 30 seconds and do not
+authorize commands or logs. Both USB reference clients verify response MACs and
+replay counters.
 
 The HMAC frame envelope remains version 1 and provides integrity; payloads remain
 visible on the underlying transport. BLE Secure Connections is separate.
@@ -175,7 +175,7 @@ the wire spec; the end-to-end (app↔P4↔C5) picture is in the unified overview
 | `host_link.c` | Core: reassembly, frame encode/decode, dispatch, single-session arbitration, `emit_frame` (RESP/LOG/STREAM). |
 | `host_link_cdc.c` | USB CDC-ACM transport (TinyUSB composite). Claims the session on DTR; drops bytes when no app is attached. |
 | `host_link_ble.c` | BLE transport relay: chunks frames to the C5 (`SPI_ID_HOST_TX`), reassembles inbound (`SPI_ID_HOST_RX` stream), drives the C5 GATT on/off and connection status. |
-| `host_link_sec.c` | Security: PSK in NVS, ephemeral X25519, physical confirmation, HKDF direction keys and MAC/replay checks; libsodium + public PSA Crypto. |
+| `host_link_sec.c` | Security: PSK in NVS, ephemeral X25519, automatic key confirmation, HKDF direction keys and MAC/replay checks; libsodium + public PSA Crypto. |
 | `host_link_log.c` | P4 log tee (`esp_log_set_vprintf`): ANSI strip, level, drop-oldest ring, worker → `LOG` frames `source=P4`. |
 | `host_link_c5log.c` | Consumes the `SPI_ID_SYSTEM_LOG` stream from the C5 → `LOG` frames `source=C5`. |
 | `host_link_files.c` | P4-local `FILE_*` ops over `/assets`, `/littlefs`, `/sdcard` (POSIX VFS), path-sandboxed, chunked. |
@@ -198,9 +198,9 @@ After authentication, `process_frame` routes each `CMD` by id:
 - Only `HELLO` is accepted before keys exist. Every other inbound frame must be
   authenticated (valid MAC, fresh counter) or it is dropped + logged.
 - Per-direction HKDF keys bind both ephemeral public keys, nonces and device
-  identity; physical confirmation and signed FINISH are required. See [pairing](pairing.md).
-- The PSK is provisioned out-of-band: shown as a QR + hex on the P4 pairing
-  screen (Settings → PAIRING) and via the `hostlink psk` console command.
+  identity; a valid PSK proof and signed FINISH are required. See [pairing](pairing.md).
+- The PSK is provisioned out-of-band: shown as hex on the P4 Companion
+  screen (Bluetooth → Companion) and via the `hostlink psk` console command.
 - BLE bonding is "just works" (LE Secure Connections, no MITM) on top of the PSK
   envelope, which is the real trust boundary.
 

@@ -1,3 +1,20 @@
+<!--
+Copyright (c) 2025 HIGH CODE LLC
+
+TentacleOS is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+TentacleOS is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 # Companion app implementation guide
 
 How a desktop/mobile companion app talks to a TentacleOS device. This is the
@@ -82,7 +99,7 @@ the MAC itself), truncated to the first 16 bytes.
 | `0x04` | `LOG` | device → app | `[source u8][level u8][utf-8 text]` |
 | `0x10` | `HELLO` | app → device | handshake (unauthenticated) |
 | `0x11` | `HELLO_ACK` | device → app | transcript proof (unauthenticated envelope) |
-| `0x12` | `HELLO_FINISH` | app → device | signed ephemeral-key confirmation after device approval |
+| `0x12` | `HELLO_FINISH` | app → device | signed ephemeral-key confirmation using the PSK-derived session key |
 | `0x13` | `HELLO_READY` | device → app | signed session activation |
 
 `category`/`op` are the same ids the firmware uses internally
@@ -109,12 +126,12 @@ loop:
 
 ## 4. Pairing and handshake
 
-Use the [handshake v2 contract](pairing.md) on every USB/BLE connection. Open
-Companion on the device, obtain its PSK, exchange fresh X25519 public keys and
-PSK-authenticated transcript proofs, compare the six-digit code and wait for
-device OK plus signed FINISH/READY. The reference Python clients implement it.
-Old PSK-only HELLO payloads are rejected. Frame envelope version remains 1.
-Session keys remain provisional before physical approval and verified FINISH;
+Use the [handshake v2 contract](pairing.md) on every USB/BLE connection. Obtain
+the device PSK once from Companion, exchange fresh X25519 public keys and
+PSK-authenticated transcript proofs, then immediately send signed FINISH and
+verify READY. There is no PIN, physical OK or screen-controlled pairing window.
+The reference Python clients implement it. Legacy HELLO payloads remain rejected;
+the frame envelope remains version 1. Keys are provisional before verified FINISH;
 no command may be issued before READY. Validate all reply MACs and replay counters.
 
 ## 5. Authenticated frames, counters, replay
@@ -249,8 +266,8 @@ data is written in place at `offset` (file created if absent). Download = repeat
 ## 11. Connect sequence (summary)
 
 1. Open the transport (USB serial or BLE GATT + subscribe to TX notify).
-2. Open Companion on the device; perform [v2 pairing](pairing.md), compare codes,
-   press device OK and verify signed FINISH/READY before sending commands.
+2. Perform [v2 authentication](pairing.md) with the PSK and verify signed
+   FINISH/READY before sending commands; no device confirmation is needed.
 3. Read `SYSTEM_DEVICE_STATE` / `SYSTEM_VERSION`; check firmware compatibility.
 4. Issue authenticated `CMD`s; handle `RESP`, `STREAM`, and `LOG` frames as they
    arrive. Heartbeat any active streaming session every ~2 s.
@@ -266,6 +283,6 @@ data is written in place at `offset` (file created if absent). Download = repeat
   directional labels as defined in [pairing](pairing.md), 32-byte outputs.
 - Client/server proofs use distinct domain labels and the full fixed transcripts.
 - Per-frame MAC input is `frame[2 .. 10+LEN]` (header-after-MAGIC plus BODY).
-- Require physical confirmation plus signed FINISH/READY; reject legacy HELLO.
+- Require PSK proofs plus signed FINISH/READY; reject legacy HELLO.
 - Verify MACs in constant time. Never log or persist the PSK or session keys in
   plaintext.

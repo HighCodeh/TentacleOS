@@ -43,18 +43,6 @@ extern "C" {
 #define HOST_LINK_HELLO_SIZE   (1 + HOST_LINK_NONCE_SIZE + HOST_LINK_ECDH_SIZE + HOST_LINK_MAC_SIZE)
 #define HOST_LINK_HELLO_ACK_SIZE (HOST_LINK_HELLO_SIZE + HOST_LINK_DEVICE_ID_SIZE)
 
-typedef struct {
-  uint32_t token;
-  uint32_t code;
-  bool is_approved;
-  bool can_pair;
-} host_link_pairing_t;
-
-void host_link_sec_pairing_window(bool is_open);
-/* Refresh an open waiting window without resetting a pending code or authenticated session. */
-void host_link_sec_pairing_refresh(void);
-bool host_link_sec_pairing_get(host_link_pairing_t *out);
-esp_err_t host_link_sec_pairing_confirm(uint32_t token, bool is_approved);
 bool host_link_sec_finish(const uint8_t *span, size_t length, const uint8_t *mac, uint32_t counter);
 
 /**
@@ -63,7 +51,7 @@ bool host_link_sec_finish(const uint8_t *span, size_t length, const uint8_t *mac
  */
 esp_err_t host_link_sec_init(void);
 
-/** @brief True after physical approval and verified ephemeral key confirmation. */
+/** @brief True after PSK authentication and verified ephemeral key confirmation. */
 bool host_link_sec_is_authenticated(void);
 
 /** @brief Drop the current session (e.g. on transport disconnect). */
@@ -72,8 +60,8 @@ void host_link_sec_reset(void);
 /**
  * @brief Process an inbound HELLO payload and build the HELLO_ACK payload.
  *
- * Derives provisional X25519/PSK transcript-bound keys. Device confirmation and
- * a signed FINISH activate the session. Resets the inbound
+ * Derives provisional X25519/PSK transcript-bound keys. A signed FINISH
+ * activates the session without a PIN or device-side approval. Resets the inbound
  * counter baseline. The caller emits @p ack_out as an unauthenticated
  * HELLO_ACK frame.
  *

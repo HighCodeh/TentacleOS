@@ -465,6 +465,15 @@ Artwork and other custom gradient renderers are not changed by this helper.
 `tools/highboy/tests/test_ui_gradient.py` checks dark-ramp average color, endpoints,
 height bounds, PSRAM allocation failure, registration failure and deletion ownership.
 
+## Companion connection screens
+
+Companion displays the provisioning PSK and link status; PC Monitor shows PC
+telemetry. Both use [automatic PSK authentication](../host_link/pairing.md),
+without a comparison PIN or OK approval. Screen close hooks release timers and
+an unlinked BLE relay started by that screen, while authenticated connections
+survive navigation. PC Monitor's OK action only retries an unavailable BLE relay.
+USB authentication does not require either screen to remain open.
+
 ## Theme path limits
 
 Selecting a different theme asks for APPLY or CANCEL before changing the stored

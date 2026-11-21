@@ -556,6 +556,10 @@ private production key or eFuse was accessed.
 
 ## Companion ephemeral pairing build record
 
+Historical validation of the original confirmation policy. The current
+[PSK-only user flow](../host_link/pairing.md) removes the PIN/device OK while
+retaining the v2 cryptographic exchange. The measurements below are historical.
+
 Validated on 2026-10-19 after automatic hook formatting, firmware `a18fbe7d`.
 Both pinned SDK builds and the complete offline suite passed. Paired SPI v8,
 all eight C5 memory settings and the original partition sizes are unchanged.

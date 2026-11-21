@@ -24,7 +24,6 @@
 #include "host_pc_monitor.h"
 #include "st7789.h"
 #include "ui_chrome.h"
-#include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
@@ -49,7 +48,6 @@ static lv_obj_t *s_values[METRIC_COUNT];
 static lv_obj_t *s_bars[METRIC_COUNT];
 static lv_obj_t *s_addresses;
 static lv_timer_t *s_timer;
-static uint32_t s_pairing_token;
 static bool s_started_ble;
 static bool s_ble_failed;
 
@@ -58,7 +56,6 @@ static void refresh(lv_timer_t *timer);
 static void handle_input(const input_event_t *event, void *ctx);
 
 void pc_monitor_ui_open(void) {
-  host_link_sec_pairing_window(true);
   s_started_ble = !host_link_ble_is_active();
   s_ble_failed = false;
   if (s_started_ble) {
@@ -66,14 +63,13 @@ void pc_monitor_ui_open(void) {
     if (s_ble_failed)
       ESP_LOGW(TAG, "BLE unavailable; retry with OK or use USB");
   }
-  s_pairing_token = 0;
   s_screen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_set_style_border_width(s_screen, 0, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   ui_chrome_header(s_screen, "PC MONITOR", "/assets/icons/monitoring.bin");
-  ui_chrome_footer(s_screen, "OK pair  UP/DOWN scroll  BACK");
+  ui_chrome_footer(s_screen, "OK retry BLE  UP/DOWN scroll  BACK");
   s_content = lv_obj_create(s_screen);
   lv_obj_set_size(s_content, lv_pct(100), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
   lv_obj_set_pos(s_content, 0, UI_CHROME_HEADER_H);
@@ -106,10 +102,7 @@ void pc_monitor_ui_stop(void) {
     lv_timer_delete(s_timer);
     s_timer = NULL;
   }
-  host_link_sec_pairing_window(false);
-  s_pairing_token = 0;
   if (!host_link_sec_is_authenticated()) {
-    host_link_reset_rx();
     if (s_started_ble)
       host_link_ble_stop();
   }
@@ -127,27 +120,14 @@ static lv_obj_t *make_label(const char *text) {
 
 static void refresh(lv_timer_t *timer) {
   (void)timer;
-  host_link_sec_pairing_refresh();
-  uint32_t previous_token = s_pairing_token;
-  host_link_pairing_t pairing = {0};
-  bool has_pairing = host_link_sec_pairing_get(&pairing);
-  s_pairing_token = has_pairing ? pairing.token : 0;
-  if (has_pairing && pairing.token != previous_token)
-    lv_obj_scroll_to_y(s_content, 0, LV_ANIM_OFF);
   host_pc_monitor_snapshot_t sample;
   if (!host_pc_monitor_get(&sample)) {
-    if (has_pairing)
-      lv_label_set_text_fmt(s_status,
-                            "Compare code: %06lu\n%s",
-                            (unsigned long)pairing.code,
-                            pairing.is_approved ? "Confirming..." : "OK approve / BACK cancel");
-    else
-      lv_label_set_text(s_status,
-                        host_link_sec_is_authenticated()
-                            ? "Waiting for PC data / stale"
-                            : (s_ble_failed
-                                   ? "BLE unavailable / OK retry\nUSB remains available"
-                                   : "USB / BLE: ready to pair\nSelect this Highboy in the CLI"));
+    lv_label_set_text(s_status,
+                      host_link_sec_is_authenticated()
+                          ? "Waiting for PC data / stale"
+                          : (s_ble_failed
+                                 ? "BLE unavailable / OK retry\nUSB remains available"
+                                 : "USB / BLE: connect with PSK\nSelect this Highboy in the CLI"));
     lv_label_set_text(s_values[CPU_INDEX], "CPU --");
     lv_label_set_text(s_values[RAM_INDEX], "RAM --");
     lv_label_set_text(s_values[DISK_INDEX], "DISK --");
@@ -189,15 +169,8 @@ static void handle_input(const input_event_t *event, void *ctx) {
   } else if (event->action == INPUT_ACTION_PRESS && event->button == INPUT_BTN_BACK) {
     ui_switch_screen(SCREEN_DEV_MENU);
   } else if (event->action == INPUT_ACTION_PRESS && event->button == INPUT_BTN_OK) {
-    if (s_pairing_token != 0) {
-      if (host_link_sec_pairing_confirm(s_pairing_token, true) == ESP_OK)
-        ui_feedback(UI_FB_SELECT);
-    } else if (!host_link_sec_is_authenticated()) {
-      host_link_sec_pairing_window(true);
-      if (s_ble_failed) {
-        s_ble_failed = host_link_ble_init() != ESP_OK || host_link_ble_start() != ESP_OK;
-      }
-    }
+    if (!host_link_sec_is_authenticated() && s_ble_failed)
+      s_ble_failed = host_link_ble_init() != ESP_OK || host_link_ble_start() != ESP_OK;
     refresh(NULL);
   }
 }

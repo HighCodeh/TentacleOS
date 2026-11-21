@@ -15,35 +15,38 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# Companion ephemeral pairing (handshake v2)
+# Companion PSK authentication (handshake v2)
 
-Open **Companion** on the device, obtain its existing PSK and start the client.
-Both sides show a six-digit code. Compare them and press the device OK button to
-allow the connection; BACK rejects it. Every new USB or BLE connection requires
-this device-side approval. The pairing window lasts 60 seconds and each pending
-exchange expires within 30 seconds, bounded by that window. Reopen Companion to
-start a new window. Closing an unlinked pairing screen also invalidates the host
-session generation, including a concurrent FINISH; a completed linked session
-can remain active after leaving the screen. After confirmed USB pairing, the
-UI requests BLE relay shutdown, leaving the C5 available for central GATT and
-other Bluetooth commands; a BLE-owned session keeps its relay running.
+The device PSK is the only user credential required for a USB or BLE Host Link
+connection. There is no confirmation PIN, code comparison, device OK press or
+screen-controlled pairing window. Obtain the existing PSK from **Bluetooth >
+Companion** or `hostlink psk`, then configure it in the client. The selected
+transport must still be enabled and available; BLE requires its companion relay
+running. Authentication is independent of the visible screen.
 
-The persisted device PSK remains the out-of-band identity. A fresh X25519 secret
-and nonce are generated for every accepted HELLO; ephemeral secrets are never
-stored in NVS. Session MAC keys combine ECDH, PSK and the complete transcript.
-Private/shared scalar material is cleared before HELLO handling returns; reset,
-rejection and expiry invalidate provisional keys. Low-order/zero shared-secret
-inputs are rejected by libsodium. The implementation follows the X25519
-primitive in [RFC 7748](https://www.rfc-editor.org/rfc/rfc7748) and the
+Companion displays the provisioning PSK and connection status. PC Monitor shows
+telemetry or its waiting/error state; OK only retries an unavailable BLE service.
+Leaving either screen releases its status timer and an unlinked BLE relay it
+started. It does not invalidate an unrelated USB handshake. An authenticated
+session can remain active after navigation. After USB authentication, Companion
+requests BLE relay shutdown; a BLE-owned session keeps its relay running.
+
+The persisted PSK remains the out-of-band identity. A fresh X25519 secret and
+nonce are generated for every accepted HELLO; ephemeral secrets are never stored
+in NVS. Session MAC keys combine ECDH, PSK and the complete transcript.
+Private/shared scalar material is cleared before HELLO handling returns. Reset,
+rekey and handshake expiry invalidate provisional keys. Low-order/zero shared
+secrets are rejected by libsodium. The implementation uses X25519 as specified in
+[RFC 7748](https://www.rfc-editor.org/rfc/rfc7748) and follows the
 [libsodium public-key binding guidance](https://doc.libsodium.org/advanced/scalar_multiplication).
-This is the firmware's application handshake, not a claim of TLS/Noise compliance.
+This application handshake is not a claim of TLS/Noise compliance.
 
 ## Wire contract
 
-The existing `HB` envelope retains **version 1** and its little-endian counters.
-Its HELLO payload now requires **handshake version 2**; old PSK-only payloads are
-rejected. Both initial messages have flags=0 and category/op=0. Integer and byte
-lengths below are fixed.
+The existing `HB` envelope retains **version 1** and little-endian counters.
+HELLO requires **handshake version 2**. Removing device approval does not change
+packet sizes, proof labels or directional keys, and does not restore the legacy
+17-byte HELLO. Both initial messages have flags=0 and category/op=0.
 
 - HELLO type `0x10`: `[2][client_nonce:16][client_X25519_public:32][client_proof:16]`
   (65 bytes). Define `C` as its first 49 bytes.
@@ -52,95 +55,78 @@ lengths below are fixed.
 - `client_proof = HMAC-SHA256(PSK, "tos-host-v2-client" || C)[:16]`.
 - `server_proof = HMAC-SHA256(PSK, "tos-host-v2-server" || T)[:16]`.
 
-The client proof is checked before performing X25519. Given shared secret `Q`,
-derive each 32-byte value with HKDF-SHA256, `salt=PSK`, `IKM=Q`, and
-`info=label||T`. Labels are `tos-host-v2-a2d`, `tos-host-v2-d2a`, and
-`tos-host-v2-code`. Labels contain no trailing NUL. Both public keys, both nonces,
-handshake version and device identity are bound by the proofs and derivation.
-The displayed code is the little-endian first u32 of the code value modulo
-1,000,000, padded to six digits. The app-to-device and device-to-app MAC keys
-have distinct labels.
+The client proof is checked before X25519. Given shared secret `Q`, derive each
+32-byte direction key with HKDF-SHA256, `salt=PSK`, `IKM=Q`, and `info=label||T`.
+Labels are `tos-host-v2-a2d` and `tos-host-v2-d2a`, without trailing NUL. Both
+public keys, both nonces, handshake version and device identity are bound by
+the proofs and derivation. The former `tos-host-v2-code` value is no longer
+computed or displayed; it was never part of a wire payload.
 
-HELLO_ACK establishes provisional keys only. The device UI holds a monotonically
-changing token for the displayed exchange. OK approves exactly that token;
-replacement, rejection, expiry or cancellation makes an old token unusable.
-Neither commands nor application/log output are authorized by provisional keys.
+HELLO_ACK establishes provisional keys only. Commands and application/log output
+remain unauthorized until key confirmation. The client immediately sends
+**HELLO_FINISH `0x12`**, flags=AUTH, category/op=0, empty payload and counter=1,
+with the truncated envelope MAC under `K_a2d`. The device requires a valid MAC
+and an exchange younger than 30 seconds, then activates authentication and sends
+**HELLO_READY `0x13`**, flags=AUTH, category/op=0 and empty payload under `K_d2a`.
+This is automatic cryptographic confirmation, with no user interaction.
 
-After comparing codes, the client sends **HELLO_FINISH `0x12`**, flags=AUTH,
-category/op=0, empty payload and counter=1, with the existing truncated envelope
-MAC under `K_a2d`. The device requires physical approval, an unexpired exchange
-and a valid FINISH MAC, then activates authentication and sends **HELLO_READY
-`0x13`**, flags=AUTH, category/op=0 and empty payload, under `K_d2a`.
-READY is serialized before other authenticated output. The first READY normally
-uses counter=1 (HELLO_ACK consumed outbound counter=0). Subsequent client
-commands start at counter=2 and all directional counters increase strictly.
+READY is serialized before other authenticated output. Its first counter is
+normally 1 (HELLO_ACK consumed outbound counter=0). Subsequent client commands
+start at counter=2; directional counters increase strictly. A correctly MACed
+FINISH repeated at counter=1 is idempotent: the device can resend READY with a
+fresh outbound counter without resetting the command replay baseline. FINISH
+never dispatches a command. Other repeated inbound counters are rejected.
 
-A repeated, correctly MACed FINISH at counter=1 is idempotent: the device may
-resend READY with a fresh outbound counter without resetting the command replay
-baseline. This handles a lost READY. No command is dispatched by FINISH.
-Other repeated inbound counters are rejected. No downgrade path accepts the
-old PSK-only handshake.
+An expired exchange cannot finish. A fresh HELLO can start immediately without
+reopening a screen. A replacement HELLO uses fresh device key material, so old
+FINISH messages cannot complete the replacement exchange. Disconnect, transport
+ownership changes and PSK regeneration retain the existing session invalidation.
+An established session does not expire with the 30-second handshake deadline.
 
-Frame payloads retain the existing HMAC integrity envelope and are visible on
-the underlying transport. This change adds ephemeral integrity keys and device
-approval; payload confidentiality depends on the transport and is not provided
-by this envelope. The PSK authorizes the same companion command set as before.
+Frames retain the HMAC integrity envelope and are visible on the transport;
+payload confidentiality is not provided by this envelope. The PSK authorizes the
+same companion command set. BLE bonding and the separate Muse protocol are
+unchanged.
 
 ## Reference clients and dependencies
 
-`tools/host_link/cli.py` and `hb_push.py` use `hb_pairing.py` for the exchange:
+`tools/host_link/cli.py` and `hb_push.py` share `hb_pairing.py`; PC Monitor also
+uses that handshake over USB and BLE:
 
 ```sh
 python3 -m pip install -r tools/host_link/requirements.txt
 python3 tools/host_link/cli.py system ping
 ```
 
-The client uses `cryptography` for X25519 and stdlib HMAC/HKDF. Both clients
-validate authenticated replies, including their MAC, frame bounds and monotonic
-counter, before returning them to command handlers. They print the comparison
-code and wait for READY; commands are not sent before device confirmation.
-They use monotonic timeout clocks. Python does not guarantee explicit erasure of
-all immutable private-key copies; OS process/key handling remains relevant.
+Clients use `cryptography` X25519 and stdlib HMAC/HKDF. They validate the device
+PSK proof and authenticated replies, including MAC, bounds and monotonic counter,
+before returning them to command handlers. They send FINISH immediately after
+ACK and wait for verified READY before commands. No comparison code is printed.
+Timeout clocks are monotonic. Python does not guarantee explicit erasure of all
+immutable private-key copies.
 
 ## Validation
 
-`python3 tools/host_link/test_pairing.py` compiles the production security code
-with ASan/UBSan, real libsodium X25519 and real OpenSSL HMAC/HKDF adapters.
-Only NVS, RTOS, hardware RNG/MAC identity and serial/physical interaction are
-fixtures. It checks the RFC 7748 public-key vector, proof/key agreement, low-order
-input rejection, token replacement, physical approval, denial, expiry, reset,
-reflection/replay rejection and failed PSK persistence. A shared-library test
-interoperates with the actual Python cryptography client. Both actual USB tools
-complete the exchange against that C backend and reject forged/replayed replies.
-The real UI OK/BACK handler is also compiled and exercised.
+`python3 tools/host_link/test_pairing.py` compiles production security with
+ASan/UBSan, real libsodium X25519 and real OpenSSL HMAC/HKDF adapters. NVS, RTOS,
+hardware RNG/MAC identity and serial transport are fixtures. It checks RFC 7748
+vectors, PSK/transcript proofs, low-order rejection, automatic authentication
+without a screen/window, provisional command/output rejection, rekey, expiry,
+reset, reflection/replay rejection and PSK persistence/rotation.
 
-Host test dependencies are a C compiler, OpenSSL/libsodium development libraries,
-`pkg-config` and the Python requirements above. Optional
-`HOST_LINK_TEST_CFLAGS` / `HOST_LINK_TEST_LDFLAGS` select an existing host crypto
-build instead of pkg-config. CI installs those host dependencies; firmware still
-uses the unchanged vendored libsodium and ESP-IDF mbedTLS.
+A shared-library test interoperates with Python cryptography. Both actual USB
+clients complete the C handshake without simulated button approval, recover a
+lost READY and reject forged/replayed responses. The production core HELLO
+handler is tested with valid v2, wrong PSK and malformed/legacy payloads. The
+real Companion input/stop handlers are exercised with UI/transport fixtures for
+BACK cleanup, idempotent stop and preserving authenticated sessions.
 
-These tests do not prove physical button operation, USB/BLE interoperability,
-RNG entropy quality or resistance to hardware fault injection. Paired-device
-acceptance remains in the cross-interface matrix (#156). Muse pairing remains
-its separate protocol and is unchanged.
+Host dependencies are a C compiler, OpenSSL/libsodium development libraries,
+`pkg-config` and the Python requirements above. Optional `HOST_LINK_TEST_CFLAGS`
+and `HOST_LINK_TEST_LDFLAGS` select a host crypto build. Firmware dependencies
+remain managed libsodium and ESP-IDF crypto.
 
-## PC Monitor waiting screen
-
-PC Monitor refreshes an explicitly opened waiting window while visible using
-`host_link_sec_pairing_refresh()`. This operation is serialized with HELLO and
-confirmation: it never clears an active transcript, extends a pending code
-deadline, reopens a closed window, or resets an authenticated session. The usual
-30-second pending approval expiry and physical confirmation remain enforced.
-Leaving the screen closes the window. Companion retains its existing behavior.
-
-### Core HELLO validation
-
-The core handler validates the payload with `HOST_LINK_HELLO_SIZE` (65 bytes)
-and `HOST_LINK_PAIR_VERSION` (2) before entering the security implementation.
-The outer Host Link envelope remains version 1; its version must not be used
-to validate the pairing payload. A complete v2 HELLO is 78 bytes on the wire.
-Legacy 17-byte v1 payloads remain rejected. The host regression suite exercises
-the production core HELLO handler with real cryptography and verifies ACK
-generation and the pending physical confirmation code, in addition to testing
-the security API directly.
+These host tests do not prove physical USB/BLE interoperability or RNG entropy
+quality. Device acceptance must cover both transports, reconnect, wrong PSK,
+and navigation during connection. Only P4 owns this authentication policy; no
+C5 protocol or firmware change is required for removing the PIN.

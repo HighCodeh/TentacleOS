@@ -38,7 +38,7 @@ Also supports pulling and listing:
     python hb_push.py --ls   /sdcard
 
 Requires: pip install -r tools/host_link/requirements.txt.
-Open Companion on the device and confirm the matching code for each connection.
+Connections authenticate automatically with the PSK; no device PIN or OK is required.
 """
 
 import argparse

@@ -131,7 +131,7 @@ INVALID_ARG, contention to BUSY and native/verification/cleanup failure to ERROR
 The worker owns the complete bounded operation and retains failed field/power
 cleanup; STATUS/RECOVER and disconnect cleanup use that same state.
 
-CLI commands after physical companion approval:
+CLI commands after automatic PSK authentication:
 
 ```text
 nfc read-block 4 FFFFFFFFFFFF
