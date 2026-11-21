@@ -25,14 +25,17 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 
-#define DEFAULT_LIMIT 64
-#define KEY_COUNT     32
-#define MAP_SIZE      45
-#define HEX_COUNT     16
-#define FIELD_Y       34
-#define FIELD_H       36
-#define KEYS_Y        96
-#define FOOTER_H      24
+#define DEFAULT_LIMIT         64
+#define KEY_COUNT             32
+#define MAP_SIZE              45
+#define HEX_COUNT             16
+#define QWERTY_TOP_ROW_COUNT  10
+#define QWERTY_HOME_ROW_COUNT 9
+#define QWERTY_LETTER_COUNT   26
+#define FIELD_Y               34
+#define FIELD_H               36
+#define KEYS_Y                96
+#define FOOTER_H              24
 
 static const char *TAG = "KEYBOARD_UI";
 static lv_obj_t *s_screen, *s_keys, *s_text, *s_count, *s_title;
@@ -43,8 +46,8 @@ static unsigned s_page;
 static char s_chars[KEY_COUNT][2];
 static const char *s_map[MAP_SIZE];
 static lv_buttonmatrix_ctrl_t s_controls[KEY_COUNT + 7];
-static const char *const s_pages[] = {"abcdefghijklmnopqrstuvwxyz.,@_-/",
-                                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,@_-/",
+static const char *const s_pages[] = {"qwertyuiopasdfghjklzxcvbnm.,@_-/",
+                                      "QWERTYUIOPASDFGHJKLZXCVBNM.,@_-/",
                                       "0123456789.,+-*/=:_@#%&?!()$'\"\\|",
                                       "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"};
 
@@ -69,6 +72,7 @@ static void refresh_count(void) {
 
 static void set_map(void) {
   const bool is_hex = s_config.mode == KEYBOARD_HEX;
+  const bool is_alpha = !is_hex && s_page <= 1;
   const unsigned count = is_hex ? HEX_COUNT : KEY_COUNT;
   const unsigned columns = is_hex ? 4 : 8;
   const char *chars = is_hex ? "0123456789ABCDEF" : s_pages[s_page];
@@ -77,7 +81,13 @@ static void set_map(void) {
     s_chars[i][0] = chars[i];
     s_map[pos++] = s_chars[i];
     s_controls[i] = 1;
-    if ((i + 1) % columns == 0)
+    const unsigned position = i + 1;
+    const bool is_row_end = is_alpha
+                                ? position == QWERTY_TOP_ROW_COUNT ||
+                                      position == QWERTY_TOP_ROW_COUNT + QWERTY_HOME_ROW_COUNT ||
+                                      position == QWERTY_LETTER_COUNT || position == count
+                                : position % columns == 0;
+    if (is_row_end)
       s_map[pos++] = "\n";
   }
   unsigned action = count;

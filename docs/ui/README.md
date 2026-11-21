@@ -638,9 +638,10 @@ inside scrollable content are not automatically layout defects.
 
 ## Physical-button text editor
 
-The shared editor uses an eight-column alphabetic button matrix with lower-case,
-upper-case, numbers and symbol pages. It covers printable ASCII; existing UTF-8
-text is retained and counted by character. Hex fields use a four-column 0–F map.
+The shared editor uses a button matrix with lower-case and upper-case QWERTY
+pages: `QWERTYUIOP`, `ASDFGHJKL`, `ZXCVBNM`, then the punctuation row. Number
+and symbol pages use eight columns; hex fields use a four-column 0–F map.
+It covers printable ASCII; existing UTF-8 text is retained and counted by character.
 Arrows move selection, OK activates a key, the arrow keys drawn on screen move
 the text cursor, backspace erases, the checkmark confirms, and physical BACK
 cancels without invoking the submit callback. The same controls fit 240x320 and
