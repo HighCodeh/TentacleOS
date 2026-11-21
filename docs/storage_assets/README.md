@@ -69,6 +69,14 @@ Never use the P4 assets image or port for this operation.
 
 This component provides read-only access to a dedicated LittleFS partition for storing static application assets like images, fonts, configuration files, and other resources that are flashed with the firmware.
 
+## Checked C5 configuration writes
+
+`storage_assets_write_file()` on C5 writes a sibling `.tmp`, checks complete
+write, flush and close, then renames it over the destination. Failures remove
+the temporary file and leave the previous file intact. Radio settings propagate
+this error instead of reporting a successful save. This does not install or
+regenerate assets.
+
 ## Overview
 
 - **Location:** `components/Service/storage_assets/`

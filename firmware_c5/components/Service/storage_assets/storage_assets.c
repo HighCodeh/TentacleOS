@@ -24,6 +24,8 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 
+#define ASSETS_WRITE_PATH_SIZE 160
+
 static const char *TAG = "STORAGE_ASSETS";
 
 #define ASSETS_MOUNT_POINT     "/assets"
@@ -283,29 +285,30 @@ void storage_assets_print_info(void) {
 }
 
 esp_err_t storage_assets_write_file(const char *filename, const char *data) {
-  if (!s_is_initialized) {
-    ESP_LOGE(TAG, "Assets not initialized");
+  if (!s_is_initialized)
     return ESP_ERR_INVALID_STATE;
-  }
-
-  char filepath[128];
-  snprintf(filepath, sizeof(filepath), "%s/%s", ASSETS_MOUNT_POINT, filename);
-
-  FILE *f = fopen(filepath, "w");
-  if (f == NULL) {
-    ESP_LOGE(TAG, "Failed to open file for writing: %s", filepath);
+  if (filename == NULL || data == NULL)
+    return ESP_ERR_INVALID_ARG;
+  char filepath[ASSETS_WRITE_PATH_SIZE];
+  char temporary[ASSETS_WRITE_PATH_SIZE];
+  int length = snprintf(filepath, sizeof(filepath), "%s/%s", ASSETS_MOUNT_POINT, filename);
+  if (length < 0 || (size_t)length >= sizeof(filepath))
+    return ESP_ERR_INVALID_SIZE;
+  length = snprintf(temporary, sizeof(temporary), "%s.tmp", filepath);
+  if (length < 0 || (size_t)length >= sizeof(temporary))
+    return ESP_ERR_INVALID_SIZE;
+  FILE *file = fopen(temporary, "w");
+  if (file == NULL)
+    return ESP_FAIL;
+  size_t size = strlen(data);
+  bool is_written = fwrite(data, 1, size, file) == size;
+  bool is_flushed = fflush(file) == 0;
+  bool is_closed = fclose(file) == 0;
+  if (!is_written || !is_flushed || !is_closed || rename(temporary, filepath) != 0) {
+    (void)remove(temporary);
+    ESP_LOGE(TAG, "Configuration write failed: %s", filename);
     return ESP_FAIL;
   }
-
-  size_t len = strlen(data);
-  size_t written = fwrite(data, 1, len, f);
-  fclose(f);
-
-  if (written != len) {
-    ESP_LOGE(TAG, "Failed to write complete file");
-    return ESP_FAIL;
-  }
-
   ESP_LOGI(TAG, "File %s updated in assets partition", filename);
   return ESP_OK;
 }

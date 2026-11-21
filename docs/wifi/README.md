@@ -410,10 +410,12 @@ Stops the channel-hopping task and frees its resources.
 esp_err_t wifi_service_save_ap_config(
     const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled);
 ```
-Serializes the settings with `cJSON` and writes them to `WIFI_AP_CONFIG_FILE`.
-**State management:** if `enabled` is `true` and Wi-Fi is inactive it calls
-`wifi_service_start()`; if `enabled` is `false` and Wi-Fi is active it calls
-`wifi_service_stop()`.
+Validates SSID (1–32 bytes), password (empty/open or 8–63 bytes), maximum
+clients (1–8) and optional IP. Serializes before touching the radio, then applies
+AP settings and requested running state. Writes `WIFI_AP_CONFIG_FILE` only after
+hardware success; driver or write failure attempts to restore the previous AP/IP
+and radio state. The SPI dispatcher rejects competing scans/sessions and
+terminates fixed-width input strings before validation.
 
 #### Individual Setters
 Helpers that update a single parameter while preserving the rest, auto-saving and

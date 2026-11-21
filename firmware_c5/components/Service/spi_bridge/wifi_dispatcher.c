@@ -555,14 +555,24 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     case SPI_ID_WIFI_SAVE_AP_CONFIG: {
       if (len < sizeof(spi_wifi_ap_config_t))
         return SPI_STATUS_INVALID_ARG;
+      if (spi_bridge_async_scan_busy() || session_manager_is_active())
+        return SPI_STATUS_BUSY;
       const spi_wifi_ap_config_t *cfg = (const spi_wifi_ap_config_t *)payload;
-      return (wifi_service_save_ap_config(
-                  cfg->ssid, cfg->password, cfg->max_conn, cfg->ip_addr, cfg->enabled) == ESP_OK)
+      char ssid[sizeof(cfg->ssid) + 1] = {0};
+      char password[sizeof(cfg->password) + 1] = {0};
+      char ip_addr[sizeof(cfg->ip_addr)] = {0};
+      memcpy(ssid, cfg->ssid, sizeof(cfg->ssid));
+      memcpy(password, cfg->password, sizeof(cfg->password));
+      memcpy(ip_addr, cfg->ip_addr, sizeof(ip_addr) - 1);
+      return (wifi_service_save_ap_config(ssid, password, cfg->max_conn, ip_addr, cfg->enabled) ==
+              ESP_OK)
                  ? SPI_STATUS_OK
                  : SPI_STATUS_ERROR;
     }
 
     case SPI_ID_WIFI_SET_ENABLED:
+      if (spi_bridge_async_scan_busy() || session_manager_is_active())
+        return SPI_STATUS_BUSY;
       if (len < 1)
         return SPI_STATUS_INVALID_ARG;
       return (wifi_service_set_enabled(payload[0] ? true : false) == ESP_OK) ? SPI_STATUS_OK

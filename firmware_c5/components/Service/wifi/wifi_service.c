@@ -38,6 +38,10 @@
 #include "storage_assets.h"
 #include "spi_protocol.h"
 
+#define AP_PASSWORD_MIN_BYTES 8
+#define AP_MAX_CLIENTS        8
+#define AP_CONFIG_LOCK_MS     1000
+
 static const char *TAG = "WIFI_SERVICE";
 
 #define HOPPER_STACK_SIZE        4096
@@ -206,7 +210,7 @@ void wifi_service_init(void) {
     ESP_LOGW(TAG, "Could not enable dual-band: %s", esp_err_to_name(band_err));
   }
 
-  char target_ssid[SSID_MAX_LEN] = "Darth Maul";
+  char target_ssid[SSID_MAX_LEN + 1] = "Darth Maul";
   char target_password[PASSWORD_MAX_LEN] = "MyPassword123";
   uint8_t target_max_conn = DEFAULT_MAX_CONN;
   char target_ip[IP_ADDR_MAX_LEN] = "192.168.4.1";
@@ -630,51 +634,131 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
 
 esp_err_t wifi_service_save_ap_config(
     const char *ssid, const char *password, uint8_t max_conn, const char *ip_addr, bool enabled) {
-  if (ssid == NULL) {
+  if (ssid == NULL || strnlen(ssid, SSID_MAX_LEN + 1) == 0 ||
+      strnlen(ssid, SSID_MAX_LEN + 1) > SSID_MAX_LEN || max_conn < 1 || max_conn > AP_MAX_CLIENTS)
     return ESP_ERR_INVALID_ARG;
+  size_t password_len = password != NULL ? strnlen(password, PASSWORD_MAX_LEN + 1) : 0;
+  if (password_len != 0 &&
+      (password_len < AP_PASSWORD_MIN_BYTES || password_len >= PASSWORD_MAX_LEN))
+    return ESP_ERR_INVALID_ARG;
+  if (s_mutex == NULL || s_promiscuous_active)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(AP_CONFIG_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+
+  esp_err_t error = ESP_FAIL;
+  cJSON *root = NULL;
+  char *json_string = NULL;
+  wifi_config_t previous_config;
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  esp_netif_ip_info_t previous_ip, requested_ip;
+  bool was_active = s_is_active;
+  bool has_changed = false;
+  error = esp_wifi_get_config(WIFI_IF_AP, &previous_config);
+  if (error != ESP_OK || netif == NULL) {
+    if (error == ESP_OK)
+      error = ESP_ERR_INVALID_STATE;
+    goto cleanup;
   }
-
-  cJSON *root = cJSON_CreateObject();
-  if (root == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate JSON object");
-    return ESP_ERR_NO_MEM;
-  }
-
-  cJSON_AddStringToObject(root, "ssid", ssid);
-  cJSON_AddStringToObject(root, "password", (password != NULL) ? password : "");
-  cJSON_AddNumberToObject(root, "max_conn", max_conn);
-  if (ip_addr != NULL && strlen(ip_addr) > 0) {
-    cJSON_AddStringToObject(root, "ip_addr", ip_addr);
-  }
-  cJSON_AddBoolToObject(root, "enabled", enabled);
-
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string == NULL) {
-    cJSON_Delete(root);
-    return ESP_ERR_NO_MEM;
-  }
-
-  esp_err_t err = storage_assets_write_file(WIFI_AP_CONFIG_FILE, json_string);
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Configuration saved to: %s", WIFI_AP_CONFIG_FILE);
-
-    if (enabled && !s_is_active) {
-      wifi_service_start();
-    } else if (!enabled && s_is_active) {
-      wifi_service_stop();
+  error = esp_netif_get_ip_info(netif, &previous_ip);
+  if (error != ESP_OK)
+    goto cleanup;
+  requested_ip = previous_ip;
+  if (ip_addr != NULL && ip_addr[0] != '\0') {
+    if (strnlen(ip_addr, IP_ADDR_MAX_LEN) >= IP_ADDR_MAX_LEN ||
+        esp_netif_str_to_ip4(ip_addr, &requested_ip.ip) != ESP_OK) {
+      error = ESP_ERR_INVALID_ARG;
+      goto cleanup;
     }
-  } else {
-    ESP_LOGE(TAG, "Error writing configuration: %s", esp_err_to_name(err));
+    requested_ip.gw = requested_ip.ip;
   }
-
+  root = cJSON_CreateObject();
+  if (root == NULL || cJSON_AddStringToObject(root, "ssid", ssid) == NULL ||
+      cJSON_AddStringToObject(root, "password", password != NULL ? password : "") == NULL ||
+      cJSON_AddNumberToObject(root, "max_conn", max_conn) == NULL ||
+      cJSON_AddBoolToObject(root, "enabled", enabled) == NULL ||
+      (ip_addr != NULL && cJSON_AddStringToObject(root, "ip_addr", ip_addr) == NULL)) {
+    error = ESP_ERR_NO_MEM;
+    ESP_LOGE(TAG, "Cannot allocate AP configuration");
+    goto cleanup;
+  }
+  json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    error = ESP_ERR_NO_MEM;
+    ESP_LOGE(TAG, "Cannot serialize AP configuration");
+    goto cleanup;
+  }
+  wifi_config_t config = previous_config;
+  memset(config.ap.ssid, 0, sizeof(config.ap.ssid));
+  memset(config.ap.password, 0, sizeof(config.ap.password));
+  memcpy(config.ap.ssid, ssid, strlen(ssid));
+  config.ap.ssid_len = strlen(ssid);
+  if (password_len != 0)
+    memcpy(config.ap.password, password, password_len);
+  config.ap.authmode = password_len != 0 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+  config.ap.max_connection = max_conn;
+  if (was_active) {
+    error = esp_wifi_stop();
+    if (error != ESP_OK)
+      goto cleanup;
+    s_is_active = false;
+    s_is_connected = false;
+  }
+  has_changed = true;
+  error = esp_wifi_set_config(WIFI_IF_AP, &config);
+  if (error != ESP_OK)
+    goto rollback;
+  if (requested_ip.ip.addr != previous_ip.ip.addr) {
+    error = esp_netif_dhcps_stop(netif);
+    if (error != ESP_OK && error != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED)
+      goto rollback;
+    error = esp_netif_set_ip_info(netif, &requested_ip);
+    if (error != ESP_OK)
+      goto rollback;
+    error = esp_netif_dhcps_start(netif);
+    if (error != ESP_OK && error != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
+      goto rollback;
+  }
+  if (enabled) {
+    error = esp_wifi_start();
+    if (error != ESP_OK)
+      goto rollback;
+    s_is_active = true;
+  }
+  error = storage_assets_write_file(WIFI_AP_CONFIG_FILE, json_string);
+  if (error == ESP_OK) {
+    ESP_LOGI(TAG, "AP settings applied and saved");
+    goto cleanup;
+  }
+rollback:
+  if (has_changed) {
+    if (s_is_active)
+      (void)esp_wifi_stop();
+    s_is_active = false;
+    esp_err_t restore_error = esp_wifi_set_config(WIFI_IF_AP, &previous_config);
+    if (requested_ip.ip.addr != previous_ip.ip.addr) {
+      (void)esp_netif_dhcps_stop(netif);
+      esp_err_t ip_error = esp_netif_set_ip_info(netif, &previous_ip);
+      (void)esp_netif_dhcps_start(netif);
+      if (restore_error == ESP_OK)
+        restore_error = ip_error;
+    }
+    if (was_active && restore_error == ESP_OK) {
+      restore_error = esp_wifi_start();
+      s_is_active = restore_error == ESP_OK;
+    }
+    if (restore_error != ESP_OK)
+      ESP_LOGE(TAG, "AP settings rollback failed: %s", esp_err_to_name(restore_error));
+  }
+cleanup:
   free(json_string);
   cJSON_Delete(root);
-
-  return err;
+  xSemaphoreGive(s_mutex);
+  return error;
 }
 
 esp_err_t wifi_service_set_enabled(bool enabled) {
-  char ssid[SSID_MAX_LEN];
+  char ssid[SSID_MAX_LEN + 1];
   char password[PASSWORD_MAX_LEN];
   uint8_t max_conn;
   char ip_addr[IP_ADDR_MAX_LEN];
@@ -685,7 +769,7 @@ esp_err_t wifi_service_set_enabled(bool enabled) {
 }
 
 esp_err_t wifi_service_set_ap_ssid(const char *ssid) {
-  char curr_ssid[SSID_MAX_LEN];
+  char curr_ssid[SSID_MAX_LEN + 1];
   char password[PASSWORD_MAX_LEN];
   uint8_t max_conn;
   char ip_addr[IP_ADDR_MAX_LEN];
@@ -696,7 +780,7 @@ esp_err_t wifi_service_set_ap_ssid(const char *ssid) {
 }
 
 esp_err_t wifi_service_set_ap_password(const char *password) {
-  char ssid[SSID_MAX_LEN];
+  char ssid[SSID_MAX_LEN + 1];
   char curr_password[PASSWORD_MAX_LEN];
   uint8_t max_conn;
   char ip_addr[IP_ADDR_MAX_LEN];
@@ -707,7 +791,7 @@ esp_err_t wifi_service_set_ap_password(const char *password) {
 }
 
 esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn) {
-  char ssid[SSID_MAX_LEN];
+  char ssid[SSID_MAX_LEN + 1];
   char password[PASSWORD_MAX_LEN];
   uint8_t curr_max_conn;
   char ip_addr[IP_ADDR_MAX_LEN];
@@ -718,7 +802,7 @@ esp_err_t wifi_service_set_ap_max_conn(uint8_t max_conn) {
 }
 
 esp_err_t wifi_service_set_ap_ip(const char *ip_addr) {
-  char ssid[SSID_MAX_LEN];
+  char ssid[SSID_MAX_LEN + 1];
   char password[PASSWORD_MAX_LEN];
   uint8_t max_conn;
   char curr_ip_addr[IP_ADDR_MAX_LEN];
@@ -1588,8 +1672,8 @@ static void load_ap_config(
       cJSON *j_enabled = cJSON_GetObjectItem(root, "enabled");
 
       if (cJSON_IsString(j_ssid) && strlen(j_ssid->valuestring) > 0) {
-        strncpy(out_ssid, j_ssid->valuestring, SSID_MAX_LEN - 1);
-        out_ssid[SSID_MAX_LEN - 1] = '\0';
+        strncpy(out_ssid, j_ssid->valuestring, SSID_MAX_LEN);
+        out_ssid[SSID_MAX_LEN] = '\0';
       }
       if (cJSON_IsString(j_pass)) {
         strncpy(out_passwd, j_pass->valuestring, PASSWORD_MAX_LEN - 1);
