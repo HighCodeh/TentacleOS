@@ -26,6 +26,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 SERVICE = ROOT / 'firmware_p4/components/Service'
 APPS = ROOT / 'firmware_p4/components/Applications'
+NOTICE = (ROOT / 'firmware_p4/components/Drivers/cc1101/include/cc1101.h').read_text().split('#ifndef', 1)[0]
 
 
 def main():
@@ -33,7 +34,7 @@ def main():
         work = Path(temporary)
         (work / 'esp_err.h').write_text('#pragma once\n#include "tos_api.h"\nstatic inline const char *esp_err_to_name(esp_err_t e) {(void)e;return "test";}\n')
         (work / 'esp_log.h').write_text('#define ESP_LOGD(tag, ...) ((void)(tag))\n')
-        (work / 'cc1101.h').write_text('#pragma once\ntypedef int cc1101_preset_t;\n')
+        (work / 'cc1101.h').write_text(NOTICE + '#pragma once\ntypedef int cc1101_preset_t;\ntypedef struct cc1101_radio_config cc1101_radio_config_t;\n')
         command = [*shlex.split(os.environ.get('CC', 'cc')), '-std=c11',
                    '-D_POSIX_C_SOURCE=200809L', '-Wall', '-Wextra',
                    '-Werror', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
