@@ -653,13 +653,6 @@ static void wifi_enable_task(void *arg) {
   vTaskDelete(NULL);
 }
 
-static void ble_enable_task(void *arg) {
-  (void)arg;
-  bluetooth_service_init();
-  bluetooth_service_start();
-  vTaskDelete(NULL);
-}
-
 static void ensure_radio_on(screen_id_t target) {
   if (target == SCREEN_WIFI_MENU && !wifi_service_is_active()) {
     g_config_wifi.enabled = true;
@@ -667,12 +660,6 @@ static void ensure_radio_on(screen_id_t target) {
     xTaskCreatePinnedToCore(
         wifi_enable_task, "wifi_on", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
     notify(NOTIFY_INFO, "Wi-Fi on");
-  } else if (target == SCREEN_BLE_MENU && !bluetooth_service_is_running_cached()) {
-    g_config_ble.enabled = true;
-    tos_config_save(TOS_PATH_CONFIG_BLE, "ble");
-    xTaskCreatePinnedToCore(
-        ble_enable_task, "ble_on", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
-    notify(NOTIFY_INFO, "BLE on");
   }
 }
 

@@ -32,6 +32,8 @@ extern "C" {
 
 #include "tos_flash_paths.h"
 
+#define TOS_CONFIG_BLE_MAX_CLIENTS 3
+
 // Flash fallback aliases for tos_config_load_all()
 #define ASSETS_CONFIG_SCREEN FLASH_CONFIG_SCREEN
 #define ASSETS_CONFIG_WIFI   FLASH_CONFIG_WIFI_AP
@@ -70,6 +72,8 @@ typedef struct {
 
 typedef struct {
   char name[32];
+  uint8_t max_conn;
+  bool advertising;
   bool enabled;
 } tos_config_ble_t;
 

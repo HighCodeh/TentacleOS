@@ -83,7 +83,7 @@ typedef struct {
 } settings_item_t;
 
 static const settings_item_t MAIN_ITEMS[] = {
-    {"CONNECTION", "/assets/icons/wifi.bin", SCREEN_CONNECTION_SETTINGS},
+    {"CONNECTIONS", "/assets/icons/wifi.bin", SCREEN_CONNECTION_SETTINGS},
     {"DISPLAY", "/assets/icons/display_settings.bin", SCREEN_DISPLAY_SETTINGS},
     {"INTERFACE", "/assets/icons/tune.bin", SCREEN_INTERFACE_SETTINGS},
     {"THEME", "/assets/icons/palette.bin", SCREEN_THEME_SELECTOR},

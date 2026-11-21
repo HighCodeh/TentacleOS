@@ -68,6 +68,7 @@ idf_component_register(SRCS
   ${SCRIPT_ENGINE_SRCS}
   "font/font.c"
   "icons/icons.c"
+  "connection_settings/connection_settings.c"
   "wifi/wifi_service.c"
   "wifi/wifi_capture_queue.c"
   "wifi/mac_vendor.c"
@@ -125,6 +126,7 @@ idf_component_register(SRCS
   "script_engine/include"
   "font/include"
   "icons/include"
+  "connection_settings/include"
   "wifi/include"
   "boot_report/include"
   "boot_sound/include"

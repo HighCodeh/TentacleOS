@@ -15,6 +15,9 @@
 
 #include "config_sync.h"
 
+#include "cJSON.h"
+#include "connection_settings.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,12 +88,34 @@ static size_t read_master(const char *path, uint8_t **out) {
 
 static SemaphoreHandle_t s_sync_mutex;
 
+static size_t read_radio_config(uint8_t id, uint8_t **out) {
+  tos_config_wifi_t wifi;
+  tos_config_ble_t ble;
+  connection_settings_get_config(&wifi, &ble);
+  cJSON *root = cJSON_CreateObject();
+  if (root == NULL)
+    return 0;
+  bool is_wifi = id == SPI_CFG_WIFI_AP;
+  bool valid =
+      cJSON_AddStringToObject(root, "ssid", is_wifi ? wifi.ap.ssid : ble.name) != NULL &&
+      cJSON_AddNumberToObject(root, "max_conn", is_wifi ? wifi.ap.max_conn : ble.max_conn) != NULL;
+  if (is_wifi)
+    valid = valid && cJSON_AddStringToObject(root, "password", wifi.ap.password) != NULL &&
+            cJSON_AddStringToObject(root, "ip_addr", wifi.ap.ip_addr) != NULL &&
+            cJSON_AddBoolToObject(root, "enabled", wifi.enabled) != NULL;
+  *out = valid ? (uint8_t *)cJSON_PrintUnformatted(root) : NULL;
+  cJSON_Delete(root);
+  return *out != NULL ? strlen((char *)*out) : 0;
+}
+
 static esp_err_t push_locked(uint8_t id, bool (*keep_running)(void)) {
   if (id >= SPI_CFG_COUNT || s_cfg_paths[id] == NULL)
     return ESP_ERR_INVALID_ARG;
 
   uint8_t *buf = NULL;
-  size_t size = read_master(s_cfg_paths[id], &buf);
+  size_t size = id == SPI_CFG_WIFI_AP || id == SPI_CFG_BLE_ANNOUNCE
+                    ? read_radio_config(id, &buf)
+                    : read_master(s_cfg_paths[id], &buf);
   if (size == 0)
     return ESP_ERR_NOT_FOUND; // no master to push (fine: nothing to sync)
 
@@ -200,8 +225,9 @@ static void config_sync_task(void *arg) {
 
   int synced = 0;
   for (uint8_t id = 0; id < SPI_CFG_COUNT; id++) {
-    // Local pairing credentials are provisioned only on explicit voice start.
-    if (id == SPI_CFG_GROK)
+    // Radio preferences are applied synchronously by kernel before UI startup.
+    // Pairing credentials are provisioned only on explicit voice start.
+    if (id == SPI_CFG_GROK || id == SPI_CFG_WIFI_AP || id == SPI_CFG_BLE_ANNOUNCE)
       continue;
     if (config_sync_push(id) == ESP_OK)
       synced++;

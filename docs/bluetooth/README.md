@@ -26,6 +26,27 @@ This component manages the Bluetooth Low Energy (BLE) functionality of the devic
 - **Stack:** Apache NimBLE (via `nimble_port`)
 - **Dependencies:** `nvs_flash`, `storage_assets`, `cJSON`, `esp_random`
 
+## Boot and user preference
+
+Bluetooth defaults to off. P4 starts the C5 generic host at boot only when an
+explicit enabled preference has been saved. Opening the Bluetooth menu neither
+starts the radio nor changes the boot preference. Individual applications may
+acquire BLE on demand and release their ownership on exit.
+
+Use **Settings → Connections → Bluetooth** to edit power, name, visibility and
+maximum clients, then choose **Save & apply**. The quick panel no longer owns a
+Bluetooth switch. The [connection settings service](../connection_settings/README.md)
+applies changes in a worker, rejects overlap and saves after success. Failures
+remain visible and retryable; a storage failure distinguishes applied from saved.
+The generic advertiser supports 1–3 clients; HID remains single-peer with its
+existing pairing. Names use the scan response (up to 29 bytes).
+
+P4 `config/ble.conf` stores `enabled` and `enabled_by_user`. Older files without
+`enabled_by_user: true` load as disabled because earlier menu navigation could
+persist `enabled: true` without an explicit choice. Enable Bluetooth once in
+settings to save the new preference. No asset reinstallation is needed; this is
+a config-reader migration in the P4 application.
+
 ## API Functions
 
 ### Initialization & Lifecycle
@@ -151,9 +172,6 @@ Stops the RSSI tracker.
 
 #### `bluetooth_service_start_advertising` / `stop_advertising`
 Standard connectable advertising using the configured device name. Advertising restarts on disconnection only while advertising remains requested.
-The generic advertiser respects its saved client limit, bounded by the three
-connections configured in NimBLE. HID remains single-peer and also uses the
-configured name. Names occupy the scan response and allow up to 29 bytes.
 
 ### Connection Management
 
@@ -306,13 +324,16 @@ startup/result-list diagnostics are DEBUG to preserve P4 flash space.
   functions with threaded host/controller fakes and ASan/UBSan. It covers allocation,
   task creation, synchronization, reset, stop timeout, phased teardown retry,
   scan timeout and repeated init/start/stop/deinit.
-- `python3 tools/bluetooth/test_announce_settings.py` covers packet size, configured
-  names, client limits and advertisement failures.
+- `python3 tools/bluetooth/test_settings.py` checks boot preference migration and
+  SPI lifecycle timeouts without lengthening status polling.
+- [Connection settings validation](../connection_settings/README.md#validation-and-deployment)
+  covers apply/save failures, overlap, settings UI and C5 configuration rollback.
 - `python3 tools/bluetooth/test_screen_cleanup.py` covers timer/operation cleanup
   and repeated screen stops.
 - `python3 tools/highboy/tests/test_ble_ui_lifecycle.py` covers application worker
   allocation and advertisement-stream ownership.
 
 These are host regressions, not device qualification. Build and update both C5
-and P4 for the paired lifecycle change. Validate repeated entry/exit, HID/GATT
-handover and recovery after a real controller or SPI error on hardware.
+and P4 for the paired lifecycle change. Validate cold boot off, explicit on/off
+across reboot, repeated entry/exit, HID/GATT handover and recovery after a real
+controller or SPI error on hardware.

@@ -75,7 +75,7 @@ This component provides read-only access to a dedicated LittleFS partition for s
 write, flush and close, then renames it over the destination. Failures remove
 the temporary file and leave the previous file intact. Radio settings propagate
 this error instead of reporting a successful save. This does not install or
-regenerate assets.
+regenerate assets. See [connection settings](../connection_settings/README.md).
 
 ## Overview
 

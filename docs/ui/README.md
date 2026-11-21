@@ -114,8 +114,16 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 This supersedes the old advice of calling `ble_init()` / `ble_deinit()` inside
 `ui_switch_screen`. A plain menu that owns no hardware needs no close hook.
 
-Enabling a radio for a whole area is done at the menu, not here: `menu_ui.c`'s
-`ensure_radio_on()` powers Wi-Fi / BLE on when the user opens that area's menu.
+`menu_ui.c`'s `ensure_radio_on()` enables Wi-Fi when entering its area. Opening
+the Bluetooth menu does not enable BLE or save a preference; BLE operations
+acquire the radio when started and release it through their close hooks.
+**Settings → Connections** contains Wi-Fi and Bluetooth submenus alongside
+USB Native. Each radio submenu holds drafts until Save & apply; name/password
+editing uses the contextual keyboard. Wi-Fi also links to Connect to network.
+The quick panel keeps its non-radio controls. Screen close hooks release the
+keyboard/timer; a Service-owned worker completes independently after BACK.
+Progress and apply/save errors appear on screen. See
+[connection settings](../connection_settings/README.md) for fields and lifecycle.
 
 ### 4. Create the screen source
 Create the files under `ui/screens/bluetooth/`.
@@ -373,7 +381,7 @@ with and without auto-dim, plus brightness restoration and the wake-press guard.
 ## Execution flow summary
 1. User selects **Bluetooth** in the main menu.
 2. The menu resolves the item's `target` (`SCREEN_BLE_MENU`), calls
-   `ensure_radio_on(target)` (powers BLE on for the area), then
+   `ensure_radio_on(target)` (no radio change for the BLE menu), then
    `ui_switch_screen(SCREEN_BLE_MENU)`.
 3. `ui_switch_screen`:
   - Looks the id up in `screen_open_fn()`; stays put if it is `NULL`.

@@ -58,6 +58,8 @@ tos_config_wifi_t g_config_wifi = {
 
 tos_config_ble_t g_config_ble = {
     .name = "TentacleOS",
+    .max_conn = TOS_CONFIG_BLE_MAX_CLIENTS,
+    .advertising = true,
     .enabled = false,
 };
 
@@ -191,6 +193,8 @@ static void parse_wifi(cJSON *root) {
   g_config_wifi.enabled = json_get_bool(root, "enabled", g_config_wifi.enabled);
 
   cJSON *ap = cJSON_GetObjectItem(root, "ap");
+  if (ap == NULL)
+    ap = root;
   if (ap) {
     json_get_str(ap, "ssid", g_config_wifi.ap.ssid, sizeof(g_config_wifi.ap.ssid));
     json_get_str(ap, "password", g_config_wifi.ap.password, sizeof(g_config_wifi.ap.password));
@@ -209,8 +213,15 @@ static void parse_wifi(cJSON *root) {
 }
 
 static void parse_ble(cJSON *root) {
+  json_get_str(root, "ssid", g_config_ble.name, sizeof(g_config_ble.name));
   json_get_str(root, "name", g_config_ble.name, sizeof(g_config_ble.name));
-  g_config_ble.enabled = json_get_bool(root, "enabled", g_config_ble.enabled);
+  int max_conn = json_get_int(root, "max_conn", TOS_CONFIG_BLE_MAX_CLIENTS);
+  g_config_ble.max_conn = max_conn >= 1 && max_conn <= TOS_CONFIG_BLE_MAX_CLIENTS
+                              ? (uint8_t)max_conn
+                              : TOS_CONFIG_BLE_MAX_CLIENTS;
+  g_config_ble.advertising = json_get_bool(root, "advertising", true);
+  g_config_ble.enabled =
+      json_get_bool(root, "enabled_by_user", false) && json_get_bool(root, "enabled", false);
 }
 
 static void parse_lora(cJSON *root) {
@@ -286,28 +297,39 @@ static cJSON *serialize_screen(void) {
 
 static cJSON *serialize_wifi(void) {
   cJSON *root = cJSON_CreateObject();
-
-  cJSON_AddBoolToObject(root, "enabled", g_config_wifi.enabled);
-
+  if (root == NULL || cJSON_AddBoolToObject(root, "enabled", g_config_wifi.enabled) == NULL)
+    goto cleanup;
   cJSON *ap = cJSON_AddObjectToObject(root, "ap");
-  cJSON_AddStringToObject(ap, "ssid", g_config_wifi.ap.ssid);
-  cJSON_AddStringToObject(ap, "password", g_config_wifi.ap.password);
-  cJSON_AddStringToObject(ap, "ip_addr", g_config_wifi.ap.ip_addr);
-  cJSON_AddNumberToObject(ap, "max_conn", g_config_wifi.ap.max_conn);
-  cJSON_AddBoolToObject(ap, "enabled", g_config_wifi.ap.enabled);
-
+  if (ap == NULL || cJSON_AddStringToObject(ap, "ssid", g_config_wifi.ap.ssid) == NULL ||
+      cJSON_AddStringToObject(ap, "password", g_config_wifi.ap.password) == NULL ||
+      cJSON_AddStringToObject(ap, "ip_addr", g_config_wifi.ap.ip_addr) == NULL ||
+      cJSON_AddNumberToObject(ap, "max_conn", g_config_wifi.ap.max_conn) == NULL ||
+      cJSON_AddBoolToObject(ap, "enabled", g_config_wifi.ap.enabled) == NULL)
+    goto cleanup;
   cJSON *client = cJSON_AddObjectToObject(root, "client");
-  cJSON_AddBoolToObject(client, "enabled", g_config_wifi.client.enabled);
-  cJSON_AddStringToObject(client, "ssid", g_config_wifi.client.ssid);
-  cJSON_AddStringToObject(client, "password", g_config_wifi.client.password);
-
+  if (client == NULL ||
+      cJSON_AddBoolToObject(client, "enabled", g_config_wifi.client.enabled) == NULL ||
+      cJSON_AddStringToObject(client, "ssid", g_config_wifi.client.ssid) == NULL ||
+      cJSON_AddStringToObject(client, "password", g_config_wifi.client.password) == NULL)
+    goto cleanup;
   return root;
+cleanup:
+  ESP_LOGE(TAG, "Cannot serialize Wi-Fi config");
+  cJSON_Delete(root);
+  return NULL;
 }
 
 static cJSON *serialize_ble(void) {
   cJSON *root = cJSON_CreateObject();
-  cJSON_AddStringToObject(root, "name", g_config_ble.name);
-  cJSON_AddBoolToObject(root, "enabled", g_config_ble.enabled);
+  if (root == NULL || cJSON_AddStringToObject(root, "name", g_config_ble.name) == NULL ||
+      cJSON_AddNumberToObject(root, "max_conn", g_config_ble.max_conn) == NULL ||
+      cJSON_AddBoolToObject(root, "advertising", g_config_ble.advertising) == NULL ||
+      cJSON_AddBoolToObject(root, "enabled", g_config_ble.enabled) == NULL ||
+      cJSON_AddBoolToObject(root, "enabled_by_user", true) == NULL) {
+    ESP_LOGE(TAG, "Cannot serialize Bluetooth config");
+    cJSON_Delete(root);
+    return NULL;
+  }
   return root;
 }
 

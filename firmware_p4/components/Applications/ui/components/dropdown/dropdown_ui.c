@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "esp_log.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -27,7 +29,6 @@
 #include "assets_manager.h"
 #include "audio_i2s.h"
 #include "battery_service.h"
-#include "bluetooth_service.h"
 #include "buttons_gpio.h"
 #include "header_ui.h"
 #include "lv_port_indev.h"
@@ -42,7 +43,8 @@
 #include "ui_metrics.h"
 #include "ui_theme.h"
 #include "vfs_sdcard.h"
-#include "wifi_service.h"
+
+static const char *TAG = "DROPDOWN";
 
 #define GREEN              0x00E676
 #define CHIP_BG            current_theme.screen_base
@@ -62,18 +64,16 @@
 #define ROW_COUNT  3
 static int focus_row = ROW_BADGES;
 
-#define BADGE_COUNT   4
-#define BADGE_WIFI    0
-#define BADGE_BLE     1
-#define BADGE_SD      2
-#define BADGE_REBOOT  3
+#define BADGE_COUNT   2
+#define BADGE_SD      0
+#define BADGE_REBOOT  1
 #define ACTION_ACCENT 0xF5B13D
 #define ARMED_ACCENT  0xFF5252
 static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
-static bool badge_on[BADGE_COUNT] = {false, false, false, false};
-static const bool BADGE_ACTION[BADGE_COUNT] = {false, false, true, true};
+
+static const bool BADGE_ACTION[BADGE_COUNT] = {true, true};
 static int badge_sel = 0;
 static int s_sd_armed = 0;
 static bool s_sd_present_last = false;
@@ -164,19 +164,6 @@ static void refresh_focus(void) {
         lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.border_accent : acc, 0);
       continue;
     }
-    bool on = badge_on[i];
-    lv_color_t conn = on ? lv_color_hex(GREEN) : current_theme.border_inactive;
-    lv_obj_set_style_border_color(badge_dot[i], sel ? current_theme.border_accent : conn, 0);
-    lv_obj_set_style_border_width(badge_dot[i], sel ? 3 : 2, 0);
-    lv_obj_set_style_bg_color(badge_dot[i], on ? lv_color_hex(0x04160C) : CHIP_BG, 0);
-    lv_obj_set_style_shadow_width(badge_dot[i], on ? 12 : 0, 0);
-    lv_obj_set_style_shadow_color(badge_dot[i], lv_color_hex(GREEN), 0);
-    lv_obj_set_style_shadow_opa(badge_dot[i], on ? LV_OPA_40 : LV_OPA_TRANSP, 0);
-    if (badge_ic[i])
-      lv_obj_set_style_text_color(
-          badge_ic[i], on ? lv_color_hex(GREEN) : current_theme.border_inactive, 0);
-    if (badge_lbl[i])
-      lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.border_accent : conn, 0);
   }
   for (int s = 0; s < SLIDER_COUNT; s++) {
     if (!sl_track[s])
@@ -258,8 +245,6 @@ static void dropdown_open(void) {
   focus_row = ROW_BRIGHT;
   badge_sel = 0;
   sd_disarm();
-  badge_on[BADGE_WIFI] = g_config_wifi.enabled;
-  badge_on[BADGE_BLE] = g_config_ble.enabled;
   s_sd_present_last = badge_is_enabled(BADGE_SD);
   set_slider(SLIDER_BRIGHT, g_config_screen.brightness);
   set_slider(SLIDER_SOUND, g_config_system.volume);
@@ -324,56 +309,6 @@ static void dropdown_reboot(void) {
   slide_open = false;
   slide_animating = false;
   reboot_ui_reboot();
-}
-
-static void wifi_apply_task(void *arg) {
-  if ((bool)(intptr_t)arg)
-    wifi_service_start();
-  else
-    wifi_service_stop();
-  vTaskDelete(NULL);
-}
-
-static void ble_apply_task(void *arg) {
-  if ((bool)(intptr_t)arg) {
-    bluetooth_service_init();
-    bluetooth_service_start();
-  } else {
-    bluetooth_service_stop();
-  }
-  vTaskDelete(NULL);
-}
-
-static void conn_set_wifi(bool on) {
-  g_config_wifi.enabled = on;
-  tos_config_save(TOS_PATH_CONFIG_WIFI, "wifi");
-  badge_on[BADGE_WIFI] = on;
-  refresh_focus();
-  if (!on)
-    notify(NOTIFY_WARNING, "Wi-Fi off");
-  xTaskCreatePinnedToCore(wifi_apply_task,
-                          "wifi_apply",
-                          4096,
-                          (void *)(intptr_t)on,
-                          SYS_PRIO_SERVICE_LO,
-                          NULL,
-                          SYS_CORE_RADIO);
-}
-
-static void conn_set_ble(bool on) {
-  g_config_ble.enabled = on;
-  tos_config_save(TOS_PATH_CONFIG_BLE, "ble");
-  badge_on[BADGE_BLE] = on;
-  refresh_focus();
-  if (!on)
-    notify(NOTIFY_WARNING, "BLE off");
-  xTaskCreatePinnedToCore(ble_apply_task,
-                          "ble_apply",
-                          4096,
-                          (void *)(intptr_t)on,
-                          SYS_PRIO_SERVICE_LO,
-                          NULL,
-                          SYS_CORE_RADIO);
 }
 
 static void slide_btn_timer_cb(lv_timer_t *timer) {
@@ -476,10 +411,6 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         }
       } else if (badge_sel == BADGE_REBOOT) {
         dropdown_reboot();
-      } else if (badge_sel == BADGE_WIFI) {
-        conn_set_wifi(!badge_on[BADGE_WIFI]);
-      } else if (badge_sel == BADGE_BLE) {
-        conn_set_ble(!badge_on[BADGE_BLE]);
       }
     }
     if (back && !btn_back_last)
@@ -746,6 +677,7 @@ static void battery_tick(void) {
 }
 
 void dropdown_ui_create(lv_obj_t *parent) {
+  ESP_LOGD(TAG, "Creating quick panel");
   slide_panel = lv_obj_create(parent);
   lv_obj_set_size(slide_panel, lv_pct(100), LV_SIZE_CONTENT);
   lv_obj_set_pos(slide_panel, 0, 0);
@@ -786,10 +718,8 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_flex_flow(badges, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       badges, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  make_badge(badges, 0, LV_SYMBOL_WIFI, "Wi-Fi");
-  make_badge(badges, 1, LV_SYMBOL_BLUETOOTH, "BLE");
-  make_badge(badges, 2, LV_SYMBOL_SD_CARD, "Eject");
-  make_badge(badges, 3, LV_SYMBOL_POWER, "Reboot");
+  make_badge(badges, BADGE_SD, LV_SYMBOL_SD_CARD, "Eject");
+  make_badge(badges, BADGE_REBOOT, LV_SYMBOL_POWER, "Reboot");
 
   sl_value[SLIDER_SOUND] = g_config_system.volume;
   make_slider(slide_panel, 0, "/assets/icons/brightness_6.bin");

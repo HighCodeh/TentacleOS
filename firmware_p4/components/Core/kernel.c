@@ -269,16 +269,23 @@ esp_err_t kernel_init(void) {
   // 7. Services
   ESP_ERROR_CHECK(sys_monitor_start(false));
   wifi_service_init();
-  if (g_config_wifi.enabled)
-    wifi_service_start();
-  else
-    wifi_service_stop();
+  esp_err_t wifi_error = wifi_service_save_ap_config(g_config_wifi.ap.ssid,
+                                                     g_config_wifi.ap.password,
+                                                     (uint8_t)g_config_wifi.ap.max_conn,
+                                                     g_config_wifi.ap.ip_addr,
+                                                     g_config_wifi.enabled);
+  boot_report_record("wifi-config", false, wifi_error);
+  esp_err_t ble_error =
+      bluetooth_service_save_announce_config(g_config_ble.name, g_config_ble.max_conn);
   if (g_config_ble.enabled) {
-    bluetooth_service_init();
-    bluetooth_service_start();
-  } else {
-    bluetooth_service_stop();
+    if (ble_error == ESP_OK)
+      ble_error = bluetooth_service_init();
+    if (ble_error == ESP_OK)
+      ble_error = bluetooth_service_start();
+    if (ble_error == ESP_OK && g_config_ble.advertising)
+      ble_error = bluetooth_service_start_advertising();
   }
+  boot_report_record("bluetooth", false, ble_error);
 
   // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
   host_link_state_init();  // load toggle settings before the link comes up

@@ -46,6 +46,7 @@ below; in-tree READMEs point to it.
 | `buttons_gpio` | [README.md](buttons_gpio/README.md)  |
 | `c5_flasher` | [README.md](c5_flasher/README.md)  |
 | `cc1101` | [README.md](cc1101/README.md)  |
+| `connection_settings` | [README.md](connection_settings/README.md) - persistent Wi-Fi and Bluetooth controls |
 | `console` | [README.md](console/README.md)  |
 | `dns_server` | [README.md](dns_server/README.md)  |
 | `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |

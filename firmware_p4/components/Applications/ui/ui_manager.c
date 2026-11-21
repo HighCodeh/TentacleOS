@@ -74,6 +74,7 @@
 #include "power_ui.h"
 #include "settings_ui.h"
 #include "connection_settings_ui.h"
+#include "connection_radio_ui.h"
 #include "ir_menu_ui.h"
 #include "ir_send_ui.h"
 #include "ir_receive_ui.h"
@@ -443,6 +444,9 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_WIFI_SETTINGS:
+    case SCREEN_BLUETOOTH_SETTINGS:
+      return ui_connection_radio_close;
     case SCREEN_BATTERY_SETTINGS:
       return ui_battery_settings_close;
     case SCREEN_DEV_DIAG:
@@ -612,6 +616,10 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_settings_open_dev;
     case SCREEN_CONNECTION_SETTINGS:
       return ui_connection_settings_open;
+    case SCREEN_WIFI_SETTINGS:
+      return ui_connection_radio_wifi_open;
+    case SCREEN_BLUETOOTH_SETTINGS:
+      return ui_connection_radio_ble_open;
     case SCREEN_IR_MENU:
       return ui_ir_menu_open;
     case SCREEN_IR_RECEIVE:

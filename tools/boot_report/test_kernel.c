@@ -46,7 +46,21 @@ static bool s_required_ok=true,s_loop,s_combo,s_expect_ui=true;
 static struct {unsigned info_color,warning_color,error_color,brightness;} g_config_led;
 static struct {unsigned rotation;} g_config_screen;
 static struct {unsigned volume;bool ui_sound_fx;} g_config_system={50,true};
-static struct {bool enabled;} g_config_wifi,g_config_ble;
+static struct {bool enabled;struct {char ssid[33],password[65],ip_addr[16];unsigned max_conn;} ap;} g_config_wifi;
+static struct {bool enabled,advertising;char name[32];uint8_t max_conn;} g_config_ble;
+static unsigned s_wifi_config,s_ble_config,s_ble_init,s_ble_start,s_ble_adv;
+static int s_ble_config_result;
+static esp_err_t wifi_service_save_ap_config(const char *ssid,const char *password,uint8_t max_conn,const char *ip,bool enabled) {
+  assert(strcmp(ssid,"Saved AP")==0 && strcmp(password,"password")==0);
+  assert(max_conn==2 && strcmp(ip,"192.168.4.1")==0 && enabled==g_config_wifi.enabled);
+  ++s_wifi_config;return ESP_OK;
+}
+static esp_err_t bluetooth_service_save_announce_config(const char *name,uint8_t max_conn) {
+  assert(strcmp(name,"Saved BLE")==0 && max_conn==2);++s_ble_config;return s_ble_config_result;
+}
+static esp_err_t bluetooth_service_init(void) {++s_ble_init;return ESP_OK;}
+static esp_err_t bluetooth_service_start(void) {assert(s_ble_init);++s_ble_start;return ESP_OK;}
+static esp_err_t bluetooth_service_start_advertising(void) {assert(s_ble_start);++s_ble_adv;return ESP_OK;}
 static bool s_board_ready;
 static unsigned s_i2c_calls,s_charger_calls,s_typec_calls;
 static int s_i2c_result,s_charger_result,s_typec_result;
@@ -108,18 +122,21 @@ FAKE(led_rgb_init) FAKE(led_signal_error) FAKE(console_service_init)
 FAKE(sys_time_init) FAKE(boot_report_capture_crash) FAKE(sys_shutdown_init) FAKE(power_manager_init)
 FAKE(lf_rfid_init) FAKE(spi_init) FAKE(input_manager_init) FAKE(storage_assets_print_info)
 FAKE(battery_service_init) FAKE(config_sync_start) FAKE(buttons_init) FAKE(audio_i2s_init)
-FAKE(wifi_service_init) FAKE(wifi_service_start) FAKE(wifi_service_stop)
-FAKE(bluetooth_service_init) FAKE(bluetooth_service_start) FAKE(bluetooth_service_stop)
+FAKE(wifi_service_init)
 FAKE(usb_mux_init) FAKE(host_link_state_init) FAKE(host_link_stream_init) FAKE(host_link_init)
 FAKE(host_link_cdc_init) FAKE(host_link_log_init) FAKE(led_signal_warning) FAKE(led_signal_info)
 /* MODULE */
 static void reset(void) {s_board_ready=false;
+  g_config_wifi.enabled=false;strcpy(g_config_wifi.ap.ssid,"Saved AP");strcpy(g_config_wifi.ap.password,"password");
+  strcpy(g_config_wifi.ap.ip_addr,"192.168.4.1");g_config_wifi.ap.max_conn=2;
+  g_config_ble.enabled=false;g_config_ble.advertising=true;strcpy(g_config_ble.name,"Saved BLE");g_config_ble.max_conn=2;
+  s_wifi_config=s_ble_config=s_ble_init=s_ble_start=s_ble_adv=0;s_ble_config_result=ESP_OK;
   s_i2c_calls=s_charger_calls=s_typec_calls=0;
   s_i2c_result=s_charger_result=s_typec_result=ESP_OK;
   s_sd=s_config=s_theme=s_radios=s_normal_ui=s_safe_ui=s_indev=s_lvgl=s_panel=s_monitor=s_complete=s_sound=0;
   s_nvs_result=s_assets_result=s_panel_result=s_lvgl_result=ESP_OK;s_loop=s_combo=false;s_expect_ui=true;
 }
-static void minimal(void) {assert(s_config==0 && s_theme==0 && s_radios==0 && s_normal_ui==0 && s_sound==0 && s_monitor==1 && s_complete==1);}
+static void minimal(void) {assert(!s_wifi_config && !s_ble_config && !s_ble_init && !s_ble_start && !s_ble_adv);assert(s_config==0 && s_theme==0 && s_radios==0 && s_normal_ui==0 && s_sound==0 && s_monitor==1 && s_complete==1);}
 int main(void) {
   reset();s_nvs_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);minimal();assert(s_sd==0 && s_safe_ui==1);
   reset();s_loop=true;assert(kernel_init()!=ESP_OK);minimal();assert(s_sd==0 && s_safe_ui==1);
@@ -129,9 +146,17 @@ int main(void) {
   reset();s_loop=true;s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);minimal();assert(!s_expect_ui && s_indev==0 && s_safe_ui==0);
   reset();s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);assert(s_radios==0 && s_normal_ui==0 && s_monitor==1 && !s_expect_ui);
   reset();assert(kernel_init()==ESP_OK);assert(s_config==2 && s_theme==1 && s_radios==2 && s_normal_ui==1 && s_sound==1 && s_monitor==1 && s_complete==1);
+  assert(s_wifi_config==1 && s_ble_config==1 && !s_ble_init && !s_ble_start && !s_ble_adv);
+  reset();g_config_wifi.enabled=true;g_config_ble.enabled=true;assert(kernel_init()==ESP_OK);
+  assert(s_wifi_config==1 && s_ble_config==1 && s_ble_init==1 && s_ble_start==1 && s_ble_adv==1);
+  reset();g_config_ble.enabled=true;g_config_ble.advertising=false;assert(kernel_init()==ESP_OK);
+  assert(s_ble_init==1 && s_ble_start==1 && !s_ble_adv);
+  reset();g_config_ble.enabled=true;s_ble_config_result=ESP_FAIL;assert(kernel_init()==ESP_OK);
+  assert(s_ble_config==1 && !s_ble_init && !s_ble_start && !s_ble_adv);
   reset();s_i2c_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
   reset();s_charger_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
   reset();s_typec_result=ESP_FAIL;assert(kernel_init()==ESP_OK);assert_power_attempted();
+  puts("PASS: boot restores saved radio settings; BLE stays off by default and gates startup/advertising on preferences and config success");
   puts("PASS: early power initialization precedes NVS/storage/display, runs once and tolerates bus/charger/Type-C failures");
   puts("PASS: real kernel recovery preserves NVS, skips config/SD/radios, gates UI on display/LVGL and completes healthy boot");
 }

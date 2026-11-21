@@ -25,7 +25,9 @@
 #include "ui_manager.h"
 #include "ui_theme.h"
 
-#define IDX_USB_NATIVE     0
+#define IDX_WIFI           0
+#define IDX_BLUETOOTH      1
+#define IDX_USB_NATIVE     2
 #define USB_STATUS_POLL_MS 100
 static const char *TAG = "CONNECTION_UI";
 static lv_timer_t *s_usb_timer;
@@ -53,7 +55,9 @@ void ui_connection_settings_open(void) {
   lv_obj_set_style_bg_opa(s_screen_conn, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen_conn, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_menu = menu_component_create(s_screen_conn, "CONNECTION", "/assets/icons/hub.bin");
+  s_menu = menu_component_create(s_screen_conn, "CONNECTIONS", "/assets/icons/hub.bin");
+  menu_component_add_item(&s_menu, "/assets/icons/wifi.bin", "Wi-Fi");
+  menu_component_add_item(&s_menu, "/assets/icons/bluetooth.bin", "Bluetooth");
   menu_component_add_toggle(&s_menu, "/assets/icons/usb.bin", "USB NATIVE", usb_mux_is_native());
 
   ui_input_set_screen_handler(connection_settings_input, NULL);
@@ -126,8 +130,14 @@ static void connection_settings_input(const input_event_t *ev, void *ctx) {
     case INPUT_BTN_LEFT:
     case INPUT_BTN_RIGHT:
     case INPUT_BTN_OK:
-      if (press)
-        conn_toggle(sel);
+      if (press) {
+        if (sel == IDX_WIFI)
+          ui_switch_screen(SCREEN_WIFI_SETTINGS);
+        else if (sel == IDX_BLUETOOTH)
+          ui_switch_screen(SCREEN_BLUETOOTH_SETTINGS);
+        else
+          conn_toggle(sel);
+      }
       break;
     default:
       break;

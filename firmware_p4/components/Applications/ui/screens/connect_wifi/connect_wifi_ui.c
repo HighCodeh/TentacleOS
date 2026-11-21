@@ -404,7 +404,7 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
       break;
     case INPUT_BTN_BACK:
       if (press)
-        ui_switch_screen(SCREEN_CONNECTION_SETTINGS);
+        ui_switch_screen(SCREEN_WIFI_SETTINGS);
       break;
     case INPUT_BTN_LEFT:
     case INPUT_BTN_RIGHT:

@@ -80,6 +80,22 @@ writer and applies the selection to the battery service only after success.
 A failed save restores the previous in-memory config. No gauge programming or
 charger-limit change is involved. See [battery service](../bq25896/README.md).
 
+### Bluetooth boot preference
+
+P4 `config/ble.conf` persists `name`, `max_conn` (1–3), `advertising`, `enabled`
+and `enabled_by_user: true`. Missing advertising defaults to true; missing or
+invalid max_conn defaults to the configured three-client limit. The legacy
+factory `ssid` field supplies the name when canonical `name` is absent.
+Missing or false `enabled_by_user` loads Bluetooth as disabled, even when a
+legacy file contains `enabled: true`: earlier menu navigation could save that
+value automatically. An explicit settings save establishes the new preference.
+Opening a BLE menu or using an application does not save it. The UI saves after
+the radio transition succeeds and reports a failed write separately. See
+[Bluetooth](../bluetooth/README.md#boot-and-user-preference) for lifecycle and
+migration behavior. The [connection settings service](../connection_settings/README.md)
+saves Wi-Fi/BLE only after radio application; Wi-Fi accepts both nested AP fields
+and the flat factory config.
+
 ### Default Directory Structure
 
 On first boot, `tos_first_boot_setup()` creates the full directory tree on the SD card:

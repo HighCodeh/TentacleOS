@@ -417,6 +417,10 @@ hardware success; driver or write failure attempts to restore the previous AP/IP
 and radio state. The SPI dispatcher rejects competing scans/sessions and
 terminates fixed-width input strings before validation.
 
+The P4 [connection settings menu/service](../connection_settings/README.md) owns
+user edits, persistence and boot restoration. Its password is the Highboy hotspot
+password; external-network credentials remain in Connect to network.
+
 #### Individual Setters
 Helpers that update a single parameter while preserving the rest, auto-saving and
 triggering state changes when `enabled` toggles.

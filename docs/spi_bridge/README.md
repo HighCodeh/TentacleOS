@@ -1260,6 +1260,14 @@ stream batches are discarded. It does not change mode, clock, polling, CRC,
 FETCH size or DMA ownership. OTA/programming/shutdown guards and the P4-lifetime
 reset budget are described in the supervisor documentation.
 
+## Radio configuration synchronization
+
+P4 boot applies the loaded Wi-Fi and BLE announcement preferences directly.
+Background sync skips these two entries; explicit pushes serialize the current
+P4 settings instead of factory assets. The wire structs/opcodes are unchanged.
+Wi-Fi config payload strings are terminated locally on C5 before validation.
+See [connection settings](../connection_settings/README.md#persistence-and-boot).
+
 ## C5 configuration staging memory
 
 The serialized config-cache receiver allocates its 4097-byte staging buffer in
