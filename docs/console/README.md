@@ -177,7 +177,7 @@ RMT-backed IR receive/transmit. The `rx`/`send` channels are brought up on deman
 
 | Command | Description | Usage |
 | :--- | :--- | :--- |
-| `battery` | Shows battery/charger (BQ25896) status: SoC (raw + smoothed), voltage, charge state, VBUS source and limits, faults. | `battery` |
+| `battery` | Charger telemetry and active battery profile. `profiles` lists the catalog; `profile [ID]` shows or persistently selects it. UI profile selection is unavailable; charge guards remain active. See [battery profiles](../bq25896/README.md). | `battery profile knlypow_604858` |
 | `i2cscan` | Scans the I2C bus (`0x08`-`0x77`) and lists responding addresses. | `i2cscan` |
 
 ### UI / Screen Commands

@@ -25,6 +25,17 @@ extern "C" {
 
 #include "bq25896.h"
 
+#define BATTERY_SERVICE_PROFILE_ID_SIZE 32
+#define BATTERY_SERVICE_DEFAULT_PROFILE "generic_2450"
+
+typedef struct {
+  const char *id;
+  const char *name;
+  uint16_t capacity_mah;
+  uint16_t nominal_mv;
+  uint16_t specified_recovery_ma; ///< Zero means no manufacturer value is available.
+} battery_service_profile_t;
+
 /**
  * @brief Cached, smoothed battery/charger state — a single source of truth the
  *        UI reads instead of each screen polling the BQ25896 itself.
@@ -49,8 +60,12 @@ typedef struct {
  */
 void battery_service_init(void);
 
-/** Select nominal capacity only; does not program or qualify the gauge. */
-esp_err_t battery_service_set_capacity(uint16_t capacity_mah);
+/** Immutable catalog; all entries retain the existing guarded charger policy. */
+const battery_service_profile_t *battery_service_profile_at(uint32_t index);
+const battery_service_profile_t *battery_service_profile_find(const char *id);
+const battery_service_profile_t *battery_service_profile_get(void);
+/** Apply a validated selection; persistence belongs to the config service. */
+esp_err_t battery_service_set_profile(const char *id);
 uint16_t battery_service_capacity_mah(void);
 
 /** Charger telemetry is independent of an available/qualified gauge estimate. */

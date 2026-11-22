@@ -593,10 +593,11 @@ continuous fill remains tied to the reported percentage.
 Battery settings show the estimate with "Estimated from voltage" and retain
 measured voltage, net current, USB supply and nominal capacity as separate values.
 The footer names the actual Pause/Resume action; the card shows the actual charge
-state and blocked reason. LEFT/RIGHT changes the nominal battery selection between
-2000 and 2450 mAh and saves it to `config/system.conf`; 2450 mAh is the default.
-The screen confirms a successful save and preserves the previous choice on failure.
-Selecting a capacity does not recalibrate the voltage curve or the gauge. Power uses the same cached,
+state and blocked reason. The active model and nominal capacity are read-only;
+LEFT/RIGHT does not change the battery profile. Use `battery profiles` and
+`battery profile <id>` in the P4 console to select and persist a catalog entry.
+The next refresh displays the selected profile. This does not recalibrate the
+voltage curve or gauge, or enable low-cell recovery. Power uses the same cached,
 filtered value and queues charge requests through the service. Entering Power
 does not initialize the charger or perform ADC conversions in LVGL. Its explicit
 Registers/I2C Scan diagnostics remain user-triggered. V2.03 low-cell alerts and

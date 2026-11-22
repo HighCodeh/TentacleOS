@@ -30,8 +30,67 @@
 #include "bq27220.h"
 #include "bq25896.h"
 #include "power_profile.h"
+#include "led_control.h"
+#include "tos_config.h"
 
 static const char *TAG = "BATTERY_PROFILE";
+
+static void show_profile(const battery_service_profile_t *profile) {
+  ESP_LOGI(TAG,
+           "Profile: %s (%s), %u mAh, %u mV nominal",
+           profile->id,
+           profile->name,
+           profile->capacity_mah,
+           profile->nominal_mv);
+  if (profile->specified_recovery_ma != 0)
+    ESP_LOGI(TAG,
+             "Cell recovery specification: %u mA; not supported by retained charger policy",
+             profile->specified_recovery_ma);
+  else
+    ESP_LOGI(TAG, "Cell recovery specification unavailable");
+  ESP_LOGI(TAG,
+           "Charge policy retained: 3200-4200 mV, <=384 mA / 4176 mV; low-cell recovery "
+           "unavailable; gauge unqualified");
+}
+
+static int profile_command(int argc, char **argv) {
+  if (strcmp(argv[1], "profiles") == 0 && argc == 2) {
+    const battery_service_profile_t *active = battery_service_profile_get();
+    const battery_service_profile_t *profile;
+    for (uint32_t index = 0; (profile = battery_service_profile_at(index)) != NULL; ++index)
+      ESP_LOGI(TAG,
+               "%s %s: %s, %u mAh, %u mV nominal",
+               profile == active ? "*" : " ",
+               profile->id,
+               profile->name,
+               profile->capacity_mah,
+               profile->nominal_mv);
+    return 0;
+  }
+  if (strcmp(argv[1], "profile") == 0) {
+    if (argc == 2) {
+      show_profile(battery_service_profile_get());
+      return 0;
+    }
+    if (argc == 3) {
+      esp_err_t result = tos_config_set_battery_profile(argv[2]);
+      if (result != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "Battery profile not saved: %s; use battery profiles for valid IDs",
+                 esp_err_to_name(result));
+        led_signal_error();
+        return 1;
+      }
+      ESP_LOGI(TAG, "Battery profile saved and selected");
+      led_signal_info();
+      show_profile(battery_service_profile_get());
+      return 0;
+    }
+  }
+  ESP_LOGW(TAG, "Usage: battery profiles | battery profile [ID]");
+  led_signal_warning();
+  return 1;
+}
 
 static const char *chg_name(bq25896_charge_status_t state) {
   switch (state) {
@@ -103,6 +162,8 @@ static int print_registers(void) {
 }
 
 static int cmd_battery(int argc, char **argv) {
+  if (argc >= 2 && (strcmp(argv[1], "profiles") == 0 || strcmp(argv[1], "profile") == 0))
+    return profile_command(argc, argv);
   if (argc == 3 && strcmp(argv[1], "charge") == 0 &&
       (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "off") == 0)) {
     esp_err_t error = battery_service_request_charge(strcmp(argv[2], "on") == 0);
@@ -110,6 +171,12 @@ static int cmd_battery(int argc, char **argv) {
            esp_err_to_name(error));
     return error == ESP_OK ? 0 : 1;
   }
+  if (argc != 1 && !(argc == 2 && strcmp(argv[1], "regs") == 0)) {
+    ESP_LOGW(TAG, "Usage: battery [regs|profiles|profile [ID]|charge on|charge off]");
+    led_signal_warning();
+    return 1;
+  }
+  show_profile(battery_service_profile_get());
   battery_charge_snapshot_t service = {0};
   bool have_service = battery_service_get_charge(&service);
   printf("Charge service: requested=%d valid=%d status=%s\n",
@@ -252,8 +319,8 @@ static int cmd_battery(int argc, char **argv) {
 void register_battery_commands(void) {
   const esp_console_cmd_t cmd = {
       .command = "battery",
-      .help = "BQ25896 telemetry and guarded charge control; regs for raw values",
-      .hint = "[regs|charge on|charge off]",
+      .help = "Battery telemetry, guarded charge control and persistent profile selection",
+      .hint = "[regs|profiles|profile [ID]|charge on|charge off]",
       .func = &cmd_battery,
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd));

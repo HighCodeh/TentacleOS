@@ -22,11 +22,13 @@
 #include "esp_log.h"
 #include "cJSON.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 static const char *TAG = "TOS_CONFIG";
+static atomic_flag s_system_write_busy = ATOMIC_FLAG_INIT;
 
 // Global config instances with defaults
 
@@ -78,6 +80,7 @@ tos_config_system_t g_config_system = {
     .timezone_offset = -3,
     .volume = 50,
     .battery_capacity_mah = POWER_PROFILE_CAPACITY_MAH,
+    .battery_profile = BATTERY_SERVICE_DEFAULT_PROFILE,
     .vibration = true,
     .vibration_intensity = HAPTIC_FEEDBACK_INTENSITY,
     .ui_sound_fx = true,
@@ -235,13 +238,23 @@ static void parse_lora(cJSON *root) {
 }
 
 static void parse_system(cJSON *root) {
-  cJSON *capacity = cJSON_GetObjectItemCaseSensitive(root, "battery_capacity_mah");
-  uint16_t capacity_mah = POWER_PROFILE_CAPACITY_MAH;
-  if (cJSON_IsNumber(capacity) && (capacity->valuedouble == POWER_PROFILE_CAPACITY_SMALL_MAH ||
-                                   capacity->valuedouble == POWER_PROFILE_CAPACITY_MAH))
-    capacity_mah = (uint16_t)capacity->valueint;
-  g_config_system.battery_capacity_mah = capacity_mah;
-  battery_service_set_capacity(capacity_mah);
+  cJSON *id = cJSON_GetObjectItemCaseSensitive(root, "battery_profile");
+  const battery_service_profile_t *profile =
+      cJSON_IsString(id) ? battery_service_profile_find(id->valuestring) : NULL;
+  if (profile == NULL) {
+    cJSON *capacity = cJSON_GetObjectItemCaseSensitive(root, "battery_capacity_mah");
+    const char *legacy_id =
+        cJSON_IsNumber(capacity) && capacity->valuedouble == POWER_PROFILE_CAPACITY_SMALL_MAH
+            ? "generic_2000"
+            : BATTERY_SERVICE_DEFAULT_PROFILE;
+    profile = battery_service_profile_find(legacy_id);
+    if (id != NULL)
+      ESP_LOGW(TAG, "Unknown battery profile; retaining generic charge guards");
+  }
+  snprintf(
+      g_config_system.battery_profile, sizeof(g_config_system.battery_profile), "%s", profile->id);
+  g_config_system.battery_capacity_mah = profile->capacity_mah;
+  battery_service_set_profile(profile->id);
   json_get_str(root, "name", g_config_system.name, sizeof(g_config_system.name));
   json_get_str(root, "locale", g_config_system.locale, sizeof(g_config_system.locale));
   json_get_str(root, "log_level", g_config_system.log_level, sizeof(g_config_system.log_level));
@@ -346,22 +359,30 @@ static cJSON *serialize_lora(void) {
 
 static cJSON *serialize_system(void) {
   cJSON *root = cJSON_CreateObject();
-  cJSON_AddStringToObject(root, "name", g_config_system.name);
-  cJSON_AddStringToObject(root, "locale", g_config_system.locale);
-  cJSON_AddNumberToObject(root, "timezone_offset", g_config_system.timezone_offset);
-  cJSON_AddNumberToObject(root, "volume", g_config_system.volume);
-  cJSON_AddNumberToObject(root, "battery_capacity_mah", g_config_system.battery_capacity_mah);
-  cJSON_AddBoolToObject(root, "vibration", g_config_system.vibration);
-  cJSON_AddNumberToObject(root, "vibration_intensity", g_config_system.vibration_intensity);
-  cJSON_AddBoolToObject(root, "ui_sound_fx", g_config_system.ui_sound_fx);
-  cJSON_AddStringToObject(root, "log_level", g_config_system.log_level);
-  cJSON_AddBoolToObject(root, "first_boot_done", g_config_system.first_boot_done);
+  if (root == NULL || cJSON_AddStringToObject(root, "name", g_config_system.name) == NULL ||
+      cJSON_AddStringToObject(root, "locale", g_config_system.locale) == NULL ||
+      cJSON_AddNumberToObject(root, "timezone_offset", g_config_system.timezone_offset) == NULL ||
+      cJSON_AddNumberToObject(root, "volume", g_config_system.volume) == NULL ||
+      cJSON_AddStringToObject(root, "battery_profile", g_config_system.battery_profile) == NULL ||
+      cJSON_AddNumberToObject(root, "battery_capacity_mah", g_config_system.battery_capacity_mah) ==
+          NULL ||
+      cJSON_AddBoolToObject(root, "vibration", g_config_system.vibration) == NULL ||
+      cJSON_AddNumberToObject(root, "vibration_intensity", g_config_system.vibration_intensity) ==
+          NULL ||
+      cJSON_AddBoolToObject(root, "ui_sound_fx", g_config_system.ui_sound_fx) == NULL ||
+      cJSON_AddStringToObject(root, "log_level", g_config_system.log_level) == NULL ||
+      cJSON_AddBoolToObject(root, "first_boot_done", g_config_system.first_boot_done) == NULL)
+    goto cleanup;
   return root;
+cleanup:
+  ESP_LOGE(TAG, "Cannot serialize system config");
+  cJSON_Delete(root);
+  return NULL;
 }
 
 // Public API
 
-esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const char *module) {
+static esp_err_t load_config(const char *sd_path, const char *flash_path, const char *module) {
   char *json_str = read_file_to_string(sd_path);
   const char *source = "SD";
 
@@ -407,6 +428,16 @@ esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const cha
   return ESP_OK;
 }
 
+esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const char *module) {
+  bool is_system = strcmp(module, "system") == 0;
+  if (is_system && atomic_flag_test_and_set_explicit(&s_system_write_busy, memory_order_acquire))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t result = load_config(sd_path, flash_path, module);
+  if (is_system)
+    atomic_flag_clear_explicit(&s_system_write_busy, memory_order_release);
+  return result;
+}
+
 void tos_config_load_all(void) {
   tos_config_load(TOS_PATH_CONFIG_SCREEN, ASSETS_CONFIG_SCREEN, "screen");
   tos_config_load(TOS_PATH_CONFIG_WIFI, ASSETS_CONFIG_WIFI, "wifi");
@@ -416,7 +447,7 @@ void tos_config_load_all(void) {
   tos_config_load(TOS_PATH_CONFIG_LED, ASSETS_CONFIG_LED, "led");
 }
 
-esp_err_t tos_config_save(const char *sd_path, const char *module) {
+static esp_err_t save_config(const char *sd_path, const char *module) {
   cJSON *root = NULL;
 
   if (strcmp(module, "screen") == 0)
@@ -453,16 +484,35 @@ esp_err_t tos_config_save(const char *sd_path, const char *module) {
   return ret;
 }
 
-esp_err_t tos_config_set_battery_capacity(uint16_t capacity_mah) {
-  if (capacity_mah != POWER_PROFILE_CAPACITY_SMALL_MAH &&
-      capacity_mah != POWER_PROFILE_CAPACITY_MAH)
+esp_err_t tos_config_save(const char *sd_path, const char *module) {
+  bool is_system = strcmp(module, "system") == 0;
+  if (is_system && atomic_flag_test_and_set_explicit(&s_system_write_busy, memory_order_acquire))
+    return ESP_ERR_INVALID_STATE;
+  esp_err_t result = save_config(sd_path, module);
+  if (is_system)
+    atomic_flag_clear_explicit(&s_system_write_busy, memory_order_release);
+  return result;
+}
+
+esp_err_t tos_config_set_battery_profile(const char *id) {
+  const battery_service_profile_t *profile = battery_service_profile_find(id);
+  if (profile == NULL)
     return ESP_ERR_INVALID_ARG;
+  if (atomic_flag_test_and_set_explicit(&s_system_write_busy, memory_order_acquire))
+    return ESP_ERR_INVALID_STATE;
+  char previous_id[sizeof(g_config_system.battery_profile)];
+  memcpy(previous_id, g_config_system.battery_profile, sizeof(previous_id));
   uint16_t previous_mah = g_config_system.battery_capacity_mah;
-  g_config_system.battery_capacity_mah = capacity_mah;
-  esp_err_t result = tos_config_save(TOS_PATH_CONFIG_SYSTEM, "system");
+  snprintf(
+      g_config_system.battery_profile, sizeof(g_config_system.battery_profile), "%s", profile->id);
+  g_config_system.battery_capacity_mah = profile->capacity_mah;
+  esp_err_t result = save_config(TOS_PATH_CONFIG_SYSTEM, "system");
   if (result != ESP_OK) {
+    memcpy(g_config_system.battery_profile, previous_id, sizeof(previous_id));
     g_config_system.battery_capacity_mah = previous_mah;
-    return result;
+  } else {
+    result = battery_service_set_profile(profile->id);
   }
-  return battery_service_set_capacity(capacity_mah);
+  atomic_flag_clear_explicit(&s_system_write_busy, memory_order_release);
+  return result;
 }

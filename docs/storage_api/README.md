@@ -70,15 +70,29 @@ if (storage_is_mounted()) {
 storage_deinit();
 ```
 
-### Battery selection in system config
+### Battery profile in system config
 
-On P4, `tos_config_system_t.battery_capacity_mah` persists the nominal battery
-selection in `config/system.conf`. Accepted values are 2000 and 2450 mAh;
-missing, non-integer or unsupported values load the 2450 mAh default.
-`tos_config_set_battery_capacity()` validates, saves through the existing atomic
-writer and applies the selection to the battery service only after success.
-A failed save restores the previous in-memory config. No gauge programming or
-charger-limit change is involved. See [battery service](../bq25896/README.md).
+On P4, `tos_config_system_t.battery_profile` persists an immutable catalog ID in
+`config/system.conf`. `battery_capacity_mah` is derived from that profile and is
+also saved for legacy readers. Only the terminal exposes profile selection:
+`battery profiles`, `battery profile`, and `battery profile <id>`.
+
+`tos_config_set_battery_profile()` rejects unknown IDs, saves through the existing
+atomic writer and applies the selection only after success. Every system JSON
+field allocation is checked; incomplete serialization cannot be reported as a
+successful profile save. A failed save restores the previous in-memory config.
+A nonblocking atomic gate covers system load/save and the profile transaction;
+overlapping operations return `ESP_ERR_INVALID_STATE` before file access, so a
+UI save cannot publish a profile that is still being saved by the console.
+The caller can retry after the active transaction completes.
+A known profile ID takes precedence over the legacy capacity field. Missing or
+invalid IDs load `generic_2000` for exactly 2000 mAh, or `generic_2450` otherwise;
+no model is inferred from capacity. The default is `generic_2450`.
+
+The Battery screen displays the profile but cannot edit it. Profile selection
+changes no gauge or charger registers; all catalog entries retain the existing
+charge guard until model-specific recovery is qualified. See the canonical
+[catalog and charge policy](../bq25896/README.md).
 
 ### Bluetooth boot preference
 

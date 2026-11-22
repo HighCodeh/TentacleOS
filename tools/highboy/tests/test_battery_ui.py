@@ -33,7 +33,6 @@ code=r"""
 #include <string.h>
 #define POWER_PROFILE_CAPACITY_MAH 2450U
 #define POWER_PROFILE_CAPACITY_SMALL_MAH 2000U
-#define BATTERY_SAVE_STATUS_MS 3000
 #define BATTERY_MV_PER_V 1000
 #define BATTERY_MV_PER_CENTIVOLT 10
 #define UI_COL_SUCCESS 1
@@ -58,14 +57,10 @@ static lv_obj_t *s_screen=nodes,*s_pct=nodes+1,*s_source=nodes+2,*s_state=nodes+
  *s_current=nodes+4,*s_reason=nodes+5,*s_note=nodes+6,*s_caption=nodes+7,*s_footer=nodes+8;
 static lv_timer_t timer,*s_refresh_timer=&timer;
 static int deletions;
-static const char *s_capacity_status;
-static uint32_t s_capacity_status_tick, ticks;
-static uint16_t capacity_mah=2450;
-static bool save_failed;
-static int saves, infos, errors, warnings, screens, requests;
-static uint16_t battery_service_capacity_mah(void){return capacity_mah;}
-static uint32_t lv_tick_get(void){return ticks;}
-static uint32_t lv_tick_elaps(uint32_t start){return ticks-start;}
+typedef struct {const char *name;uint16_t capacity_mah;} battery_service_profile_t;
+static const battery_service_profile_t profile={"KNLYPOW 604858",2000};
+static const battery_service_profile_t *battery_service_profile_get(void){return &profile;}
+static int warnings, screens, requests;
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_LOGI(...) ((void)0)
@@ -79,10 +74,7 @@ typedef int esp_err_t;
 #define SCREEN_SETTINGS 7
 typedef struct {int action,button;} input_event_t;
 static void ui_switch_screen(int screen){assert(screen==SCREEN_SETTINGS);screens++;}
-static int tos_config_set_battery_capacity(uint16_t value){saves++;if(save_failed)return 1;capacity_mah=value;return 0;}
 static int battery_service_request_charge(bool enable){requests++;ch.requested=enable;return 0;}
-static void led_signal_info(void){infos++;}
-static void led_signal_error(void){errors++;}
 static void led_signal_warning(void){warnings++;}
 static bool battery_service_get(battery_snapshot_t *out){*out=snap;return valid;}
 static bool battery_service_get_charge(battery_charge_snapshot_t *out){*out=ch;return charge_valid;}
@@ -111,14 +103,10 @@ int main(void){
  snap.chg=0;ch.requested=false;refresh_cb(NULL);assert(!strcmp(s_state->text,"Charge paused") && strstr(s_footer->text,"Resume"));
  valid=false;charge_valid=false;refresh_cb(NULL);assert(!strcmp(s_pct->text,"--"));
  input_event_t event={INPUT_ACTION_PRESS,INPUT_BTN_RIGHT};
- battery_settings_input(&event,NULL);assert(capacity_mah==2000 && saves==1 && infos==1);
- assert(strstr(s_note->text,"2000 mAh") && strstr(s_reason->text,"saved"));
- save_failed=true;event.button=INPUT_BTN_LEFT;
- battery_settings_input(&event,NULL);assert(capacity_mah==2000 && saves==2 && errors==1);
- assert(strstr(s_reason->text,"unchanged"));
- ticks+=BATTERY_SAVE_STATUS_MS;refresh_cb(NULL);assert(!strstr(s_reason->text,"unchanged"));
- save_failed=false;battery_settings_input(&event,NULL);assert(capacity_mah==2450 && infos==2);
- event.action=0;battery_settings_input(&event,NULL);assert(saves==3);
+ battery_settings_input(&event,NULL);assert(requests==0 && screens==0);
+ assert(strstr(s_note->text,"KNLYPOW 604858") && strstr(s_note->text,"2000 mAh"));
+ event.button=INPUT_BTN_LEFT;battery_settings_input(&event,NULL);assert(requests==0 && screens==0);
+ assert(strstr(s_note->text,"KNLYPOW 604858"));
  event.action=INPUT_ACTION_PRESS;event.button=INPUT_BTN_OK;charge_valid=true;
  battery_settings_input(&event,NULL);assert(requests==1);
  event.button=INPUT_BTN_BACK;battery_settings_input(&event,NULL);assert(screens==1);

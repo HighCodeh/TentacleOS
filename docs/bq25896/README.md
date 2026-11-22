@@ -19,26 +19,66 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 ## High Boy V2.03
 
-Battery settings offer the owner-selected 2000 and 2450 mAh nominal capacities.
-2450 mAh is the default, superseding the earlier reported 2475 mAh value.
-Both use the existing single-cell 3.7 V nominal / 4.2 V maximum voltage estimate;
-capacity alone does not identify a discharge curve or calibrate the gauge.
-The prior KNLYPOW/Yachen 604858 specification (2000 mAh; A0 dated 2026-10-29,
-SHA-256 `29d4047b57c25d427abdca5d18d1c8fb26f18cda71ac23370102598fe95ba8c5`)
-does not qualify a replacement's recovery/termination current or temperature
-sensor. Existing lower charge guards remain unchanged.
+Battery profiles are selected only from the P4 console. The Battery screen
+shows the active model and nominal capacity; LEFT/RIGHT cannot change them.
+The catalog is compiled into `battery_service.c` and cannot accept arbitrary
+charge parameters from a command or configuration file.
+
+| Profile ID | Label | Nominal capacity / voltage | Provenance |
+| --- | --- | --- | --- |
+| `knlypow_604858` | KNLYPOW 604858 | 2000 mAh / 3.7 V | Owner-confirmed label and QR-linked KNLYPOW/Yachen A0 specification, 2026-07-11 |
+| `generic_2000` | Generic | 2000 mAh / 3.7 V | Legacy capacity selection; model unknown |
+| `generic_2450` | Generic | 2450 mAh / 3.7 V | Legacy default; model unknown |
+
+```text
+battery profiles
+battery profile
+battery profile knlypow_604858
+```
+
+The last command saves `battery_profile` in `config/system.conf` through the
+existing atomic writer, then applies the selection without rebooting. Failure
+keeps the previous runtime selection and reports the storage error. Overlapping system-config
+load/save requests are rejected as busy before touching the file. The console reports the
+selected profile in `battery` telemetry. Unknown IDs are rejected. Existing
+capacity-only configurations migrate to a generic profile of that capacity;
+2000 mAh does not identify which KNLYPOW model is installed. The default remains
+`generic_2450` until explicitly selected. A known ID overrides a conflicting
+legacy capacity field; an unknown/malformed ID falls back to the legacy generic
+capacity (2450 mAh when that field is also invalid).
+
+All three profiles retain the current 3200–4200 mV charge eligibility range.
+Selection changes nominal model/capacity metadata, not electrical behavior.
+Low-cell recovery remains unsupported. A stale/unknown model ID follows the
+generic migration rule above.
+
+The confirmed [QR page](https://qr61.cn/oY4Nxr/qirer5U?format=md) links the
+[604858 A0 specification](https://ncstatic.clewm.net/rsrc/2026/1028/10/f365eb385c4c48af9d816db416b71eba.pdf),
+cover dated 2026-07-11, SHA-256
+`29b87db04d15839c23b57efe58296de13437a242f02c7a2aa7c269c79aaaf8da`.
+Page 3 specifies 2000 mAh / 3.7 V, 400 mA standard charge, a 4.2 V charge ceiling,
+3.0 V discharge cutoff and 10–45 C charge temperature. Section 9.4 on page 12
+requires 0.01 C (20 mA) precharge for overdischarged cells, with a 15–30 minute
+limit to reach above 3.0 V. Normal charging above the cutoff is distinct from
+that recovery procedure. This source replaces the earlier specification hash
+recorded here; no claim is made that the two PDF revisions are identical.
+
+Selection does not change charge current/voltage register limits, the voltage
+estimate, the gauge model or temperature qualification. The catalog's recovery
+current is specification metadata, not a programmed current; zero means unknown.
+All profiles remain subject to the charger protections below.
 
 The gauge's observed 3000 mAh design/full capacity does not match this battery.
 `POWER_PROFILE_GAUGE_QUALIFIED` remains false: matching the nominal capacity
 alone is insufficient to qualify the cell's CEDV model, board current sensing
 and temperature input. No live gauge RAM, OTP or chemistry profile is changed
-by this UI update. The read-only BQ27220 driver cannot write the gauge capacity or chemistry.
+by profile selection. The read-only BQ27220 driver cannot write the gauge capacity or chemistry.
 
 The BQ25896 is I2C0 address 0x6B, with active-low CE on P4 GPIO33.
 The BQ27220 gauge is sampled independently. `power_profile.h` records the
 reported nominal capacity and retained charge limits; the runtime retains 384 mA
-and 4176 mV. This update does not change charger register limits, the gauge
-model, NTC interpretation, precharge, OTG, partitions or C5 firmware.
+and 4176 mV. Charger register limits, the gauge model, NTC interpretation, precharge, OTG,
+partitions and C5 firmware are unchanged.
 
 ### Charging and protection
 
@@ -121,13 +161,12 @@ gauge is unqualified, prefixed with `~`; unavailable readings show `--%`.
 
 The battery information card shows percent, with `~` and "Estimated from voltage"
 for the fallback, alongside measured voltage, labeled net current and supply,
-nominal capacity, actual charging/paused/full state and the blocked reason.
-LEFT/RIGHT selects 2000 or 2450 mAh and saves `battery_capacity_mah` in
-`config/system.conf` through the existing atomic storage writer. A failed save
-keeps the previous selection and shows an error; an old/missing/invalid field
-loads 2450 mAh. `battery_service_set_capacity()` accepts only these two values
-and shares the nominal capacity atomically with the worker. This setting changes
-neither the voltage-to-percent curve nor charger limits or gauge calibration. OK
+active model and nominal capacity, actual charging/paused/full state and the
+blocked reason. The screen is read-only for profile selection. The config service
+validates a catalog ID and calls `battery_service_set_profile()` only after saving;
+the immutable catalog index is shared atomically with the worker and renderers.
+This setting changes neither the voltage-to-percent curve nor charger limits or
+gauge calibration. OK
 pauses or requests charging; all guards remain active. Header and dropdown use
 that same estimate to fill the battery icon and display `~NN%`. A lightning/USB
 symbol reports actual charging/external power separately. The header does not
@@ -154,8 +193,9 @@ Application notifications and activity patterns take priority, including their
 dark gaps. Blocked/low warning patterns remain available. State-change logs are
 deduplicated. See [LED](../led/README.md) for brightness and priority rules.
 
-Host regression coverage includes both capacity choices across a real config
-save/load, invalid/legacy fields, failed-save rollback, icon band boundaries,
+Host regression coverage includes all catalog profiles across a real config
+save/load, console list/show/select, invalid/legacy fields, serializer allocation
+failures, failed-save rollback, read-only UI controls, icon band boundaries,
 charge animation transitions and static overlay independence. Native LVGL checks
 cover 240x320/320x240, light/dark themes and repeated screen teardown. These tests use
 host I/O and telemetry mocks; they do not validate physical battery accuracy.

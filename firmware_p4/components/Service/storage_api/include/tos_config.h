@@ -86,12 +86,15 @@ typedef struct {
   bool enabled;
 } tos_config_lora_t;
 
+#define TOS_CONFIG_BATTERY_PROFILE_ID_SIZE 32
+
 typedef struct {
   char name[32];
   char locale[8];
   int timezone_offset;
   int volume;
   uint16_t battery_capacity_mah;
+  char battery_profile[TOS_CONFIG_BATTERY_PROFILE_ID_SIZE];
   bool vibration;
   int vibration_intensity;
   bool ui_sound_fx;
@@ -117,8 +120,8 @@ extern tos_config_led_t g_config_led;
 
 esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const char *module);
 void tos_config_load_all(void);
-/** Persist nominal battery selection and apply it only after a successful write. */
-esp_err_t tos_config_set_battery_capacity(uint16_t capacity_mah);
+/** Persist a catalog profile and apply it only after a successful write. */
+esp_err_t tos_config_set_battery_profile(const char *id);
 esp_err_t tos_config_save(const char *sd_path, const char *module);
 
 #ifdef __cplusplus

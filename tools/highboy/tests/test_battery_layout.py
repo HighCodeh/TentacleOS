@@ -57,17 +57,17 @@ typedef struct {int soc,vbat_mv,chg;bool present,charging,vbus_present,low,is_so
 typedef struct {int vbat_mv,vbus_mv;bool power_good;} charger_t;
 typedef struct {bool requested,current_valid;int battery_current_ma;const char *status;charger_t charger;} battery_charge_snapshot_t;
 static struct {lv_color_t screen_base,bg_secondary,border_accent,text_main,text_secondary;} current_theme;
-static bool valid=true,fail_save;
-static uint16_t capacity=2450;
+static bool valid=true;
+typedef struct {const char *name;uint16_t capacity_mah;} battery_service_profile_t;
+static const battery_service_profile_t profiles[]={{"Generic",2450},{"Generic",2000},{"KNLYPOW 604858",2000}};
+static unsigned profile_index;
+static const battery_service_profile_t *battery_service_profile_get(void){return &profiles[profile_index];}
 static unsigned backs;
 static battery_snapshot_t snapshot={.soc=50,.vbat_mv=3700,.present=true,.is_soc_estimated=true};
 static battery_charge_snapshot_t charge={.requested=true,.current_valid=true,.battery_current_ma=-120,.status="On battery",.charger={3700,0,false}};
 static bool battery_service_get(battery_snapshot_t *out){*out=snapshot;return valid;}
 static bool battery_service_get_charge(battery_charge_snapshot_t *out){*out=charge;return valid;}
-static uint16_t battery_service_capacity_mah(void){return capacity;}
-static int tos_config_set_battery_capacity(uint16_t value){if(fail_save)return 1;capacity=value;return 0;}
 static int battery_service_request_charge(bool enable){charge.requested=enable;return 0;}
-static void led_signal_info(void){}
 static void led_signal_warning(void){}
 static void led_signal_error(void){}
 static int ui_screen_w(void){return lv_display_get_horizontal_resolution(NULL);}
@@ -119,8 +119,13 @@ int main(void){
         assert(lv_color_eq(lv_obj_get_style_text_color(s_note,0),current_theme.text_secondary));
         input_event_t event={INPUT_ACTION_PRESS,INPUT_BTN_RIGHT};
         battery_settings_input(&event,NULL);check_bounds();
-        fail_save=true;battery_settings_input(&event,NULL);check_bounds();fail_save=false;
-        lv_tick_inc(BATTERY_SAVE_STATUS_MS);refresh_cb(NULL);check_bounds();
+        for(profile_index=0;profile_index<3;profile_index++) {
+          refresh_cb(NULL);check_bounds();
+          assert(strstr(lv_label_get_text(s_note),profiles[profile_index].name));
+          event.button=INPUT_BTN_LEFT;battery_settings_input(&event,NULL);check_bounds();
+        }
+        profile_index=0;charge.status="Low cell: recovery unsupported";refresh_cb(NULL);check_bounds();
+        charge.status="Charge enabled - waiting";refresh_cb(NULL);check_bounds();
         event.button=INPUT_BTN_BACK;battery_settings_input(&event,NULL);
         ui_battery_settings_close();ui_battery_settings_close();assert(s_refresh_timer==NULL);
         lv_screen_load(lv_obj_create(NULL));lv_obj_delete(s_screen);assert(s_screen==NULL);
@@ -129,7 +134,7 @@ int main(void){
     }
   }
   assert(backs==12);
-  puts("PASS: Battery 240x320/320x240 layout, light/dark themes, saved/error/unavailable states and repeated close/delete");
+  puts("PASS: Battery 240x320/320x240 layout, light/dark themes, read-only profiles, charging/unavailable states and repeated close/delete");
 }
 """
 test = base / "battery_layout_test.c"

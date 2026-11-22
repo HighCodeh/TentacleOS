@@ -17,9 +17,7 @@
 
 #include "esp_log.h"
 #include "battery_service.h"
-#include "power_profile.h"
 #include "led_control.h"
-#include "tos_config.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
@@ -27,7 +25,6 @@
 #include "ui_theme.h"
 
 #define BATTERY_REFRESH_MS       1000
-#define BATTERY_SAVE_STATUS_MS   3000
 #define BATTERY_SIDE_PAD         12
 #define BATTERY_HERO_HEIGHT      96
 #define BATTERY_HERO_WIDE_WIDTH  140
@@ -48,8 +45,6 @@ static const char *TAG = "BATTERY_SETTINGS_UI";
 static lv_obj_t *s_screen, *s_pct, *s_source, *s_state, *s_current, *s_reason, *s_note;
 static lv_obj_t *s_caption, *s_footer;
 static lv_timer_t *s_refresh_timer;
-static const char *s_capacity_status;
-static uint32_t s_capacity_status_tick;
 
 static void refresh_cb(lv_timer_t *timer) {
   (void)timer;
@@ -119,9 +114,8 @@ static void refresh_cb(lv_timer_t *timer) {
       lv_label_set_text(s_reason, "Percentage needs calibration");
   } else
     lv_label_set_text(s_reason, reason);
-  lv_label_set_text_fmt(s_note, "L/R Battery: < %u mAh >", battery_service_capacity_mah());
-  if (s_capacity_status != NULL && lv_tick_elaps(s_capacity_status_tick) < BATTERY_SAVE_STATUS_MS)
-    lv_label_set_text(s_reason, s_capacity_status);
+  const battery_service_profile_t *profile = battery_service_profile_get();
+  lv_label_set_text_fmt(s_note, "%s  %u mAh", profile->name, profile->capacity_mah);
   ui_chrome_footer_set_text(s_footer,
                             !charge_valid      ? "BACK Exit"
                             : charge.requested ? "OK Pause charge   BACK"
@@ -146,23 +140,7 @@ static void battery_settings_input(const input_event_t *event, void *context) {
     return;
   if (event->button == INPUT_BTN_BACK)
     ui_switch_screen(SCREEN_SETTINGS);
-  else if (event->button == INPUT_BTN_LEFT || event->button == INPUT_BTN_RIGHT) {
-    uint16_t capacity_mah = battery_service_capacity_mah() == POWER_PROFILE_CAPACITY_MAH
-                                ? POWER_PROFILE_CAPACITY_SMALL_MAH
-                                : POWER_PROFILE_CAPACITY_MAH;
-    esp_err_t result = tos_config_set_battery_capacity(capacity_mah);
-    if (result == ESP_OK) {
-      s_capacity_status = "Battery selection saved";
-      ESP_LOGI(TAG, "Battery capacity saved: %u mAh", capacity_mah);
-      led_signal_info();
-    } else {
-      s_capacity_status = "Save failed; selection unchanged";
-      ESP_LOGE(TAG, "Battery capacity save failed: %s", esp_err_to_name(result));
-      led_signal_error();
-    }
-    s_capacity_status_tick = lv_tick_get();
-    refresh_cb(NULL);
-  } else if (event->button == INPUT_BTN_OK) {
+  else if (event->button == INPUT_BTN_OK) {
     battery_charge_snapshot_t charge;
     if (battery_service_get_charge(&charge)) {
       esp_err_t result = battery_service_request_charge(!charge.requested);
@@ -185,7 +163,6 @@ static lv_obj_t *add_label(lv_obj_t *parent, const lv_font_t *font, int width) {
 }
 
 void ui_battery_settings_open(void) {
-  s_capacity_status = NULL;
   if (s_screen != NULL)
     lv_obj_delete(s_screen);
   s_screen = lv_obj_create(NULL);

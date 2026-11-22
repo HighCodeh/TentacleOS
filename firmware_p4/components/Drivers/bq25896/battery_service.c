@@ -16,6 +16,7 @@
 #include "battery_service.h"
 
 #include <stdatomic.h>
+#include <string.h>
 #include "bq27220.h"
 #include "power_profile.h"
 #include "pin_def.h"
@@ -44,6 +45,8 @@ static const char *TAG = "BATTERY_SVC";
 #define LOW_EXIT_PCT     20 // release "low" at/above this SoC (hysteresis)
 #define LOW_ENTER_MV     3300
 #define LOW_EXIT_MV      3500
+#define PACK_NOMINAL_MV  3700
+#define PACK_604858_RECOVERY_MA 20
 
 typedef struct {
   int soc;
@@ -63,20 +66,49 @@ static bool s_started = false;
 static battery_charge_snapshot_t s_charge;
 static bool s_charge_requested = true;
 static SemaphoreHandle_t s_charge_control;
-static atomic_uint_least16_t s_capacity_mah = POWER_PROFILE_CAPACITY_MAH;
+static const battery_service_profile_t BATTERY_PROFILES[] = {
+    {BATTERY_SERVICE_DEFAULT_PROFILE, "Generic", POWER_PROFILE_CAPACITY_MAH, PACK_NOMINAL_MV, 0},
+    {"generic_2000", "Generic", POWER_PROFILE_CAPACITY_SMALL_MAH, PACK_NOMINAL_MV, 0},
+    {"knlypow_604858",
+     "KNLYPOW 604858",
+     POWER_PROFILE_CAPACITY_SMALL_MAH,
+     PACK_NOMINAL_MV,
+     PACK_604858_RECOVERY_MA},
+};
+#define BATTERY_PROFILES_COUNT (sizeof(BATTERY_PROFILES) / sizeof(BATTERY_PROFILES[0]))
+static atomic_uint_least32_t s_profile_index;
 
 static int filter_soc(battery_service_filter_t *filter, const bq25896_telem_t *sample);
 
-esp_err_t battery_service_set_capacity(uint16_t capacity_mah) {
-  if (capacity_mah != POWER_PROFILE_CAPACITY_SMALL_MAH &&
-      capacity_mah != POWER_PROFILE_CAPACITY_MAH)
+const battery_service_profile_t *battery_service_profile_at(uint32_t index) {
+  return index < BATTERY_PROFILES_COUNT ? &BATTERY_PROFILES[index] : NULL;
+}
+
+const battery_service_profile_t *battery_service_profile_find(const char *id) {
+  if (id == NULL)
+    return NULL;
+  for (uint32_t index = 0; index < BATTERY_PROFILES_COUNT; ++index) {
+    if (strcmp(id, BATTERY_PROFILES[index].id) == 0)
+      return &BATTERY_PROFILES[index];
+  }
+  return NULL;
+}
+
+const battery_service_profile_t *battery_service_profile_get(void) {
+  return &BATTERY_PROFILES[atomic_load_explicit(&s_profile_index, memory_order_relaxed)];
+}
+
+esp_err_t battery_service_set_profile(const char *id) {
+  const battery_service_profile_t *profile = battery_service_profile_find(id);
+  if (profile == NULL)
     return ESP_ERR_INVALID_ARG;
-  atomic_store_explicit(&s_capacity_mah, capacity_mah, memory_order_relaxed);
+  atomic_store_explicit(
+      &s_profile_index, (uint32_t)(profile - BATTERY_PROFILES), memory_order_relaxed);
   return ESP_OK;
 }
 
 uint16_t battery_service_capacity_mah(void) {
-  return atomic_load_explicit(&s_capacity_mah, memory_order_relaxed);
+  return battery_service_profile_get()->capacity_mah;
 }
 
 bool battery_service_get_charge(battery_charge_snapshot_t *out) {

@@ -72,17 +72,31 @@ static void check_sequence(void) {
 }
 int main(void) {
  assert(battery_service_capacity_mah()==2450);
- assert(battery_service_set_capacity(2000)==ESP_OK && battery_service_capacity_mah()==2000);
- assert(battery_service_set_capacity(3000)==ESP_ERR_INVALID_ARG && battery_service_capacity_mah()==2000);
- assert(battery_service_set_capacity(2450)==ESP_OK && battery_service_capacity_mah()==2450);
+ assert(!strcmp(battery_service_profile_get()->id,"generic_2450"));
+ assert(battery_service_set_profile("generic_2000")==ESP_OK && battery_service_capacity_mah()==2000);
+ assert(battery_service_profile_get()->nominal_mv==3700);
+ assert(battery_service_profile_get()->specified_recovery_ma==0);
+ assert(battery_service_set_profile("invalid")==ESP_ERR_INVALID_ARG && battery_service_capacity_mah()==2000);
+ assert(battery_service_set_profile(NULL)==ESP_ERR_INVALID_ARG);
+ assert(battery_service_set_profile("knlypow_604858")==ESP_OK);
+ assert(battery_service_profile_get()->specified_recovery_ma==20);
+ assert(battery_service_set_profile("generic_2450")==ESP_OK && battery_service_capacity_mah()==2450);
+ assert(!battery_service_profile_at(UINT32_MAX));
+ assert(!battery_service_profile_at(3));
+ assert(battery_service_set_profile("knlypow_504858")==ESP_ERR_INVALID_ARG);
  s_mtx=(void*)1;s_charge_control=(void*)2;s_started=true;
- input=(bq25896_telem_t){.adc_valid=true,.power_good=true,.vbat_mv=3004,
+ input=(bq25896_telem_t){.adc_valid=true,.power_good=true,.vbat_mv=3024,
     .ts_milli_pct=55000,.charge_current_limit_ma=384,.charge_voltage_limit_mv=4176};
- gauge=(bq27220_sample_t){.voltage_mv=2992,.design_mah=3000,.full_mah=3000,
+ gauge=(bq27220_sample_t){.voltage_mv=3038,.design_mah=3000,.full_mah=3000,
    .remaining_mah=139,.soc_pct=5,.current_ma=0};
- poll();assert(s_snap.valid && s_snap.present && s_snap.vbus_present && s_snap.soc==0 && s_snap.is_soc_estimated);
- assert(s_charge.current_valid && !s_charge.gauge_valid && !enables);
- assert(power_state==LED_POWER_BLOCKED);
+ for (uint32_t i=0;battery_service_profile_at(i);++i) {
+   assert(battery_service_set_profile(battery_service_profile_at(i)->id)==ESP_OK);
+   poll();assert(s_snap.valid && s_snap.present && s_snap.vbus_present && s_snap.soc==0 && s_snap.is_soc_estimated);
+   assert(s_charge.current_valid && !s_charge.gauge_valid && !enables);
+   assert(!input.charge_enabled && power_state==LED_POWER_BLOCKED);
+   assert(!strcmp(s_charge.status,"Battery voltage too low"));
+ }
+ assert(battery_service_set_profile("generic_2450")==ESP_OK);
  input.vbat_mv=3600;gauge.voltage_mv=3600;input.charging=true;input.chg=CHARGE_STATUS_FAST_CHARGE;
  poll();assert(enables==1 && s_snap.charging && s_snap.soc==40 && s_snap.is_soc_estimated);
  assert(power_state==LED_POWER_CHARGING);
