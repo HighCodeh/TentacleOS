@@ -54,7 +54,7 @@ code = r"""
 typedef int esp_err_t;
 typedef struct {int action,button;} input_event_t;
 typedef struct {int soc,vbat_mv,chg;bool present,charging,vbus_present,low,is_soc_estimated;} battery_snapshot_t;
-typedef struct {int vbat_mv,vbus_mv;bool power_good;} charger_t;
+typedef struct {int vbat_mv,vbus_mv;bool power_good;int input_current_limit_ma;} charger_t;
 typedef struct {bool requested,current_valid;int battery_current_ma;const char *status;charger_t charger;} battery_charge_snapshot_t;
 static struct {lv_color_t screen_base,bg_secondary,border_accent,text_main,text_secondary;} current_theme;
 static bool valid=true;
@@ -64,7 +64,7 @@ static unsigned profile_index;
 static const battery_service_profile_t *battery_service_profile_get(void){return &profiles[profile_index];}
 static unsigned backs;
 static battery_snapshot_t snapshot={.soc=50,.vbat_mv=3700,.present=true,.is_soc_estimated=true};
-static battery_charge_snapshot_t charge={.requested=true,.current_valid=true,.battery_current_ma=-120,.status="On battery",.charger={3700,0,false}};
+static battery_charge_snapshot_t charge={.requested=true,.current_valid=true,.battery_current_ma=-120,.status="On battery",.charger={3700,5100,true,900}};
 static bool battery_service_get(battery_snapshot_t *out){*out=snapshot;return valid;}
 static bool battery_service_get_charge(battery_charge_snapshot_t *out){*out=charge;return valid;}
 static int battery_service_request_charge(bool enable){charge.requested=enable;return 0;}
@@ -101,6 +101,8 @@ static void check_bounds(void){
       fprintf(stderr,"Overflow: %s y=%d..%d\n",lv_label_get_text(labels[i]),(int)area.y1,(int)area.y2);
     assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
   }
+  lv_area_t supply, note;lv_obj_get_coords(s_source,&supply);lv_obj_get_coords(s_note,&note);
+  assert(supply.y2<note.y1);
 }
 int main(void){
   lv_init();lv_display_t *display=lv_display_create(240,320);

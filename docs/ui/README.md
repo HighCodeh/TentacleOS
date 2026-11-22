@@ -592,6 +592,9 @@ continuous fill remains tied to the reported percentage.
 
 Battery settings show the estimate with "Estimated from voltage" and retain
 measured voltage, net current, USB supply and nominal capacity as separate values.
+The supply field shows USB voltage and the sampled input current limit on two lines;
+this limit is separate from net cell current. Automatic source policy is documented
+in [power management](../power_manager/README.md#usb-input-budget-on-v203).
 The footer names the actual Pause/Resume action; the card shows the actual charge
 state and blocked reason. The active model and nominal capacity are read-only;
 LEFT/RIGHT does not change the battery profile. Use `battery profiles` and

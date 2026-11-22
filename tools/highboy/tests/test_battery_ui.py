@@ -46,7 +46,7 @@ typedef struct {void *target;} lv_event_t;
 static void *lv_event_get_target(lv_event_t *e){return e->target;}
 typedef struct {char text[100];int value;} lv_obj_t;
 typedef struct {int soc,vbat_mv,chg;bool present,charging,vbus_present,low,is_soc_estimated;} battery_snapshot_t;
-typedef struct {int vbat_mv;bool power_good;int vbus_mv;} charger_t;
+typedef struct {int vbat_mv;bool power_good;int vbus_mv;int input_current_limit_ma;} charger_t;
 typedef struct {bool requested,current_valid;int battery_current_ma;const char *status;charger_t charger;} battery_charge_snapshot_t;
 static struct {int text_main,text_secondary;} current_theme;
 static battery_snapshot_t snap;
@@ -90,8 +90,9 @@ code+=function('static void refresh_cb(')+function('void ui_battery_settings_clo
 code+=r"""
 int main(void){
  snap=(battery_snapshot_t){.soc=-1,.vbat_mv=3004,.present=true,.vbus_present=true};
- ch=(battery_charge_snapshot_t){.requested=true,.current_valid=true,.status="Battery voltage too low",.charger={3004,true,5100}};
+ ch=(battery_charge_snapshot_t){.requested=true,.current_valid=true,.status="Battery voltage too low",.charger={3004,true,5100,900}};
  refresh_cb(NULL);assert(!strcmp(s_pct->text,"3.00 V"));
+ assert(!strcmp(s_source->text,"USB 5.10 V\n900 mA limit"));
  assert(!strcmp(s_reason->text,"Battery voltage too low") && !strcmp(s_state->text,"Not charging"));
  assert(!strcmp(s_current->text,"+0 mA") && !strcmp(s_caption->text,"Percentage unavailable"));
  ch.status="Low cell: recovery unsupported";refresh_cb(NULL);

@@ -88,9 +88,10 @@ static void refresh_cb(lv_timer_t *timer) {
     lv_label_set_text(s_source, "Unavailable");
   else if (battery.vbus_present && charge_valid)
     lv_label_set_text_fmt(s_source,
-                          "USB %u.%02u V",
+                          "USB %u.%02u V\n%u mA limit",
                           charge.charger.vbus_mv / BATTERY_MV_PER_V,
-                          charge.charger.vbus_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT);
+                          charge.charger.vbus_mv % BATTERY_MV_PER_V / BATTERY_MV_PER_CENTIVOLT,
+                          charge.charger.input_current_limit_ma);
   else
     lv_label_set_text(s_source, battery.vbus_present ? "USB" : "Battery");
   lv_label_set_text(s_state, state);
