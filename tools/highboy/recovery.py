@@ -34,7 +34,7 @@ TABLE_SIZE = 0xc00
 SECTOR_SIZE = 0x1000
 OTA_OFFSET = 0xf000
 APP_OFFSET = 0x20000
-ASSETS = {'P4': (0x630000, 0x1d0000), 'C5': (0x630000, 0x1d0000)}
+ASSETS = {'P4': (0x650000, 0x1b0000), 'C5': (0x630000, 0x1d0000)}
 BOUNDARY = {'schema_version': 1, 'status': 'private_recovery_review_only',
             'contains_private_device_data': True, 'deployment_approved': False,
             'device_identity_verified': False, 'security_state_verified': False,

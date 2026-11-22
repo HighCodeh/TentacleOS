@@ -581,6 +581,16 @@ and retains on-demand loading. Rapid navigation to a not-yet-preloaded image can
 still require a synchronous load. Display DMA buffers and the separate coverflow
 preview are unchanged.
 
+Larger packaged frames use lossless LZ4 BIN encoding. The asset manager decodes
+these with LVGL's bundled LZ4 library into the same ARGB8888 cache buffers; raw
+flash/SD images remain supported. A checked PSRAM scratch buffer exists only
+during decompression. Invalid lengths, unsupported compression and allocation
+failures reject the image without retaining that buffer. See
+[asset generation and deployment](../storage_assets/README.md#v203-p4-assets-build-and-flash).
+`test_assets_compression.py <native-lvgl-build-directory>`, run with the image
+converter's Python environment, compares all generated frame pixels, exercises
+malformed files, SD preloads, cache eviction and allocation failure with real LVGL.
+
 ### USB Storage with an unavailable SD
 
 USB exit no longer depends on successfully mounting the card. After USB I/O has

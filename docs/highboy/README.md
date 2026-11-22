@@ -273,26 +273,27 @@ rollback are retained; NVS, PHY and OTA metadata keep their offsets.
 | `coredump` offset / size | `0x5C0000` / `0x10000` | `0x600000` / `0x10000` |
 | `assets` offset / size | `0x5D0000` / `0x230000` | `0x610000` / `0x1F0000` |
 
-The current GPS-test expansion takes another 128 KiB from assets, adding
-64 KiB to **each** OTA slot. Both slots remain equal and rollback is retained.
-C5, NVS, PHY and OTA metadata are unchanged.
+The GPS expansion previously used two 0x300000-byte slots and assets at
+0x630000 (0x1D0000 bytes). The current scanner expansion adds 64 KiB to **each**
+P4 OTA slot, retaining equal slots and rollback. Lossless LZ4 compression of the
+larger generated UI frames recovers space without removing assets. C5, NVS, PHY
+and OTA metadata are unchanged.
 
 | P4 region | Current offset | Current size |
 | --- | --- | --- |
-| `ota_0` | `0x20000` | `0x300000` (3 MiB) |
-| `ota_1` | `0x320000` | `0x300000` (3 MiB) |
-| `coredump` | `0x620000` | `0x10000` (64 KiB) |
-| `assets` | `0x630000` | `0x1D0000` (1,856 KiB) |
+| `ota_0` | `0x20000` | `0x310000` (3,136 KiB) |
+| `ota_1` | `0x330000` | `0x310000` (3,136 KiB) |
+| `coredump` | `0x640000` | `0x10000` (64 KiB) |
+| `assets` | `0x650000` | `0x1B0000` (1,728 KiB) |
 
-At the initial GPS expansion, the rebuilt LittleFS image was mounted offline:
-408 of 464 blocks were used
-(1,671,168 bytes), leaving 229,376 bytes (224 KiB) free at that revision. All 173 packaged files
-were compared byte-for-byte with the build staging directory. Filesystem free
-space is not application headroom until the map is migrated. All packaged
-assets are retained. The table still ends at `0x800000` (8 MiB).
+The rebuilt LittleFS image is checked offline with all existing asset paths
+retained. Allocation falls from 1,812 KiB to 1,660 KiB, including generated license
+sidecars, leaving 68 KiB free in the smaller partition (previously 44 KiB).
+Frame pixels are byte-identical after decompression. The table still ends at
+0x800000 (8 MiB). Filesystem free space and OTA slot headroom are separate budgets.
 
 This changes installation compatibility. The guarded app-only updater rejects the
-previous tables (including 0x2F0000-byte slots); it cannot migrate them. Package verification, recovery review and
+previous tables (including 0x300000- and 0x2F0000-byte slots); it cannot migrate them. Package verification, recovery review and
 the separate factory-security partition profile use the new geometry. Historic
 packages/backups must be handled with their matching revision's tools.
 
@@ -300,7 +301,8 @@ Migration requires a backup and a serial flash of the new partition table,
 initial OTA metadata selecting `ota_0`, application and rebuilt assets together.
 Do not perform an app-only OTA or an assets-only flash to migrate. The old
 `ota_1`, assets and coredump locations overlap the new layout and cannot be kept
-as valid images. Preserve any configuration stored in the old assets filesystem
+as valid images. Clear the relocated coredump region during the reviewed migration;
+its former contents belong to the old assets filesystem. Preserve any configuration stored in the old assets filesystem
 before replacing it. NVS offsets and the SD card are unchanged; no erase-all or
 eFuse changes are required by this layout. This source change performs no device
 write. After migration, app-only updates again require an exact table match.

@@ -143,6 +143,10 @@ for dir in "${TARGET_DIRS[@]}"; do
   fi
 done
 
+if [ -d "$TEMP_FRAMES_DIR" ]; then
+  "$PYTHON_BIN" "$SCRIPT_DIR/compress_frames.py" "$TEMP_FRAMES_DIR"
+fi
+
 echo -e "\n${GREEN}=======================================${NC}"
 echo -e "${GREEN}      Automation Completed Successfully      ${NC}"
 echo -e "${GREEN}=======================================${NC}\n"

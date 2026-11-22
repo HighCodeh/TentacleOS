@@ -16,6 +16,7 @@
 #include "assets_manager.h"
 
 #include <dirent.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,10 +28,20 @@
 #include "lvgl_glue.h"
 
 #include "draw/lv_image_decoder_private.h"
+#include "libs/lz4/lz4.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "misc/cache/lv_cache_private.h"
 
 static const char *TAG = "ASSETS_MANAGER";
+
+#define ASSETS_BIN_FLAGS_SHIFT 16
+#define ASSETS_BIN_MAGIC_MASK  0xFF
+
+typedef struct {
+  uint32_t method;
+  uint32_t compressed_size;
+  uint32_t decompressed_size;
+} assets_compressed_header_t;
 
 typedef struct __attribute__((packed)) {
   uint32_t magic_cf;
@@ -97,7 +108,9 @@ static bool read_bin_header(const char *path, bin_header_t *out) {
   if (f == NULL)
     return false;
   bool ok = fread(out, 1, sizeof(*out), f) == sizeof(*out);
-  fclose(f);
+  ok = fclose(f) == 0 && ok;
+  ok = ok && (out->magic_cf & ASSETS_BIN_MAGIC_MASK) == LV_IMAGE_HEADER_MAGIC && out->w != 0 &&
+       out->h != 0;
   return ok;
 }
 
@@ -143,6 +156,54 @@ static void header_to_dsc(const bin_header_t *hdr, lv_image_dsc_t *dsc) {
   dsc->data_size = data_size;
 }
 
+static bool read_pixels(const char *path, uint8_t *out_pixels, size_t size) {
+  bool is_valid = false;
+  uint8_t *compressed = NULL;
+  FILE *file = fopen(path, "rb");
+  bin_header_t header;
+  assets_compressed_header_t packed;
+  lv_image_dsc_t expected = {0};
+  if (file == NULL || size == 0 || size > INT_MAX ||
+      fread(&header, 1, sizeof(header), file) != sizeof(header) ||
+      (header.magic_cf & ASSETS_BIN_MAGIC_MASK) != LV_IMAGE_HEADER_MAGIC)
+    goto cleanup;
+  header_to_dsc(&header, &expected);
+  if (expected.data_size != size)
+    goto cleanup;
+
+  uint16_t flags = header.magic_cf >> ASSETS_BIN_FLAGS_SHIFT;
+  if ((flags & LV_IMAGE_FLAGS_COMPRESSED) == 0) {
+    is_valid = fread(out_pixels, 1, size, file) == size;
+    goto cleanup;
+  }
+  if (flags != LV_IMAGE_FLAGS_COMPRESSED ||
+      fread(&packed, 1, sizeof(packed), file) != sizeof(packed) ||
+      packed.method != LV_IMAGE_COMPRESS_LZ4 || packed.decompressed_size != size ||
+      packed.compressed_size == 0 || packed.compressed_size > size)
+    goto cleanup;
+
+  compressed = heap_caps_malloc(packed.compressed_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (compressed == NULL) {
+    ESP_LOGE(TAG, "Compressed buffer allocation failed for %s", path);
+    goto cleanup;
+  }
+  if (fread(compressed, 1, packed.compressed_size, file) != packed.compressed_size ||
+      fgetc(file) != EOF || ferror(file))
+    goto cleanup;
+  is_valid = LZ4_decompress_safe((const char *)compressed,
+                                 (char *)out_pixels,
+                                 (int)packed.compressed_size,
+                                 (int)size) == (int)size;
+
+cleanup:
+  free(compressed);
+  if (file != NULL && fclose(file) != 0)
+    is_valid = false;
+  if (!is_valid)
+    ESP_LOGE(TAG, "Invalid or unreadable pixels: %s", path);
+  return is_valid;
+}
+
 static void load_sd_pixels(asset_node_t *n) {
   free(n->sd_data);
   n->sd_data = NULL;
@@ -156,14 +217,10 @@ static void load_sd_pixels(asset_node_t *n) {
     ESP_LOGW(TAG, "sd preload alloc failed for %s (%u B)", n->file, (unsigned)sz);
     return;
   }
-  FILE *f = fopen(n->file, "rb");
-  if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0 || fread(buf, 1, sz, f) != sz) {
-    if (f != NULL)
-      fclose(f);
+  if (!read_pixels(n->file, buf, sz)) {
     free(buf);
     return;
   }
-  fclose(f);
   n->sd_data = buf;
 }
 
@@ -221,27 +278,9 @@ static lv_result_t asset_decoder_open(lv_image_decoder_t *decoder, lv_image_deco
 
   if (node->sd_data != NULL) {
     memcpy(buf->data, node->sd_data, buf->data_size);
-  } else {
-    FILE *f = fopen(node->file, "rb");
-    if (f == NULL || fseek(f, sizeof(bin_header_t), SEEK_SET) != 0) {
-      if (f)
-        fclose(f);
-      lv_draw_buf_destroy(buf);
-      return LV_RESULT_INVALID;
-    }
-
-    size_t got = fread(buf->data, 1, buf->data_size, f);
-    fclose(f);
-
-    if (got != buf->data_size) {
-      ESP_LOGE(TAG,
-               "pixel read failed for %s (%u/%u)",
-               node->file,
-               (unsigned)got,
-               (unsigned)buf->data_size);
-      lv_draw_buf_destroy(buf);
-      return LV_RESULT_INVALID;
-    }
+  } else if (!read_pixels(node->file, buf->data, buf->data_size)) {
+    lv_draw_buf_destroy(buf);
+    return LV_RESULT_INVALID;
   }
 
   dsc->decoded = buf;
@@ -396,6 +435,9 @@ int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {
   struct dirent *de;
   while ((de = readdir(d)) != NULL) {
     if (de->d_type == DT_DIR)
+      continue;
+    const char *extension = strrchr(de->d_name, '.');
+    if (extension != NULL && strcmp(extension, ".license") == 0)
       continue;
     if (de->d_name[0] == '.' &&
         (de->d_name[1] == '\0' || (de->d_name[1] == '.' && de->d_name[2] == '\0')))

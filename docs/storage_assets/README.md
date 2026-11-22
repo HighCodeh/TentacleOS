@@ -24,6 +24,20 @@ ARGB8888 `.bin` images using the official LVGL v9.4.0 converter. Converter and
 Python dependencies are cached in the ignored tools directory; first use needs
 network access. Conversion errors stop the build. Source assets remain unchanged.
 
+`compress_frames.py` then encodes the larger generated frames as standard LVGL
+LZ4 BIN images, retaining ARGB8888 pixels, dimensions and alpha exactly. It uses
+the pinned converter and verifies every compressed payload by round trip. Files
+are compressed only when block savings exceed the cost of a license sidecar;
+small frames stay raw. Existing notices are preserved. LZ4 comes from the managed
+LVGL dependency (`CONFIG_LV_USE_LZ4_INTERNAL`), without a vendored codec.
+
+The UI asset decoder accepts raw and LZ4 files from flash or SD. It bounds lengths,
+rejects malformed/truncated payloads and checks the decoded size. Its temporary
+compressed buffer uses checked PSRAM allocation and is freed after decoding;
+the decoded pixels use the existing LVGL cache or SD preload lifecycle. Old raw
+SD themes remain compatible. This reduces flash allocation, not decoded image
+RAM. A firmware supporting LZ4 must accompany these assets.
+
 `tools/build.sh p4` generates both the app and `assets.bin`. `idf.py build`
 generates the filesystem too, and `idf.py flash` includes it automatically.
 To populate only assets on an already flashed P4:
@@ -35,8 +49,8 @@ idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p PORT assets-flas
 
 `assets-flash` replaces the entire assets filesystem, including any runtime
 configuration stored there. The partition offset and size come from the selected
-partition table: V2.03 P4 now uses 0x1D0000 bytes at 0x630000. This replaces the previous
-0x230000-byte partition at 0x5D0000. An assets-only update must not be used to
+partition table: V2.03 P4 now uses 0x1B0000 bytes at 0x650000. This replaces the previous
+0x1D0000-byte partition at 0x630000. An assets-only update must not be used to
 migrate between these maps; see [migration boundaries](../highboy/README.md#flash-and-storage-boundary).
 Older layouts below are
 historical and are not flash instructions for this board. The LittleFS generator
@@ -51,7 +65,7 @@ not synthesized.
 C5 CMake generates LittleFS directly from `firmware_c5/assets`: these files are
 configuration, HTML and other data and require no PNG conversion. Both
 `tools/build.sh c5` and `idf.py build` generate `assets.bin`; `idf.py flash`
-includes it automatically. The C5 partition is 0x1E0000 bytes at 0x420000,
+includes it automatically. The C5 partition remains 0x1D0000 bytes at 0x630000,
 independent of the P4 image and partition.
 
 To replace only the C5 assets filesystem (including runtime configuration):

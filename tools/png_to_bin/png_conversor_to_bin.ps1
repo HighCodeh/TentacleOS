@@ -118,6 +118,11 @@ foreach ($dir in $TARGET_DIRS) {
     }
 }
 
+if (Test-Path $TEMP_FRAMES_DIR) {
+    & "$PYTHON_EXE" (Join-Path $SCRIPT_DIR "compress_frames.py") "$TEMP_FRAMES_DIR"
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+}
+
 Write-Host "`n${Green}=======================================${NC}"
 Write-Host "${Green}      Automation Completed Successfully ${NC}"
 Write-Host "${Green}=======================================${NC}`n"
