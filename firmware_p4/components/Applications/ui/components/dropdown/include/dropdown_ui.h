@@ -28,8 +28,8 @@ void dropdown_ui_create(lv_obj_t *parent);
 /**
  * @brief Create the single global dropdown on the top layer (call once at init).
  *
- * The panel then rides above every screen and is opened from any browse screen
- * with a long-press of UP (gated by ui_screen_shows_chrome), closed with BACK or
+ * The panel is opened only from Home or the main menu with a long-press of UP,
+ * closed with BACK or
  * another long-press. While open it holds exclusive input (keypad suppressed +
  * polling screens input-locked).
  */

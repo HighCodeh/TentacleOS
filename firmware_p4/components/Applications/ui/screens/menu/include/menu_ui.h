@@ -23,6 +23,11 @@ extern "C" {
 #include "ui_manager.h"
 #include "lvgl.h"
 
+/** @brief Read-only catalog metadata for manually pinned Home shortcuts. */
+int menu_ui_catalog_count(void);
+screen_id_t menu_ui_catalog_target(int index);
+const char *menu_ui_catalog_name(int index);
+
 /** @brief Open the main menu screen. */
 void ui_menu_open(void);
 

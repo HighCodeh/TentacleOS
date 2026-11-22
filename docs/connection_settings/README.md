@@ -19,7 +19,14 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 P4 `Service/connection_settings` owns asynchronous changes to the C5 radios and
 persistence of the user's preferences. Controls live at **Settings → Connections
-→ Wi-Fi / Bluetooth**. The quick panel no longer contains radio switches.
+→ Wi-Fi / Bluetooth**. Holding UP on Home or the main menu also opens quick Wi-Fi
+and Bluetooth switches. This gesture does not open the panel in submenus or lists.
+Select the radio with LEFT/RIGHT in the top row and press OK to toggle it. These
+switches use the same asynchronous service and persist only after application;
+names, passwords, visibility and client limits remain unchanged. Filled radio
+icons reflect the applied preference, and dimmed icons indicate an in-flight
+request. Progress, apply failures and save failures appear as notifications.
+BACK can close the panel while the service finishes the request.
 
 ## Controls
 
@@ -106,8 +113,14 @@ Host regressions (not hardware qualification):
   real LVGL menus in 240×320/320×240 and two themes, drafts, masking, failed apply,
   failed save/retry, background completion and screen re-entry. First run
   `test_keyboard_ui.py` with the same directory to build host LVGL.
+- `python3 tools/highboy/tests/test_dropdown_ui.py <keyboard-test-dir>`:
+  real LVGL quick switches, retained settings, pending/failure feedback, closing
+  during application, modal input and layout in both orientations. Reopening
+  recalculates panel spacing for the current orientation.
 
-Build/update both P4 and C5 applications. No new assets or wire-format changes
-are required. Hardware validation remains necessary for on/off across reboot,
+Initial deployment of connection settings requires both P4 and C5 applications.
+Restoring the quick-panel controls only updates P4 when that C5 backend is already
+installed. No new assets or wire-format changes are required. Hardware validation
+remains necessary for on/off across reboot,
 real AP connections with the new password/client limit, BLE visibility and HID
 pairing, and a failed/retried operation over the physical SPI bridge.

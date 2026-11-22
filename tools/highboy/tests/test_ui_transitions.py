@@ -51,6 +51,7 @@ typedef struct {int code;uint32_t key;} lv_event_t;
 typedef int lv_event_code_t;
 enum {LV_EVENT_KEY,LV_EVENT_SHORT_CLICKED,LV_EVENT_LONG_PRESSED};
 enum {LV_KEY_ESC,LV_KEY_LEFT,LV_KEY_RIGHT,LV_KEY_DOWN};
+#define SCREEN_SETTINGS 999
 #define SCREEN_HOME 1
 #define MENU_ITEM_COUNT 12
 static unsigned s_selected;

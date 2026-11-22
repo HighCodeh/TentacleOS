@@ -41,6 +41,7 @@ code = r"""
 #define MENU_ITEM_FRAME_COUNT 3
 #define PRELOAD_FRAME_COUNT 6
 #define LV_RESULT_OK 0
+#define SCREEN_SETTINGS 999
 #define SCREEN_HOME 0
 #define LV_EVENT_KEY 1
 #define LV_EVENT_SHORT_CLICKED 2

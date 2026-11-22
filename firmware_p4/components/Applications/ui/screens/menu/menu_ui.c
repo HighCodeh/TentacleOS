@@ -289,7 +289,9 @@ bool menu_ui_preview_select(menu_ui_preview_t *preview, unsigned index) {
   lv_label_set_text_static(preview->label, preview->label_text);
   bool fav = favorites_is(s_menu_data[index].target);
   lv_label_set_text_static(preview->badge,
-                           fav ? "OK open | hold unpin" : "OK open | hold favorite");
+                           s_menu_data[index].target == SCREEN_SETTINGS
+                               ? "OK open | Home shortcut"
+                               : (fav ? "OK open | hold unpin" : "OK open | hold favorite"));
   lv_obj_set_style_text_color(
       preview->badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
   preview_static_dots(&preview->dots, index);
@@ -542,7 +544,10 @@ static void update_view(bool anim) {
 
   if (s_fav_badge != NULL) {
     bool fav = favorites_is(s_menu_data[s_selected].target);
-    lv_label_set_text(s_fav_badge, fav ? "OK open | hold unpin" : "OK open | hold favorite");
+    lv_label_set_text(s_fav_badge,
+                      s_menu_data[s_selected].target == SCREEN_SETTINGS
+                          ? "OK open | Home shortcut"
+                          : (fav ? "OK open | hold unpin" : "OK open | hold favorite"));
     lv_obj_set_style_text_color(
         s_fav_badge, fav ? lv_color_hex(FAV_ACCENT) : current_theme.text_secondary, 0);
   }
@@ -684,6 +689,8 @@ static void menu_event_cb(lv_event_t *e) {
     return;
   }
   if (code == LV_EVENT_LONG_PRESSED) {
+    if (s_menu_data[s_selected].target == SCREEN_SETTINGS)
+      return;
     favorites_toggle(s_menu_data[s_selected].target);
     ui_feedback(UI_FB_SELECT);
     update_view(false);
@@ -717,6 +724,18 @@ static void menu_event_cb(lv_event_t *e) {
     ui_switch_screen(SCREEN_HOME);
     return;
   }
+}
+
+int menu_ui_catalog_count(void) {
+  return (int)MENU_ITEM_COUNT;
+}
+
+screen_id_t menu_ui_catalog_target(int index) {
+  return index >= 0 && index < (int)MENU_ITEM_COUNT ? s_menu_data[index].target : SCREEN_NONE;
+}
+
+const char *menu_ui_catalog_name(int index) {
+  return index >= 0 && index < (int)MENU_ITEM_COUNT ? s_menu_data[index].name : "";
 }
 
 void ui_menu_open(void) {

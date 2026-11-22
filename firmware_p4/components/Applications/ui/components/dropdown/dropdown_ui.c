@@ -30,6 +30,8 @@
 #include "audio_i2s.h"
 #include "battery_service.h"
 #include "buttons_gpio.h"
+#include "connection_settings.h"
+#include "led_control.h"
 #include "header_ui.h"
 #include "lv_port_indev.h"
 #include "notify_ui.h"
@@ -57,6 +59,10 @@ static const char *TAG = "DROPDOWN";
 #define SLIDER_MIN_FILL_PCT 3
 #define BAT_ANIM_MS         350
 #define LONGPRESS_MS        450 // hold UP this long to toggle the dropdown
+#define PANEL_PAD_TOP       12
+#define PANEL_PAD_BOTTOM    16
+#define PANEL_ROW_GAP       13
+#define PANEL_COMPACT_SPACE 6
 
 #define ROW_BADGES 0
 #define ROW_BRIGHT 1
@@ -64,16 +70,23 @@ static const char *TAG = "DROPDOWN";
 #define ROW_COUNT  3
 static int focus_row = ROW_BADGES;
 
-#define BADGE_COUNT   2
-#define BADGE_SD      0
-#define BADGE_REBOOT  1
+#define BADGE_COUNT   4
+#define BADGE_WIFI    0
+#define BADGE_BLE     1
+#define BADGE_SD      2
+#define BADGE_REBOOT  3
 #define ACTION_ACCENT 0xF5B13D
 #define ARMED_ACCENT  0xFF5252
 static lv_obj_t *badge_dot[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_ic[BADGE_COUNT] = {NULL};
 static lv_obj_t *badge_lbl[BADGE_COUNT] = {NULL};
 
-static const bool BADGE_ACTION[BADGE_COUNT] = {true, true};
+static const bool BADGE_ACTION[BADGE_COUNT] = {false, false, true, true};
+static bool s_radio_on[CONNECTION_SETTINGS_COUNT];
+static bool s_radio_busy;
+static bool s_radio_pending;
+static connection_settings_kind_t s_radio_kind;
+static uint32_t s_radio_revision;
 static int badge_sel = 0;
 static int s_sd_armed = 0;
 static bool s_sd_present_last = false;
@@ -114,6 +127,9 @@ static bool up_hold_consumed = false; // long-press already toggled for this hol
 
 static void refresh_sd_status(void);
 static void battery_tick(void);
+static void refresh_radios(void);
+static void layout_panel(void);
+static void toggle_radio(connection_settings_kind_t kind);
 
 static bool badge_is_enabled(int idx) {
   if (idx == BADGE_SD)
@@ -164,6 +180,17 @@ static void refresh_focus(void) {
         lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.border_accent : acc, 0);
       continue;
     }
+    bool is_on = s_radio_on[i == BADGE_WIFI ? CONNECTION_SETTINGS_WIFI : CONNECTION_SETTINGS_BLE];
+    lv_color_t accent = is_on ? current_theme.border_accent : current_theme.border_inactive;
+    lv_obj_set_style_border_color(badge_dot[i], sel ? current_theme.text_main : accent, 0);
+    lv_obj_set_style_border_width(badge_dot[i], sel ? 3 : 2, 0);
+    lv_obj_set_style_bg_color(badge_dot[i], is_on ? accent : CHIP_BG, 0);
+    lv_obj_set_style_opa(badge_dot[i], s_radio_busy ? LV_OPA_50 : LV_OPA_COVER, 0);
+    if (badge_ic[i])
+      lv_obj_set_style_text_color(
+          badge_ic[i], is_on ? current_theme.screen_base : current_theme.text_main, 0);
+    if (badge_lbl[i])
+      lv_obj_set_style_text_color(badge_lbl[i], sel ? current_theme.text_main : accent, 0);
   }
   for (int s = 0; s < SLIDER_COUNT; s++) {
     if (!sl_track[s])
@@ -230,6 +257,15 @@ static void slide_done_cb(lv_anim_t *a) {
   }
 }
 
+static void layout_panel(void) {
+  bool is_compact = ui_screen_h() < ui_screen_w();
+  lv_obj_set_style_pad_top(slide_panel, is_compact ? PANEL_COMPACT_SPACE : PANEL_PAD_TOP, 0);
+  lv_obj_set_style_pad_bottom(slide_panel, is_compact ? PANEL_COMPACT_SPACE : PANEL_PAD_BOTTOM, 0);
+  lv_obj_set_style_pad_row(slide_panel, is_compact ? PANEL_COMPACT_SPACE : PANEL_ROW_GAP, 0);
+  lv_obj_update_layout(slide_panel);
+  s_panel_h = lv_obj_get_height(slide_panel);
+}
+
 static void dropdown_open(void) {
   if (!slide_panel || slide_animating || slide_open)
     return;
@@ -251,9 +287,11 @@ static void dropdown_open(void) {
   s_brightness_dirty = false;
   refresh_sd_status();
   battery_tick();
+  refresh_radios();
   refresh_focus();
 
   lv_obj_remove_flag(slide_panel, LV_OBJ_FLAG_HIDDEN);
+  layout_panel();
   lv_obj_move_foreground(slide_panel);
   for (int i = 0; i < hide_objs_count; i++)
     if (hide_objs_ref[i])
@@ -311,6 +349,63 @@ static void dropdown_reboot(void) {
   reboot_ui_reboot();
 }
 
+static void refresh_radios(void) {
+  connection_settings_status_t status;
+  connection_settings_get_status(&status);
+  tos_config_wifi_t wifi;
+  tos_config_ble_t ble;
+  connection_settings_get_config(&wifi, &ble);
+  s_radio_on[CONNECTION_SETTINGS_WIFI] = wifi.enabled;
+  s_radio_on[CONNECTION_SETTINGS_BLE] = ble.enabled;
+  s_radio_busy = status.is_busy;
+  if (s_radio_pending && !status.is_busy && status.revision != s_radio_revision) {
+    s_radio_pending = false;
+    if (status.has_result && status.kind == s_radio_kind) {
+      if (status.error == ESP_OK)
+        notify(NOTIFY_SAVED,
+               s_radio_kind == CONNECTION_SETTINGS_WIFI
+                   ? (wifi.enabled ? "Wi-Fi on" : "Wi-Fi off")
+                   : (ble.enabled ? "Bluetooth on" : "Bluetooth off"));
+      else
+        notify(NOTIFY_WARNING, status.is_applied ? "Applied; save failed" : "Radio failed; retry");
+    }
+  }
+}
+
+static void toggle_radio(connection_settings_kind_t kind) {
+  connection_settings_status_t status;
+  connection_settings_get_status(&status);
+  if (status.is_busy) {
+    notify(NOTIFY_WARNING, "Radio settings busy");
+    return;
+  }
+  s_radio_revision = status.revision;
+  esp_err_t error;
+  if (kind == CONNECTION_SETTINGS_WIFI) {
+    tos_config_wifi_t wifi;
+    connection_settings_get_config(&wifi, NULL);
+    wifi.enabled = !wifi.enabled;
+    error = connection_settings_request_wifi(&wifi);
+  } else {
+    tos_config_ble_t ble;
+    connection_settings_get_config(NULL, &ble);
+    ble.enabled = !ble.enabled;
+    error = connection_settings_request_ble(&ble);
+  }
+  if (error == ESP_OK) {
+    s_radio_kind = kind;
+    s_radio_pending = true;
+    notify(NOTIFY_INFO,
+           kind == CONNECTION_SETTINGS_WIFI ? "Applying Wi-Fi..." : "Applying Bluetooth...");
+  } else {
+    ESP_LOGW(TAG, "Radio shortcut failed: %s", esp_err_to_name(error));
+    led_signal_warning();
+    notify(NOTIFY_WARNING, "Radio unavailable; retry");
+  }
+  refresh_radios();
+  refresh_focus();
+}
+
 static void slide_btn_timer_cb(lv_timer_t *timer) {
   if (!slide_panel || !lv_obj_is_valid(slide_panel)) {
     lv_timer_delete(timer);
@@ -334,20 +429,18 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
 
   uint32_t nowt = lv_tick_get();
 
-  // Long-press UP toggles the panel: open from a browse screen (never while input
-  // is locked or on an active operation screen), or close if already open. One
-  // toggle per hold. Short taps of UP fall through to the focused screen (closed)
-  // or to the in-panel row nav below (open).
+  // Submenus keep held UP for list navigation.
   if (up && !btn_up_last) {
     up_hold_start = nowt;
     up_hold_consumed = false;
   }
   if (up && !up_hold_consumed && (uint32_t)(nowt - up_hold_start) >= LONGPRESS_MS) {
     up_hold_consumed = true;
+    screen_id_t screen = ui_current_screen();
     if (slide_open) {
       dropdown_close();
     } else if (!ui_input_is_locked() && !tutorial_is_active() &&
-               ui_screen_shows_chrome(ui_current_screen())) {
+               (screen == SCREEN_HOME || screen == SCREEN_MENU)) {
       dropdown_open();
     }
   }
@@ -411,6 +504,8 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
         }
       } else if (badge_sel == BADGE_REBOOT) {
         dropdown_reboot();
+      } else if (badge_sel == BADGE_WIFI || badge_sel == BADGE_BLE) {
+        toggle_radio(badge_sel == BADGE_WIFI ? CONNECTION_SETTINGS_WIFI : CONNECTION_SETTINGS_BLE);
       }
     }
     if (back && !btn_back_last)
@@ -425,9 +520,11 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
     ui_input_lock(SLIDE_BTN_POLL_MS * 3);
   }
 
-  if (slide_open) {
+  if (slide_open || s_radio_pending) {
     if ((uint32_t)(nowt - bat_last_anim) >= BAT_ANIM_MS) {
       bat_last_anim = nowt;
+      refresh_radios();
+      refresh_focus();
       battery_tick();
       refresh_sd_status(); // reflect SD insert/remove while the panel is open
       bool sd_now = badge_is_enabled(BADGE_SD);
@@ -693,12 +790,9 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_style_bg_color(slide_panel, PANEL_BG, 0);
   lv_obj_set_style_bg_grad_dir(slide_panel, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_pad_hor(slide_panel, 16, 0);
-  lv_obj_set_style_pad_top(slide_panel, 12, 0);
-  lv_obj_set_style_pad_bottom(slide_panel, 16, 0);
   lv_obj_set_flex_flow(slide_panel, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(
       slide_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(slide_panel, 13, 0);
 
   lv_obj_t *grab = lv_obj_create(slide_panel);
   lv_obj_set_size(grab, 46, 5);
@@ -718,6 +812,8 @@ void dropdown_ui_create(lv_obj_t *parent) {
   lv_obj_set_flex_flow(badges, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(
       badges, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  make_badge(badges, BADGE_WIFI, LV_SYMBOL_WIFI, "Wi-Fi");
+  make_badge(badges, BADGE_BLE, LV_SYMBOL_BLUETOOTH, "BLE");
   make_badge(badges, BADGE_SD, LV_SYMBOL_SD_CARD, "Eject");
   make_badge(badges, BADGE_REBOOT, LV_SYMBOL_POWER, "Reboot");
 
@@ -750,10 +846,7 @@ void dropdown_ui_create(lv_obj_t *parent) {
   badge_sel = 0;
   refresh_focus();
 
-  lv_obj_update_layout(slide_panel);
-  s_panel_h = lv_obj_get_height(slide_panel);
-  if (s_panel_h < 40 || s_panel_h > ui_screen_h())
-    s_panel_h = (ui_screen_h() * 85) / 100;
+  layout_panel();
   lv_obj_set_y(slide_panel, -s_panel_h);
 
   if (slide_btn_timer == NULL)

@@ -124,7 +124,13 @@ That screen reuses saved Wi-Fi credentials and offers password editing after a
 failed join. Its synchronized completion timer is closed before navigation, so
 a late reply cannot open the keyboard on another screen. See
 [Wi-Fi connections](../wifi/README.md#connection--management).
-The quick panel keeps its non-radio controls. Screen close hooks release the
+Holding UP opens the quick panel only on Home and the main coverflow menu,
+including Wi-Fi and Bluetooth on/off switches backed by the same service.
+Submenus and lists retain held-UP navigation without opening the panel.
+It opens on brightness; tap UP to select the radio
+row, LEFT/RIGHT to choose a shortcut and OK to apply it. Filled icons indicate
+the applied preference; pending operations dim both radio controls. Compact spacing
+keeps the panel inside the landscape display. Screen close hooks release the
 keyboard/timer; a Service-owned worker completes independently after BACK.
 Progress and apply/save errors appear on screen. See
 [connection settings](../connection_settings/README.md) for fields and lifecycle.
@@ -332,7 +338,8 @@ is blocked during modal dialogs and consumed gestures.
 See the [navigation audit](navigation-audit.md) for route coverage, corrected
 parent destinations and the remaining lifecycle findings.
 
-Home opens the main menu with OK or DOWN. Features return through their declared
+Home opens the selected shortcut with OK and the main menu with DOWN. Features
+return through their declared
 parents. Screen changes do not retain a cross-application history, previews or
 keyboard drafts. Settings remembers the selected row separately for its main
 and Audio & Haptics lists; its firmware grid, Infrared and Interface menus
@@ -433,8 +440,14 @@ applies this policy without rewriting theme files or rebuilding assets.
 
 Home and the Apps library take their card, text, focus and icon colors from the
 active theme. The original mascot and media artwork retain their source colors.
-Home uses the event input path and shows the date above the mascot in both
-orientations. Its 30-second date refresh is stopped by the central close hook
+Home uses the event input path. Settings is its permanent first shortcut and
+the only default; the remaining shortcuts come from manually pinned main-menu
+apps. Hold OK on a main-menu app to pin/unpin it; Settings cannot be unpinned.
+LEFT/RIGHT selects shortcuts, including additional pages, and OK opens the
+selection. No recent-app history is recorded or displayed. Portrait shows the
+date, mascot and shortcuts vertically; landscape places the mascot beside the
+date and shortcuts. Its 30-second date refresh is stopped by the central close
+hook
 and an idempotent screen-deletion callback. No binary font is loaded just for the
 Home date. Home leaves the breadcrumb title empty; the redundant HIGH BOY caption is not shown below the status bar.
 
@@ -939,8 +952,9 @@ removed widgets/examples. Kconfig updates go through the pinned IDF configuratio
 server; flash partitions, radio configuration and charging limits are unchanged.
 
 Run `test_home_ui.py` and `test_nfc_guidance_ui.py` with the same host
-build directory to exercise Home layout/navigation/lifecycle, GIF decoding
-and event-gated success ordering. The host card event is a fixture, not a physical
+build directory to exercise Home layout/navigation/lifecycle, Settings as the
+default shortcut, manual pins across pages, themes, GIF decoding and event-gated
+success ordering. The host card event is a fixture, not a physical
 RF reading. Device acceptance separately checks visible animation and physical
 input navigation. Console `uistate` includes the top layer so modal cards and
 status overlays are inspectable as well as the active root.

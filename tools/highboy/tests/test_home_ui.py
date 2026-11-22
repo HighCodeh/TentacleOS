@@ -35,6 +35,9 @@ write("ui_chrome.h", "")
 write("ui_manager.h", "")
 write("ui_metrics.h", "")
 write("ui_theme.h", "")
+write("menu_ui.h", "")
+write("favorites.h", "")
+write("ui_feedback.h", "")
 code = r"""
 #include <assert.h>
 #include <stdbool.h>
@@ -43,7 +46,22 @@ code = r"""
 #include "lvgl.h"
 #define UI_CHROME_HEADER_H 42
 #define UI_CHROME_FOOTER_H 22
-#define SCREEN_MENU 1
+typedef enum {SCREEN_NONE,SCREEN_MENU,SCREEN_SETTINGS,SCREEN_WIFI_MENU,SCREEN_BLE_MENU,
+ SCREEN_NFC_MENU,SCREEN_RFID_MENU,SCREEN_IR_MENU,SCREEN_SUBGHZ_MENU,SCREEN_LORA_CHAT,
+ SCREEN_BADUSB_MENU,SCREEN_GPIO,SCREEN_FILES,SCREEN_PLAYER,SCREEN_DEV_MENU,SCREEN_OCTOBIT_STATUS,
+ SCREEN_COUNT} screen_id_t;
+#define UI_FB_NAV 1
+static bool pins[SCREEN_COUNT];
+static const screen_id_t catalog[]={SCREEN_WIFI_MENU,SCREEN_BLE_MENU,SCREEN_NFC_MENU,
+ SCREEN_RFID_MENU,SCREEN_IR_MENU,SCREEN_SUBGHZ_MENU,SCREEN_LORA_CHAT,SCREEN_BADUSB_MENU,
+ SCREEN_GPIO,SCREEN_SETTINGS,SCREEN_FILES,SCREEN_PLAYER,SCREEN_DEV_MENU};
+static int menu_ui_catalog_count(void) {return sizeof(catalog)/sizeof(catalog[0]);}
+static screen_id_t menu_ui_catalog_target(int index) {return catalog[index];}
+static const char *menu_ui_catalog_name(int index) {(void)index;return "Pinned application";}
+static bool favorites_is(screen_id_t screen) {return pins[screen];}
+static void ui_feedback(int type) {assert(type==UI_FB_NAV);}
+static int last_open;
+
 #define INPUT_ACTION_PRESS 1
 #define INPUT_ACTION_REPEAT 2
 #define INPUT_ACTION_RELEASE 3
@@ -63,7 +81,7 @@ static const uint8_t pixels[8] = {0};
 static const lv_image_dsc_t art = {.header = {.magic=LV_IMAGE_HEADER_MAGIC,
   .cf=LV_COLOR_FORMAT_RGB565, .w=2, .h=2, .stride=4}, .data_size=8, .data=pixels};
 static const lv_image_dsc_t *assets_get(const char *path) {
-  assert(!strcmp(path,"/assets/img/image.bin")); return has_art ? &art : NULL;
+  assert(!strncmp(path,"/assets/",8)); return has_art ? &art : NULL;
 }
 static bool sys_time_format(char *out, size_t size, const char *format) {
   (void)format; snprintf(out,size,"Thu, 19 Nov 2026"); return true;
@@ -75,7 +93,7 @@ static void ui_chrome_header(lv_obj_t *root, const char *title, const char *icon
   lv_obj_t *o=lv_label_create(root);lv_label_set_text(o,"12:34");
 }
 static void ui_chrome_footer(lv_obj_t *root, const char *text) {
-  assert(!strcmp(text,"OK  Apps"));
+  assert(strstr(text,"OK Open") && strstr(text,"Apps") && !strstr(text,"Recent"));
   lv_obj_t *o=lv_label_create(root);lv_label_set_text(o,text);lv_obj_align(o,LV_ALIGN_BOTTOM_MID,0,0);
 }
 static void ui_chrome_gradient(lv_obj_t *o, lv_color_t a, lv_color_t b, int h) {
@@ -90,7 +108,7 @@ static void clear_slot(lv_event_t *e) {
 static void ui_screen_load_owned(lv_obj_t **slot,lv_obj_t *root) {
   *slot=root;lv_obj_add_event_cb(root,clear_slot,LV_EVENT_DELETE,slot);lv_screen_load(root);
 }
-static void ui_switch_screen(int screen) {assert(screen==SCREEN_MENU);opens++;}
+static void ui_switch_screen(int screen) {last_open=screen;opens++;}
 """ + f'#include "{UI}/screens/home/home_ui.c"\n' + r"""
 static void flush(lv_display_t *d,const lv_area_t *a,uint8_t *b) {
   (void)a;(void)b;lv_display_flush_ready(d);
@@ -105,35 +123,55 @@ int main(void) {
   lv_display_set_flush_cb(display,flush);
   for(int wide=0;wide<2;wide++) {
     lv_display_set_resolution(display,wide?320:240,wide?240:320);
-    for(int mode=0;mode<2;mode++) {
-      has_art=mode;
-      for(int pass=0;pass<3;pass++) {
+    for(int light=0;light<2;light++) {
+      current_theme.screen_base=lv_color_hex(light?0xffffff:0x101010);
+      current_theme.bg_primary=current_theme.screen_base;
+      current_theme.bg_secondary=lv_color_hex(light?0xdddddd:0x333333);
+      current_theme.text_main=lv_color_hex(light?0:0xffffff);
+      current_theme.text_secondary=current_theme.text_main;
+      current_theme.border_accent=lv_color_hex(light?0x005599:0x66bbff);
+      current_theme.border_inactive=lv_color_hex(0x888888);
+      for(int mode=0;mode<3;mode++) {
+        memset(pins,0,sizeof(pins)); has_art=mode!=0;
+        if(mode==1)pins[SCREEN_NFC_MENU]=true;
+        if(mode==2)for(int i=0;i<SCREEN_COUNT;i++)pins[i]=true;
         ui_home_open();lv_obj_update_layout(s_screen_home);
-        assert(s_clock!=NULL && handler==home_input);
-        assert(!strcmp(lv_label_get_text(s_date),"Thu, 19 Nov 2026"));
-        lv_obj_t *body=lv_obj_get_parent(s_date);
-        assert(lv_obj_get_child_count(body)==2);
-        lv_area_t area;lv_obj_get_coords(body,&area);
-        assert(area.x1>=0 && area.x2<ui_screen_w());
-        assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
-        lv_obj_t *card=lv_obj_get_child(body,1);lv_obj_get_coords(card,&area);
-        assert(area.x1>=0 && area.x2<ui_screen_w());
-        assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
+        assert(s_clock && s_focus==0 && s_shortcut_count==(mode==0?1:mode==1?2:menu_ui_catalog_count()));
+        assert(!strcmp(lv_label_get_text(s_name),"Settings"));
         unsigned before=opens;
-        press(INPUT_BTN_UP,INPUT_ACTION_PRESS);press(INPUT_BTN_LEFT,INPUT_ACTION_PRESS);
-        press(INPUT_BTN_RIGHT,INPUT_ACTION_PRESS);press(INPUT_BTN_OK,INPUT_ACTION_REPEAT);
+        press(INPUT_BTN_UP,INPUT_ACTION_PRESS);press(INPUT_BTN_OK,INPUT_ACTION_REPEAT);
         press(INPUT_BTN_OK,INPUT_ACTION_RELEASE);assert(opens==before);
-        press(INPUT_BTN_OK,INPUT_ACTION_PRESS);press(INPUT_BTN_DOWN,INPUT_ACTION_PRESS);
-        assert(opens==before+2);
-        ui_home_close();ui_home_close();assert(s_clock==NULL && s_date==NULL);
+        press(INPUT_BTN_OK,INPUT_ACTION_PRESS);assert(last_open==SCREEN_SETTINGS);
+        for(int i=0;i<s_shortcut_count;i++) {
+          lv_obj_update_layout(s_screen_home);
+          lv_obj_t *check[HOME_VISIBLE_MAX+3]={s_date,s_name,s_shortcuts_title};
+          for(int j=0;j<s_visible;j++)check[j+3]=s_tiles[j];
+          for(int j=0;j<s_visible+3;j++) {
+            if(lv_obj_has_flag(check[j],LV_OBJ_FLAG_HIDDEN))continue;
+            lv_area_t area;lv_obj_get_coords(check[j],&area);
+            assert(area.x1>=0 && area.x2<ui_screen_w());
+            assert(area.y1>=UI_CHROME_HEADER_H && area.y2<ui_screen_h()-UI_CHROME_FOOTER_H);
+          }
+          assert(lv_color_eq(lv_obj_get_style_bg_color(s_screen_home,0),current_theme.screen_base));
+          const char *name;screen_id_t target=shortcut_at(i,&name);
+          assert(target==SCREEN_SETTINGS || pins[target]);
+          assert(!strcmp(lv_label_get_text(s_name),name));
+          press(INPUT_BTN_OK,INPUT_ACTION_PRESS);assert(last_open==target);
+          press(INPUT_BTN_RIGHT,INPUT_ACTION_PRESS);
+        }
+        assert(s_focus==0);
+        press(INPUT_BTN_LEFT,INPUT_ACTION_REPEAT);assert(s_focus==s_shortcut_count-1);
+        press(INPUT_BTN_DOWN,INPUT_ACTION_PRESS);assert(last_open==SCREEN_MENU);
+        ui_home_close();ui_home_close();assert(!s_clock&&!s_date&&!s_name);
+        ui_home_open();assert(s_focus==0);
+        lv_obj_t *old=s_screen_home;
+        lv_screen_load(lv_obj_create(NULL));lv_obj_delete(old);
+        assert(s_screen_home==NULL && !s_clock && !s_date && !s_name);
+        lv_tick_inc(30001);lv_timer_handler();
       }
-      ui_home_open();lv_obj_t *old=s_screen_home;
-      lv_screen_load(lv_obj_create(NULL));lv_obj_delete(old);
-      assert(s_screen_home==NULL && s_clock==NULL && s_date==NULL);
-      lv_tick_inc(30001);lv_timer_handler();
     }
   }
-  puts("PASS: production Home portrait/landscape layout, asset fallback, menu input and timer teardown");
+  puts("PASS: production Home: Settings default, manual pins/page traversal, no recents, themes, orientations, fallback and teardown");
 }
 """
 test = base / "home_test.c"
