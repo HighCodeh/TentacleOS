@@ -71,11 +71,15 @@ static int64_t s_settle_until;
 
 /* Manual CS leaves the three hardware CS slots available to LCD and radios. */
 static esp_err_t transfer(spi_transaction_t *transaction) {
+  esp_err_t err = spi_device_acquire_bus(s_spi, portMAX_DELAY);
+  if (err != ESP_OK)
+    return err;
   gpio_set_level(GPIO_QMI8658A_CS_PIN, 0);
   esp_rom_delay_us(QMI_MANUAL_CS_DELAY_US);
-  esp_err_t err = spi_device_transmit(s_spi, transaction);
+  err = spi_device_polling_transmit(s_spi, transaction);
   esp_rom_delay_us(QMI_MANUAL_CS_DELAY_US);
   gpio_set_level(GPIO_QMI8658A_CS_PIN, 1);
+  spi_device_release_bus(s_spi);
   return err;
 }
 

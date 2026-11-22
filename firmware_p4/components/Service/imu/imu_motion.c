@@ -21,14 +21,20 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <string.h>
-#define MOTION_ODR      6
-#define POLL_MS         4
-#define WORKER_STACK    4096
-#define STOP_TIMEOUT_MS 500
-#define SAMPLE_GAP_US   50000
-#define ZERO_SETTLE_US  1000000
-#define REQ_CENTER      1u
-#define REQ_ZERO        2u
+#define MOTION_ODR            6
+#define POLL_MS               4
+#define WORKER_STACK          4096
+#define STOP_TIMEOUT_MS       500
+#define SAMPLE_GAP_US         50000
+#define ZERO_SETTLE_US        1000000
+#define RETRY_DELAY_MS        250
+#define START_ATTEMPTS        3
+#define READ_ERROR_LIMIT      3
+#define RECOVERY_LIMIT        3
+#define START_DATA_TIMEOUT_US 8000000
+#define READ_DATA_TIMEOUT_US  1000000
+#define REQ_CENTER            1u
+#define REQ_ZERO              2u
 static const char *TAG = "IMU3D";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static imu_motion_snapshot_t s_snapshot;
@@ -50,6 +56,34 @@ void imu_motion_request(bool calibrate) {
   s_request |= calibrate ? REQ_ZERO : REQ_CENTER;
   portEXIT_CRITICAL(&s_lock);
 }
+static bool is_stopping(void) {
+  portENTER_CRITICAL(&s_lock);
+  bool is_requested = s_stop;
+  portEXIT_CRITICAL(&s_lock);
+  return is_requested;
+}
+
+static esp_err_t start_sensor(imu_motion_snapshot_t *value) {
+  esp_err_t err = ESP_ERR_INVALID_STATE;
+  for (uint32_t attempt = 0; attempt < START_ATTEMPTS && !is_stopping(); ++attempt) {
+    err = qmi8658a_start();
+    if (err == ESP_OK)
+      err = qmi8658a_set_odr(MOTION_ODR);
+    if (err == ESP_OK)
+      return ESP_OK;
+    value->error = err;
+    ++value->errors;
+    publish(value);
+    ESP_LOGW(TAG, "Sensor start failed: %s", esp_err_to_name(err));
+    esp_err_t stopped = qmi8658a_stop();
+    if (stopped != ESP_OK)
+      return stopped;
+    if (attempt + 1 < START_ATTEMPTS)
+      vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
+  }
+  return err;
+}
+
 static void worker(void *context) {
   (void)context;
   imu_motion_snapshot_t v = {.running = true, .zeroing = true};
@@ -61,14 +95,15 @@ static void worker(void *context) {
   v.error = power_manager_no_sleep_acquire();
   bool power_held = v.error == ESP_OK;
   if (power_held)
-    v.error = qmi8658a_start();
-  if (v.error == ESP_OK)
-    v.error = qmi8658a_set_odr(MOTION_ODR);
+    v.error = start_sensor(&v);
   bool started = v.error == ESP_OK;
+  uint32_t read_errors = 0;
+  uint32_t recoveries = 0;
   int64_t previous = 0, rate_started = 0, zero_after = 0;
   unsigned rate_count = 0;
+  int64_t data_deadline = esp_timer_get_time() + START_DATA_TIMEOUT_US;
   publish(&v);
-  for (;;) {
+  while (started) {
     portENTER_CRITICAL(&s_lock);
     bool stop = s_stop;
     unsigned request = s_request;
@@ -84,9 +119,14 @@ static void worker(void *context) {
     if (request & REQ_CENTER)
       imu_orientation_recenter(&orientation);
     qmi8658a_sample_t sample;
-    esp_err_t err = started ? qmi8658a_read(&sample) : v.error;
+    esp_err_t err = qmi8658a_read(&sample);
     int64_t now = esp_timer_get_time();
+    if (err == ESP_ERR_NOT_FINISHED && now >= data_deadline)
+      err = ESP_ERR_TIMEOUT;
     if (err == ESP_OK) {
+      read_errors = 0;
+      recoveries = 0;
+      data_deadline = now + READ_DATA_TIMEOUT_US;
       float dt = previous ? (now - previous) * 0.000001f : 0.009f;
       if (previous && now - previous > SAMPLE_GAP_US) {
         ++v.gaps;
@@ -130,17 +170,53 @@ static void worker(void *context) {
       v.error = err;
       imu_zero_reset(&zero);
       previous = 0;
+      if (++read_errors >= READ_ERROR_LIMIT) {
+        publish(&v);
+        if (recoveries++ >= RECOVERY_LIMIT || is_stopping())
+          break;
+        ESP_LOGW(TAG, "Recovering sensor after read failure: %s", esp_err_to_name(err));
+        v.error = qmi8658a_stop();
+        if (v.error == ESP_OK)
+          v.error = start_sensor(&v);
+        if (v.error != ESP_OK)
+          break;
+        read_errors = 0;
+        data_deadline = esp_timer_get_time() + START_DATA_TIMEOUT_US;
+        v.calibrated = false;
+        v.zeroing = true;
+        v.sample_us = 0;
+        v.zero_count = 0;
+        rate_started = 0;
+        rate_count = 0;
+        imu_orientation_reset(&orientation);
+        imu_zero_reset(&zero);
+        imu_orientation_matrix(&orientation, v.matrix, v.angles);
+      }
     }
     publish(&v);
     vTaskDelay(pdMS_TO_TICKS(POLL_MS));
   }
-  esp_err_t stop_err = qmi8658a_stop();
-  if (stop_err != ESP_OK)
-    v.error = stop_err;
-  if (power_held) {
-    esp_err_t release = power_manager_no_sleep_release();
-    if (release != ESP_OK)
-      v.error = release;
+  bool is_sensor_stopped = !power_held;
+  esp_err_t previous_cleanup = ESP_OK;
+  while (!is_sensor_stopped || power_held) {
+    esp_err_t err = ESP_OK;
+    if (!is_sensor_stopped) {
+      err = qmi8658a_stop();
+      is_sensor_stopped = err == ESP_OK;
+    }
+    if (is_sensor_stopped && power_held) {
+      err = power_manager_no_sleep_release();
+      if (err == ESP_OK)
+        power_held = false;
+    }
+    if (err != ESP_OK) {
+      v.error = err;
+      publish(&v);
+      if (err != previous_cleanup)
+        ESP_LOGW(TAG, "Sensor cleanup pending: %s", esp_err_to_name(err));
+      vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
+    }
+    previous_cleanup = err;
   }
   v.running = false;
   publish(&v);
@@ -180,7 +256,7 @@ esp_err_t imu_motion_stop(void) {
   do {
     imu_motion_snapshot(&snap);
     if (!snap.running)
-      return snap.error;
+      return ESP_OK;
     vTaskDelay(pdMS_TO_TICKS(POLL_MS));
   } while (esp_timer_get_time() < until);
   return ESP_ERR_TIMEOUT;

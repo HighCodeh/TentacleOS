@@ -23,8 +23,12 @@ six-axis samples. Acquisition, calibration and presentation are separate:
 [IMU service](../imu/README.md), [monitor UI](../ui/README.md#imu-motion-monitor).
 
 V2.03 uses shared SPI3 at 1 MHz with software CS. The shared bus lock covers
-identity/readback, configuration and complete samples. Preserve the qualified
-cold-start CTRL1 value (0x20); do not reset the shared interface.
+identity/readback, configuration and complete samples. Each register transfer
+also acquires the SPI driver's exclusive bus ownership before asserting software
+CS, then uses a polling transfer and deasserts CS before releasing ownership.
+This prevents queued LCD transfers from clocking the sensor while its CS is low.
+Preserve the qualified cold-start CTRL1 value (0x20); do not reset the shared
+interface.
 
 `qmi8658a_read()` returns `ESP_ERR_NOT_FINISHED` during the five-second warm-up
 or when no fresh sample is available. It leaves caller output untouched on
@@ -32,5 +36,5 @@ failure and releases the sample latch through GZ_H even after transport errors.
 Stop disables the sensor and releases its SPI device. A failed stop is retryable.
 
 Run `python3 tools/highboy/test_imu_normal.py` for coherent sampling, injected
-transaction failures, identity loss, ODR changes and cleanup. Hardware timing
-still requires validation on the board.
+transaction/bus-acquisition failures, CS ownership ordering, identity loss, ODR
+changes and cleanup. Hardware timing still requires validation on the board.

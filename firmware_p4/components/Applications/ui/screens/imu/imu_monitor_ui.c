@@ -21,6 +21,7 @@
 #include "esp_heap_caps.h"
 #include "lvgl.h"
 #include "power_policy.h"
+#include "led_control.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
@@ -44,7 +45,8 @@
 #define AXIS_SIZE       19.0f
 static lv_obj_t *s_screen, *s_view, *s_status, *s_values, *s_hint;
 static lv_timer_t *s_timer;
-static bool s_data_view, s_running;
+static bool s_data_view, s_running, s_has_service;
+static esp_err_t s_reported_error;
 static uint32_t s_text_tick;
 static float s_xyz[IMU_MESH_VERTICES][3];
 static lv_point_precise_t s_projected[IMU_MESH_VERTICES];
@@ -136,7 +138,7 @@ static void prepare_model(void) {
   }
   memset(s_depth, 0, VIEW_PIXELS * sizeof(*s_depth));
   for (unsigned i = 0; i < VIEW_PIXELS; ++i)
-    s_pixels[i] = 0x0000;
+    s_pixels[i] = lv_color_to_u16(current_theme.screen_base);
   for (unsigned i = 0; i < IMU_MESH_FACES; ++i) {
     const imu_mesh_face_t *f = &s_mesh->faces[i];
     float *a = s_xyz[f->a], *b = s_xyz[f->b], *c = s_xyz[f->c];
@@ -168,13 +170,14 @@ static void draw(lv_event_t *event) {
   lv_layer_t *layer = lv_event_get_layer(event);
   lv_area_t area;
   lv_obj_get_coords(s_view, &area);
-  static const uint32_t colors[3] = {0xFF6D88, 0x59E2B4, 0x6CAFFF};
+  const lv_color_t colors[3] = {
+      current_theme.border_accent, current_theme.text_main, current_theme.text_secondary};
   lv_draw_line_dsc_t line;
   lv_draw_line_dsc_init(&line);
   line.width = 2;
   line.opa = LV_OPA_COVER;
   for (int i = 0; i < 3; ++i) {
-    line.color = lv_color_hex(colors[i]);
+    line.color = colors[i];
     line.p1.x = area.x1 + s_view_width - 28;
     line.p1.y = area.y2 - 24;
     line.p2.x = line.p1.x + AXIS_SIZE * s_camera[i];
@@ -187,6 +190,15 @@ static void refresh(lv_timer_t *timer) {
   if (!s_running || lv_screen_active() != s_screen)
     return;
   imu_motion_snapshot(&s_sample);
+  if (!s_sample.running)
+    power_policy_set_display_hold(s_screen, false);
+  if (s_sample.error != s_reported_error) {
+    s_reported_error = s_sample.error;
+    if (s_reported_error != ESP_OK) {
+      ESP_LOGW(TAG, "Sensor: %s", esp_err_to_name(s_reported_error));
+      led_signal_warning();
+    }
+  }
   if (!s_data_view && s_pixels && s_depth) {
     prepare_model();
     lv_obj_invalidate(s_view);
@@ -198,7 +210,10 @@ static void refresh(lv_timer_t *timer) {
   bool stale = s_sample.sample_us && esp_timer_get_time() - s_sample.sample_us > STALE_US;
   char text[240];
   if (s_sample.error)
-    snprintf(text, sizeof(text), "SENSOR ERROR 0x%X", (unsigned)s_sample.error);
+    snprintf(text,
+             sizeof(text),
+             s_sample.running ? "RETRYING SENSOR 0x%X" : "ERROR 0x%X / UP RETRY",
+             (unsigned)s_sample.error);
   else if (stale)
     snprintf(text, sizeof(text), "NO FRESH DATA / PAUSED");
   else if (!s_sample.sample_us)
@@ -208,8 +223,10 @@ static void refresh(lv_timer_t *timer) {
   else
     snprintf(text, sizeof(text), "LIVE  %.0f Hz  |  RELATIVE", s_sample.rate_hz);
   lv_label_set_text(s_status, text);
-  lv_obj_set_style_text_color(
-      s_status, (stale || s_sample.error) ? lv_color_hex(0xFF6D88) : lv_color_hex(0x59E2B4), 0);
+  lv_obj_set_style_text_color(s_status,
+                              (stale || s_sample.error) ? current_theme.border_accent
+                                                        : current_theme.text_main,
+                              0);
   if (s_data_view) {
     snprintf(text,
              sizeof(text),
@@ -242,9 +259,14 @@ void ui_imu_monitor_stop(void) {
   }
   if (s_screen)
     power_policy_set_display_hold(s_screen, false);
-  esp_err_t err = imu_motion_stop();
-  if (err != ESP_OK)
-    ESP_LOGW("IMU3D", "Stop: %s", esp_err_to_name(err));
+  if (s_has_service) {
+    s_has_service = false;
+    esp_err_t err = imu_motion_stop();
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "Sensor shutdown pending: %s", esp_err_to_name(err));
+      led_signal_warning();
+    }
+  }
 }
 static void deleted(lv_event_t *event) {
   if (lv_event_get_target(event) != s_screen)
@@ -265,9 +287,22 @@ static void input(const input_event_t *event, void *context) {
     ui_switch_screen(SCREEN_SETTINGS);
   else if (event->button == INPUT_BTN_OK)
     imu_motion_request(false);
-  else if (event->button == INPUT_BTN_UP)
-    imu_motion_request(true);
-  else if (event->button == INPUT_BTN_RIGHT) {
+  else if (event->button == INPUT_BTN_UP) {
+    imu_motion_snapshot(&s_sample);
+    if (s_sample.running) {
+      imu_motion_request(true);
+    } else if (s_timer != NULL) {
+      esp_err_t err = imu_motion_start();
+      if (err == ESP_OK) {
+        s_has_service = true;
+        s_reported_error = ESP_OK;
+        power_policy_set_display_hold(s_screen, true);
+      } else {
+        ESP_LOGW(TAG, "Sensor retry failed: %s", esp_err_to_name(err));
+        led_signal_warning();
+      }
+    }
+  } else if (event->button == INPUT_BTN_RIGHT) {
     s_data_view = !s_data_view;
     lv_obj_set_pos(s_values, VIEW_MARGIN, s_data_view ? VIEW_Y : s_values_y);
     lv_obj_set_width(s_values, ui_screen_w() - 2 * VIEW_MARGIN);
@@ -298,11 +333,12 @@ void ui_imu_monitor_open(void) {
     lv_obj_delete(s_screen);
   s_data_view = false;
   s_text_tick = 0;
+  s_reported_error = ESP_OK;
   s_screen = lv_obj_create(NULL);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(s_screen, 0, 0);
   lv_obj_set_style_border_width(s_screen, 0, 0);
-  lv_obj_set_style_bg_color(s_screen, lv_color_black(), 0);
+  lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
   ui_chrome_header(s_screen, "HIGH BOY / 3D", "/assets/icons/sensors.bin");
   s_hint_y = ui_screen_h() - FOOTER_RESERVE - LABEL_HEIGHT;
@@ -312,15 +348,15 @@ void ui_imu_monitor_open(void) {
   if (s_view_height > VIEW_MAX_HEIGHT)
     s_view_height = VIEW_MAX_HEIGHT;
   s_model_scale = MODEL_SCALE * s_view_height / VIEW_MAX_HEIGHT;
-  s_status = label(STATUS_Y, "SENSOR WARMING UP...", lv_color_hex(0x59E2B4));
+  s_status = label(STATUS_Y, "SENSOR WARMING UP...", current_theme.text_main);
   s_view = lv_canvas_create(s_screen);
   lv_obj_remove_style_all(s_view);
   lv_obj_set_size(s_view, s_view_width, s_view_height);
   lv_obj_set_pos(s_view, VIEW_MARGIN, VIEW_Y);
   lv_obj_remove_flag(s_view, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(s_view, draw, LV_EVENT_DRAW_MAIN, NULL);
-  s_values = label(s_values_y, "X --    Y --    Z --", lv_color_hex(0xE1E7F2));
-  s_hint = label(s_hint_y, "UP Calibrate | RIGHT Data/3D", lv_color_hex(0x99A9C4));
+  s_values = label(s_values_y, "X --    Y --    Z --", current_theme.text_main);
+  s_hint = label(s_hint_y, "UP Calibrate | RIGHT Data/3D", current_theme.text_secondary);
   ui_chrome_footer(s_screen, "OK Center     BACK Exit");
   ui_input_set_screen_handler(input, NULL);
   ui_screen_load_owned(&s_screen, s_screen);
@@ -351,12 +387,14 @@ void ui_imu_monitor_open(void) {
     lv_label_set_text(s_status, "SENSOR COULD NOT START");
     goto cleanup;
   }
+  s_has_service = true;
   for (unsigned i = 0; i < VIEW_PIXELS; ++i)
-    s_pixels[i] = 0x0000;
+    s_pixels[i] = lv_color_to_u16(current_theme.screen_base);
   lv_canvas_set_buffer(s_view, s_pixels, s_view_width, s_view_height, LV_COLOR_FORMAT_RGB565);
   power_policy_set_display_hold(s_screen, true);
   return;
 cleanup:
+  led_signal_error();
   if (s_timer != NULL) {
     lv_timer_delete(s_timer);
     s_timer = NULL;

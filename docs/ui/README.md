@@ -649,16 +649,24 @@ The monitor is in `Applications/ui/screens/imu`. It consumes snapshots and
 requests from `Service/imu`; sensor transactions and calibration belong to the
 service and `Drivers/qmi8658a`. The sampling worker never touches LVGL.
 
-OK recenters, UP recalibrates, RIGHT toggles raw data/3D, and BACK exits. The
-layout uses `ui_metrics` for 240×320 and 320×240. Canvas dimensions and projection
+The entry is Settings → Audio & Haptics → Motion / IMU. OK recenters, UP
+recalibrates, RIGHT toggles raw data/3D, and BACK exits. After the service exhausts
+automatic recovery and stops, UP retries startup. The layout uses `ui_metrics`
+for 240×320 and 320×240. Canvas dimensions and projection
 scale follow the available content area, leaving header, values and footer visible.
-Warm-up, calibration, stale samples and failures have explicit status text.
+Warm-up, calibration, stale samples, automatic recovery and failures have explicit
+status text. Canvas background, axes and labels use the selected theme; the mesh
+retains its material colors.
 
 `screen_close_fn()` registers `ui_imu_monitor_stop()` before navigation teardown.
 The delete event is an idempotent fallback and frees the screen-owned PSRAM model,
 pixel and depth buffers. The refresh timer is created before starting the worker;
 failed allocations/model loads/timer creation/start leave an error page with BACK
 available, without a display hold or a newly started sensor worker.
+Only a screen that started the service requests its stop, so the delete fallback
+does not report the same shutdown twice. A worker that stops after a sensor error
+also releases the screen's display hold. Error notifications are deduplicated;
+an actual shutdown timeout leaves cleanup with the service, not the UI.
 
 The model is `/assets/models/highboy_imu.bin`, loaded into PSRAM. Deploy the asset
 with the P4 app; an app-only update does not install assets. Its format and source
@@ -666,8 +674,9 @@ mesh are verified by `python3 tools/highboy/build_imu_mesh.py --check`.
 
 Run `python3 tools/highboy/test_imu_motion_ui.py --output /tmp/imu-ui` for actual
 LVGL renders in portrait/landscape with simulated samples, controls, repeat
-entry/exit, missing/corrupt models and injected timer allocation failure. These
-checks do not establish physical sensor accuracy or on-device rendering speed.
+entry/exit, missing/corrupt models, injected allocation/start failures, retry and
+display-hold release. These checks do not establish physical sensor accuracy or
+on-device rendering speed.
 
 ## Responsive activity layouts
 

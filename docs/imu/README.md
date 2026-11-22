@@ -28,14 +28,28 @@ worker accesses the sensor. Consumers copy snapshots through
 `imu_motion_snapshot()`; they must not access the private snapshot directly.
 Center/calibration requests and stop flags use the same critical section.
 
-The worker holds a no-sleep lease, samples/calibrates motion, and releases sensor
-and lease on exit. Stop requests graceful shutdown with a bounded wait and
-returns any error. Roll/pitch use gravity correction; yaw is relative and can
-drift without a magnetometer. Calibration rejects moving or invalid windows.
+The worker holds a no-sleep lease and retries sensor startup up to three times,
+250 ms apart. Three consecutive read errors trigger a stop/start recovery;
+three recoveries without a valid sample exhaust that automatic retry cycle.
+An eight-second initial data deadline accommodates the driver's five-second
+warm-up; after receiving data, a one-second absence of fresh samples counts as
+a timeout. Successful reinitialization restarts orientation and calibration.
+Roll/pitch use gravity correction; yaw is relative and can drift without a
+magnetometer. Calibration rejects moving or invalid windows.
+
+Stop requests graceful shutdown and waits up to 500 ms. It returns `ESP_OK`
+when the worker has stopped, independently of an earlier sampling error in the
+snapshot. If cleanup is still pending, it returns `ESP_ERR_TIMEOUT`; the worker
+continues retrying sensor shutdown and retains its no-sleep lease until shutdown
+and lease release succeed. Repeated stop calls are safe, and a new start is
+rejected while the previous worker still owns resources.
 
 The [monitor UI](../ui/README.md#imu-motion-monitor) owns display objects, timer
 and model buffers, not the sensor worker's sample storage.
 
 Run `python3 tools/highboy/test_imu_orientation.py` for rotations, recentering,
-gravity correction and calibration. `test_imu_motion_ui.py` checks UI lifecycle
-with simulated service snapshots; it does not validate physical SPI or RF timing.
+gravity correction and calibration. `tests/test_imu_motion_service.py` executes
+the actual worker with threaded RTOS, sensor and power fakes, including startup,
+read/no-data recovery, cancellation, repeated stop and failed cleanup ownership.
+`test_imu_motion_ui.py` checks UI lifecycle with simulated service snapshots.
+These host checks do not validate physical SPI timing or sensor accuracy.

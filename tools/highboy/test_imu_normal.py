@@ -45,14 +45,15 @@ typedef struct {float temperature_c,accel_g[3],gyro_dps[3];uint8_t status;} qmi8
 #define SIG_GPIO_OUT_IDX 1
 #define GPIO_MODE_OUTPUT 1
 #define pdMS_TO_TICKS(x) (x)
+#define portMAX_DELAY -1
 static const char* TAG="test";
 static void log_ignore(const char*t,const char*f,...){(void)t;(void)f;}
 #define ESP_LOGI log_ignore
 static uint8_t regs[128];static int calls,fail_at,locked,added,unlocks,writes,bad_write,lock_reads;
 static bool no_sample,never_lock,lose_identity;static int64_t now;
-static int cs_level=1;
+static int cs_level=1; static bool bus_owned, fail_acquire;
 static void esp_rom_gpio_connect_out_signal(int p,int s,bool a,bool b){assert(p==36&&s==1&&!a&&!b);}
-static int gpio_set_level(int p,int v){assert(p==36);cs_level=v;return 0;}
+static int gpio_set_level(int p,int v){assert(p==36);if(v==0)assert(bus_owned);cs_level=v;return 0;}
 static int gpio_set_direction(int p,int m){assert(p==36&&m==1);return 0;}
 static int64_t esp_timer_get_time(void){return now;}
 static void vTaskDelay(int ms){now+=ms*1000;}
@@ -62,7 +63,10 @@ static void spi_bus_lock_give(void){assert(locked&&cs_level==1);locked=0;}
 static int spi_add_device(int h,int i,const spi_device_config_t*c){assert(locked&&h==3&&i==0&&c->mode==0&&c->cs_pin==-1);added=1;return 0;}
 static void*spi_get_handle(int i){assert(i==0);return added?(void*)1:NULL;}
 static int spi_remove_device(int i){assert(locked&&i==0);added=0;return 0;}
-static int spi_device_transmit(void*d,spi_transaction_t*t){
+static int spi_device_acquire_bus(void *d,int wait){assert(locked&&d==(void*)1&&wait==-1&&!bus_owned&&cs_level==1);if(fail_acquire)return ESP_ERR_TIMEOUT;bus_owned=true;return 0;}
+static void spi_device_release_bus(void *d){assert(d==(void*)1&&bus_owned&&cs_level==1);bus_owned=false;}
+static int spi_device_polling_transmit(void*d,spi_transaction_t*t){
+assert(bus_owned);
 assert(locked&&added&&d==(void*)1&&t->length==16&&cs_level==0);
 if(++calls==fail_at)return ESP_ERR_TIMEOUT;
 int r=t->tx_data[0]&127;
@@ -82,9 +86,10 @@ static void reset(void){
 memset(regs,0,sizeof(regs));regs[0]=5;regs[1]=0x7c;regs[2]=0x20;
 regs[0x34]=25;regs[0x38]=16;regs[0x3b]=64;
 calls=fail_at=locked=added=unlocks=writes=bad_write=lock_reads=0;
-no_sample=never_lock=lose_identity=false;now=0;s_ready=false;s_spi=NULL;s_odr=6;
+no_sample=never_lock=lose_identity=bus_owned=fail_acquire=false;now=0;s_ready=false;s_spi=NULL;s_odr=6;
 }
 int main(void){
+reset();fail_acquire=true;assert(qmi8658a_start()==ESP_ERR_TIMEOUT&&!added&&!bus_owned&&cs_level==1);
 reset();assert(qmi8658a_start()==0&&regs[8]==0x83);int init_calls=calls;
 qmi8658a_sample_t sample,sentinel;memset(&sentinel,0xa5,sizeof sentinel);sample=sentinel;
 assert(qmi8658a_read(&sample)==ESP_ERR_NOT_FINISHED&&!memcmp(&sample,&sentinel,sizeof sample));

@@ -42,6 +42,10 @@ typedef int esp_err_t;
 #define ESP_OK 0
 #define MALLOC_CAP_SPIRAM 0
 #define MALLOC_CAP_8BIT 0
+static struct {lv_color_t screen_base, text_main, text_secondary, border_accent;} current_theme;
+static unsigned warnings;
+static void led_signal_warning(void) {++warnings;}
+static void led_signal_error(void) {++warnings;}
 static int fail_alloc, alloc_count;
 static void *heap_caps_malloc(size_t n,int caps){return ++alloc_count==fail_alloc?NULL:malloc(n);}
 #define ESP_LOGI(...) ((void)0)
@@ -97,7 +101,7 @@ static void capture(const char *name,bool fresh){
 }
 static void press(int b){input_event_t e={0,b};input(&e,NULL);}
 int main(void){
- lv_init();lv_tick_inc(10000);lv_display_t *d=lv_display_create(240,320);
+ lv_init();current_theme.text_main=lv_color_white();current_theme.text_secondary=lv_color_hex(0x99a9c4);current_theme.border_accent=lv_color_hex(0xff6d88);lv_tick_inc(10000);lv_display_t *d=lv_display_create(240,320);
  lv_display_set_color_format(d,LV_COLOR_FORMAT_XRGB8888);
  lv_display_set_buffers(d,buffer,NULL,sizeof(buffer),LV_DISPLAY_RENDER_MODE_FULL);lv_display_set_flush_cb(d,flush);
  fake.matrix[0]=fake.matrix[4]=fake.matrix[8]=1;fake.running=fake.calibrated=true;fake.rate_hz=112;
@@ -114,23 +118,34 @@ int main(void){
  press(INPUT_BTN_OK);press(INPUT_BTN_UP);assert(centered==1&&zeroed==1);
  fake.zeroing=true;fake.zero_count=80;capture("calibrating.ppm",true);
  fake.sample_us=esp_timer_get_time()-1000000;capture("stale.ppm",false);assert(strstr(lv_label_get_text(s_status),"PAUSED"));
- fake.error=0x105;capture("error.ppm",false);assert(strstr(lv_label_get_text(s_status),"ERROR"));
- ui_imu_monitor_stop();assert(!held&&!s_timer&&!s_running);lv_obj_delete(s_screen);assert(!s_screen);
+ fake.error=0x105;fake.running=false;capture("error.ppm",false);assert(strstr(lv_label_get_text(s_status),"ERROR")&&!held);
+ unsigned before_warning=warnings;capture("error_again.ppm",false);assert(warnings==before_warning);
+ press(INPUT_BTN_UP);assert(fake.running&&held);
+
+ ui_imu_monitor_stop();assert(!held&&!s_timer&&!s_running);int before_stop=stopped;lv_obj_delete(s_screen);assert(!s_screen&&stopped==before_stop);
  fake.error=0;ui_imu_monitor_open();assert(held);ui_imu_monitor_stop();lv_obj_delete(s_screen);
  test_model_path="missing_model.bin";ui_imu_monitor_open();
  assert(!s_timer && strstr(lv_label_get_text(s_status),"MISSING"));lv_obj_delete(s_screen);
  FILE *broken=fopen("broken_model.bin","wb");assert(broken);fputs("HBM1",broken);fclose(broken);
  test_model_path="broken_model.bin";ui_imu_monitor_open();
  assert(!s_timer && strstr(lv_label_get_text(s_status),"INVALID"));lv_obj_delete(s_screen);
- test_model_path="/Users/anarchyysm/Developer/TentacleOS/firmware_p4/assets/models/highboy_imu.bin";
+ test_model_path=MODEL_FIXTURE_PATH;
  for(int n=1;n<=3;n++){alloc_count=0;fail_alloc=n;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_depth&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"MEMORY"));lv_obj_delete(s_screen);}fail_alloc=0;
  fail_start=true;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"START"));lv_obj_delete(s_screen);fail_start=false;
  fail_timer=true;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"TIMER"));lv_obj_delete(s_screen);fail_timer=false;
  lv_display_set_resolution(d,320,240);ui_imu_monitor_open();capture("landscape.ppm",true);press(INPUT_BTN_RIGHT);capture("landscape_data.ppm",true);ui_imu_monitor_stop();lv_obj_delete(s_screen);
- puts("PASS real LVGL: six model views, raw values, calibration, stale/error, controls and reopen/delete lifecycle");
+ current_theme.screen_base=lv_color_hex(0x183333);current_theme.text_main=lv_color_hex(0xffffcc);
+ current_theme.text_secondary=lv_color_hex(0xe0c080);current_theme.border_accent=lv_color_hex(0xffcc00);
+ for(int wide=0;wide<2;++wide){
+  lv_display_set_resolution(d,wide?320:240,wide?240:320);ui_imu_monitor_open();capture(wide?"theme_landscape.ppm":"theme_portrait.ppm",true);
+  assert(lv_color_eq(lv_obj_get_style_bg_color(s_screen,0),current_theme.screen_base));
+  assert(lv_color_eq(lv_obj_get_style_text_color(s_values,0),current_theme.text_main));
+  assert(s_pixels[0]==lv_color_to_u16(current_theme.screen_base));ui_imu_monitor_stop();lv_obj_delete(s_screen);
+ }
+ puts("PASS real LVGL: six model views, raw values, calibration, stale/error, retry, themes, controls and reopen/delete lifecycle");
 }
 '''
-shim += '\nstatic const char *test_model_path = ' + json.dumps(str(R/'firmware_p4/assets/models/highboy_imu.bin')) + ';\n#define IMU_MESH_PATH test_model_path\n'
+shim += '\n#define MODEL_FIXTURE_PATH ' + json.dumps(str(R/'firmware_p4/assets/models/highboy_imu.bin')) + '\nstatic const char *test_model_path = ' + json.dumps(str(R/'firmware_p4/assets/models/highboy_imu.bin')) + ';\n#define IMU_MESH_PATH test_model_path\n'
 (O/'test.c').write_text(notice+shim+source(R/'firmware_p4/components/Service/imu/include/imu_motion.h')+source(D/'include/imu_highboy_mesh.h')+stubs+source(D/'imu_monitor_ui.c')+test)
 write_changed(O/'lv_conf.h',notice+'''#ifndef LV_CONF_H
 #define LV_CONF_H
