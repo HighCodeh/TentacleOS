@@ -95,6 +95,7 @@ typedef struct {
   int volume;
   uint16_t battery_capacity_mah;
   char battery_profile[TOS_CONFIG_BATTERY_PROFILE_ID_SIZE];
+  bool power_saving;
   bool vibration;
   int vibration_intensity;
   bool ui_sound_fx;
@@ -122,6 +123,7 @@ esp_err_t tos_config_load(const char *sd_path, const char *flash_path, const cha
 void tos_config_load_all(void);
 /** Persist a catalog profile and apply it only after a successful write. */
 esp_err_t tos_config_set_battery_profile(const char *id);
+esp_err_t tos_config_set_power_saving(bool enabled);
 esp_err_t tos_config_save(const char *sd_path, const char *module);
 
 #ifdef __cplusplus

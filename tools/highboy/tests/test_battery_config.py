@@ -51,6 +51,7 @@ const battery_service_profile_t *battery_service_profile_get(void);
 const battery_service_profile_t *battery_service_profile_at(uint32_t);
 esp_err_t battery_service_set_profile(const char *);
 """,
+    "power_manager.h": "static bool saver_applied = true;\nstatic inline void power_manager_set_saver(bool enabled) { saver_applied = enabled; }\n",
     "vfs_config.h": '#define VFS_MOUNT_POINT "."\n',
 }
 
@@ -138,6 +139,17 @@ int main(void) {
     assert(tos_config_load(TOS_PATH_CONFIG_SYSTEM,NULL,"system")==ESP_OK);
     expect(profile->id,profile->capacity_mah);assert(g_config_system.volume==63);
   }
+  assert(g_config_system.power_saving && saver_applied);
+  assert(tos_config_set_power_saving(false)==ESP_OK);
+  assert(!g_config_system.power_saving && !saver_applied);
+  assert(tos_config_load(TOS_PATH_CONFIG_SYSTEM,NULL,"system")==ESP_OK);
+  assert(!g_config_system.power_saving && !saver_applied);
+  fail_write=true;
+  assert(tos_config_set_power_saving(true)==ESP_FAIL);
+  assert(!g_config_system.power_saving && !saver_applied);
+  fail_write=false;
+  load_json("{}");
+  assert(g_config_system.power_saving && saver_applied);
   assert(tos_config_set_battery_profile("generic_2450")==ESP_OK);
   fail_write=true;
   assert(tos_config_set_battery_profile("knlypow_604858")==ESP_FAIL);

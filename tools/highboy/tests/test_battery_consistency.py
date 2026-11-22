@@ -54,9 +54,10 @@ code = r'''
 #define ESP_OK 0
 #define CHARGE_STATUS_CHARGE_DONE 3
 #define ACT_CHARGE 0
-#define ACT_SCAN 1
-#define ACT_REGS 2
-#define ACT_OFF 3
+#define ACT_SAVER 1
+#define ACT_SCAN 2
+#define ACT_REGS 3
+#define ACT_OFF 4
 typedef struct {int soc,vbat_mv;bool valid,present,charging,vbus_present,low,is_soc_estimated;} battery_snapshot_t;
 typedef struct {int soc,vbat_mv,vbus_mv,vbus,chg;bool power_good,charging;} bq25896_telem_t;
 typedef struct {bool gauge_valid,requested;int soc;bq25896_telem_t charger;} battery_charge_snapshot_t;
@@ -64,9 +65,14 @@ typedef struct {char text[96];int frame,width,tint;} lv_obj_t;
 static struct {int text_secondary;} current_theme;
 static int frames[]={0,1,2,3};
 static int *battery_dscs[]={frames,frames+1,frames+2,frames+3};
-static lv_obj_t icon,symbol,label,pct,volt,src,state,row,fill;
+static lv_obj_t icon,symbol,label,pct,volt,src,state,row,saver,fill;
+static struct {bool power_saving;} g_config_system;
+typedef int esp_err_t;
+static int tos_config_set_power_saving(bool enabled){g_config_system.power_saving=enabled;return ESP_OK;}
+static void led_signal_info(void){}
+#define ESP_LOGI(tag,...) ((void)(tag))
 static lv_obj_t *s_pct=&pct,*s_volt=&volt,*s_src=&src,*s_state=&state;
-static lv_obj_t *s_row_val[]={&row},*bat_chip_val=&label,*bat_chip_fill=&fill;
+static lv_obj_t *s_row_val[]={&row,&saver},*bat_chip_val=&label,*bat_chip_fill=&fill;
 static battery_snapshot_t battery;
 static battery_charge_snapshot_t charge;
 static bool available=true,request_failed,request_value;

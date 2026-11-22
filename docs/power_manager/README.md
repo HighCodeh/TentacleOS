@@ -17,9 +17,10 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Power management
 
-The P4 service owns the companion idle-sleep policy and the display state
-forwarded to the C5. Idle saving defaults to enabled; callers can change it
-through `power_manager_set_saver()`.
+The P4 service owns the persistent **Battery saver** preference and the display
+state forwarded to the C5. It defaults to enabled and is saved in
+`/sdcard/config/system.conf`; missing keys in older configurations use that default.
+Settings > Power toggles it with checked persistence and rollback on save failure.
 
 ## C5 idle sleep
 
@@ -86,8 +87,8 @@ buffers/descriptors, PM locks, counters and synchronization remain internal.
 
 Host tests execute the production idle guards, PM/DMA transition and P4 transport
 helpers with fake clocks/SDK calls: pending DMA, an asserted CS, delayed wake,
-PM failures and every activity veto. These are not electrical wake-up or current
-measurements. Both app
+PM failures, every activity veto, configuration round-trip and failed-save
+rollback. These are not electrical wake-up or current measurements. Both app
 images are required for this feature; app-only updates do not install assets.
 Validate on hardware with Wi-Fi/BLE disabled, screen on/off and rapid wake plus
 audio/haptic commands; then repeat with each active operation and confirm it

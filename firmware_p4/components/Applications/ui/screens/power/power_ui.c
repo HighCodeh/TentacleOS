@@ -24,6 +24,9 @@
 #include "battery_service.h"
 #include "msgbox_ui.h"
 #include "power_policy.h"
+#include "tos_config.h"
+#include "led_control.h"
+#include "esp_log.h"
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "ui_semantic.h"
@@ -68,11 +71,14 @@
 
 #define COL_RAISE 0x170A28
 
-enum { ACT_CHARGE, ACT_SCAN, ACT_REGS, ACT_OFF, ACT_COUNT };
+static const char *TAG = "POWER_UI";
+
+enum { ACT_CHARGE, ACT_SAVER, ACT_SCAN, ACT_REGS, ACT_OFF, ACT_COUNT };
 
 static const char *const ACT_ICON[ACT_COUNT] = {
-    LV_SYMBOL_CHARGE, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS, LV_SYMBOL_POWER};
-static const char *const ACT_NAMES[ACT_COUNT] = {"Charging", "I2C Scan", "Registers", "Power Off"};
+    LV_SYMBOL_CHARGE, LV_SYMBOL_CHARGE, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS, LV_SYMBOL_POWER};
+static const char *const ACT_NAMES[ACT_COUNT] = {
+    "Charging", "Battery saver", "I2C Scan", "Registers", "Power Off"};
 
 static lv_obj_t *s_screen = NULL;
 EXT_RAM_BSS_ATTR static menu_component_t s_scroll;
@@ -116,6 +122,7 @@ static void style_state_chip(bool charging) {
 }
 
 static void refresh_telem(void) {
+  lv_label_set_text(s_row_val[ACT_SAVER], g_config_system.power_saving ? "ON" : "OFF");
   battery_charge_snapshot_t charge;
   if (!battery_service_get_charge(&charge)) {
     lv_label_set_text(s_pct, "--%");
@@ -285,6 +292,17 @@ static void do_action(int act) {
     if (!battery_service_get_charge(&charge) ||
         battery_service_request_charge(!charge.requested) != ESP_OK)
       msgbox_open(LV_SYMBOL_WARNING, "Charge request failed", NULL, NULL, NULL);
+    refresh_telem();
+  } else if (act == ACT_SAVER) {
+    esp_err_t result = tos_config_set_power_saving(!g_config_system.power_saving);
+    if (result == ESP_OK) {
+      ESP_LOGI(TAG, "Battery saver %s", g_config_system.power_saving ? "enabled" : "disabled");
+      led_signal_info();
+    } else {
+      ESP_LOGE(TAG, "Battery saver save failed: %s", esp_err_to_name(result));
+      led_signal_error();
+      msgbox_open(LV_SYMBOL_WARNING, "Could not save battery saver", NULL, NULL, NULL);
+    }
     refresh_telem();
   } else if (act == ACT_SCAN) {
     i2c_scan_fill();

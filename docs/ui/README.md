@@ -602,7 +602,12 @@ service; the screen does not impose its own 3200 mV rule. Selecting the confirme
 This does not recalibrate the
 voltage curve or gauge, or enable low-cell recovery. Power uses the same cached,
 filtered value and queues charge requests through the service. Entering Power
-does not initialize the charger or perform ADC conversions in LVGL. Its explicit
+does not initialize the charger or perform ADC conversions in LVGL.
+Its **Battery saver** row persists the C5 idle-sleep preference (enabled by
+default). Active operations veto sleep; display-off selects a longer idle window.
+The [power manager](../power_manager/README.md) owns this policy and the bridge
+worker applies it outside LVGL. A failed save retains the previous setting and
+is shown on screen. Its explicit
 Registers/I2C Scan diagnostics remain user-triggered. V2.03 low-cell alerts and
 shutdown still use voltage thresholds while the percentage is estimated.
 

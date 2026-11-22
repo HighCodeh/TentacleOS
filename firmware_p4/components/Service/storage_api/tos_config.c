@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "tos_config.h"
+#include "power_manager.h"
 #include "haptic.h"
 #include "battery_service.h"
 #include "power_profile.h"
@@ -79,6 +80,7 @@ tos_config_system_t g_config_system = {
     .locale = "pt-BR",
     .timezone_offset = -3,
     .volume = 50,
+    .power_saving = true,
     .battery_capacity_mah = POWER_PROFILE_CAPACITY_MAH,
     .battery_profile = BATTERY_SERVICE_DEFAULT_PROFILE,
     .vibration = true,
@@ -238,6 +240,8 @@ static void parse_lora(cJSON *root) {
 }
 
 static void parse_system(cJSON *root) {
+  g_config_system.power_saving = json_get_bool(root, "power_saving", true);
+  power_manager_set_saver(g_config_system.power_saving);
   cJSON *id = cJSON_GetObjectItemCaseSensitive(root, "battery_profile");
   const battery_service_profile_t *profile =
       cJSON_IsString(id) ? battery_service_profile_find(id->valuestring) : NULL;
@@ -366,6 +370,7 @@ static cJSON *serialize_system(void) {
       cJSON_AddStringToObject(root, "battery_profile", g_config_system.battery_profile) == NULL ||
       cJSON_AddNumberToObject(root, "battery_capacity_mah", g_config_system.battery_capacity_mah) ==
           NULL ||
+      cJSON_AddBoolToObject(root, "power_saving", g_config_system.power_saving) == NULL ||
       cJSON_AddBoolToObject(root, "vibration", g_config_system.vibration) == NULL ||
       cJSON_AddNumberToObject(root, "vibration_intensity", g_config_system.vibration_intensity) ==
           NULL ||
@@ -491,6 +496,20 @@ esp_err_t tos_config_save(const char *sd_path, const char *module) {
   esp_err_t result = save_config(sd_path, module);
   if (is_system)
     atomic_flag_clear_explicit(&s_system_write_busy, memory_order_release);
+  return result;
+}
+
+esp_err_t tos_config_set_power_saving(bool enabled) {
+  if (atomic_flag_test_and_set_explicit(&s_system_write_busy, memory_order_acquire))
+    return ESP_ERR_INVALID_STATE;
+  bool previous = g_config_system.power_saving;
+  g_config_system.power_saving = enabled;
+  esp_err_t result = save_config(TOS_PATH_CONFIG_SYSTEM, "system");
+  if (result == ESP_OK)
+    power_manager_set_saver(enabled);
+  else
+    g_config_system.power_saving = previous;
+  atomic_flag_clear_explicit(&s_system_write_busy, memory_order_release);
   return result;
 }
 
