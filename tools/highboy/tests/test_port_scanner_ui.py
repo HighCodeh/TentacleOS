@@ -139,7 +139,8 @@ static port_scanner_browse_request_t requested_browse;
 static void (*confirm_cb)(bool);
 static unsigned delete_requests;
 static char requested_path[PORT_SCANNER_PATH_LENGTH];
-static bool keyboard_visible, root_fails, timer_fails, long_banner;
+static bool keyboard_visible, root_fails, timer_fails, long_banner, udp_results;
+static unsigned udp_state;
 static keyboard_config_t editor;
 static keyboard_submit_cb_t submit_cb;
 static void *submit_context;
@@ -163,6 +164,9 @@ void port_scanner_stop(void) {
 bool port_scanner_get_result(uint16_t index, port_scan_result_t *out) {
   if(index>=mock_status.stored) return false;
   *out=(port_scan_result_t){.ip_str="192.168.255.254",.port=65535,.banner="SSH-2.0-example"};
+  if(udp_results) {
+    out->protocol=PORT_SCAN_PROTO_UDP; out->status=udp_state; out->banner[0]='\0';
+  }
   if(long_banner) snprintf(out->banner,sizeof(out->banner),"SSH-2.0-example\nSecond line with more data that exceeds a row");
   return true;
 }
@@ -177,7 +181,11 @@ void port_scanner_get_page(port_scanner_page_t *out) { *out=mock_page; }
 void port_scanner_close_page(void) { ++page_closes; }
 static void msgbox_open(const char *icon, const char *text, const char *button,
                         const char *cancel, void (*cb)(bool)) {
-  assert(strstr(text,"SSH-2.0-example") && strstr(text,"/TCP")); ++details;
+  if(udp_results) {
+    assert(strstr(text,"/UDP"));
+    assert(strstr(text,udp_state==PORT_SCAN_STATUS_OPEN_FILTERED ? "OPEN|FILTERED" : "FILTERED"));
+  } else assert(strstr(text,"SSH-2.0-example") && strstr(text,"/TCP"));
+  ++details;
 }
 static void msgbox_open_ex(const char *icon, const char *text, const char *button,
                            const char *cancel, void (*cb)(bool), bool default_confirm) {
@@ -313,6 +321,11 @@ int main(void) {
       send(INPUT_BTN_OK); set_text("invalid"); assert(!strcmp(s_config.target,"10.23.0.0/16"));
       select_row(WIFI_PORT_SCAN_PORTS); send(INPUT_BTN_RIGHT); assert(s_config.port_mode==PORT_SCANNER_CUSTOM_PORTS);
       select_row(WIFI_PORT_SCAN_LIST); send(INPUT_BTN_OK); set_text("22,80,443,8000-8100");
+      select_row(WIFI_PORT_SCAN_PROTOCOL); send(INPUT_BTN_RIGHT); assert(s_config.protocol_mode==PORT_SCANNER_UDP);
+      send(INPUT_BTN_RIGHT); assert(s_config.protocol_mode==PORT_SCANNER_BOTH);
+      send(INPUT_BTN_RIGHT); assert(s_config.protocol_mode==PORT_SCANNER_TCP);
+      send(INPUT_BTN_LEFT); assert(s_config.protocol_mode==PORT_SCANNER_BOTH);
+      send(INPUT_BTN_RIGHT); assert(s_config.protocol_mode==PORT_SCANNER_TCP);
       select_row(WIFI_PORT_SCAN_PING); send(INPUT_BTN_OK); assert(s_config.is_ping_enabled);
       select_row(WIFI_PORT_SCAN_START); send(INPUT_BTN_OK); assert(requests==before+1 && s_is_execution);
       assert(last_request.is_ping_enabled && last_request.target_mode==PORT_SCANNER_CIDR);
@@ -330,7 +343,7 @@ int main(void) {
       mock_status.state=PORT_SCANNER_CANCELLED; mock_status.is_busy=false;
       mock_status.is_probing=false; refresh(NULL); check_execution();
       assert(lv_bar_get_value(s_run_bar)==500);
-      assert(!strcmp(lv_label_get_text(s_run_empty),"TCP scan not started"));
+      assert(!strcmp(lv_label_get_text(s_run_empty),"Port scan not started"));
       mock_status.is_discovery_complete=true; mock_status.hosts_responded=0;
       mock_status.hosts_done=mock_status.hosts_skipped=65534;
       mock_status.state=PORT_SCANNER_DONE; refresh(NULL); check_execution();
@@ -344,6 +357,18 @@ int main(void) {
       strcpy(mock_status.current_ip,"192.168.0.18"); refresh(NULL); check_execution();
       assert(strstr(lv_label_get_text(s_run_phase),"2/2 TCP SCAN   7/244 hosts"));
       capture("scan",wide,theme);
+      udp_results=true; mock_status.active_protocol=PORT_SCAN_PROTO_UDP;
+      mock_status.uncertain=2; mock_status.filtered=3;
+      for(unsigned state=PORT_SCAN_STATUS_OPEN_FILTERED;state<=PORT_SCAN_STATUS_FILTERED;++state) {
+        udp_state=state; refresh(NULL); check_execution();
+        assert(strstr(lv_label_get_text(s_run_phase),"UDP SCAN"));
+        assert(strstr(lv_label_get_text(s_run_storage),"2 uncertain   3 filtered"));
+        assert(strstr(lv_label_get_text(s_run_titles[0]),"/UDP"));
+        assert(strstr(lv_label_get_text(s_run_banners[0]),state==PORT_SCAN_STATUS_OPEN_FILTERED ? "OPEN|FILTERED" : "FILTERED:"));
+        send(INPUT_BTN_OK); capture(state==PORT_SCAN_STATUS_OPEN_FILTERED ? "udp_uncertain" : "udp_filtered",wide,theme);
+      }
+      udp_results=false; mock_status.active_protocol=PORT_SCAN_PROTO_TCP;
+      mock_status.uncertain=mock_status.filtered=0; refresh(NULL);
       long_banner=true; refresh(NULL); check_execution(); long_banner=false; refresh(NULL);
       assert(s_run_first==128-s_run_rows && s_run_count==s_run_rows);
       unsigned previous_selected=s_run_selected; send(INPUT_BTN_UP);

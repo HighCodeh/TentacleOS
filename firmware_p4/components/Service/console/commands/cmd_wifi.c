@@ -487,6 +487,7 @@ static struct {
   struct arg_int *min;
   struct arg_int *max;
   struct arg_lit *common;
+  struct arg_str *protocol;
   struct arg_end *end;
 } s_port_args;
 
@@ -506,6 +507,18 @@ static int subcmd_portscan(int argc, char **argv) {
                                   .port_mode = s_port_args.common->count > 0
                                                    ? PORT_SCANNER_COMMON_PORTS
                                                    : PORT_SCANNER_CUSTOM_PORTS};
+  if (s_port_args.protocol->count > 0) {
+    const char *protocol = s_port_args.protocol->sval[0];
+    if (strcmp(protocol, "udp") == 0)
+      config.protocol_mode = PORT_SCANNER_UDP;
+    else if (strcmp(protocol, "both") == 0)
+      config.protocol_mode = PORT_SCANNER_BOTH;
+    else if (strcmp(protocol, "tcp") != 0) {
+      ESP_LOGW(TAG, "Protocol must be tcp, udp or both");
+      led_signal_warning();
+      return 1;
+    }
+  }
   snprintf(config.target, sizeof(config.target), "%s", s_port_args.ip->sval[0]);
   snprintf(config.ports,
            sizeof(config.ports),
@@ -531,7 +544,15 @@ static int subcmd_portscan(int argc, char **argv) {
   for (uint16_t i = 0; i < status.stored; ++i) {
     port_scan_result_t result;
     if (port_scanner_get_result(i, &result))
-      ESP_LOGI(TAG, "%s:%d/TCP: %s", result.ip_str, result.port, result.banner);
+      ESP_LOGI(TAG,
+               "%s:%d/%s %s: %s",
+               result.ip_str,
+               result.port,
+               result.protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP",
+               result.status == PORT_SCAN_STATUS_OPEN       ? "OPEN"
+               : result.status == PORT_SCAN_STATUS_FILTERED ? "FILTERED"
+                                                            : "OPEN|FILTERED",
+               result.banner);
   }
   if (status.error != ESP_OK)
     return 1;
@@ -712,6 +733,8 @@ void register_wifi_commands(void) {
   s_port_args.min = arg_int0(NULL, "min", "<port>", "Start Port");
   s_port_args.max = arg_int0(NULL, "max", "<port>", "End Port");
   s_port_args.common = arg_lit0(NULL, "common-ports", "Scan only the common ports");
+  s_port_args.protocol =
+      arg_str0(NULL, "protocol", "<tcp|udp|both>", "Scan transport (default tcp)");
   s_port_args.end = arg_end(2);
 
   const esp_console_cmd_t wifi_cmd = {.command = "wifi",

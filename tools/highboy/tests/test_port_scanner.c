@@ -76,6 +76,9 @@ static bool run_on_delay, radio_fails, power_fails, bad_count;
 static bool task_fails, has_radio, has_power, disconnected, all_open, bad_frame, refused;
 static char last_ip[16];
 static uint16_t active_ports[32], active_count;
+static unsigned active_protocol, udp_batches, tcp_batches, malformed_result;
+static int udp_error;
+static bool mixed_udp, bad_udp_status;
 static void (*pending)(void *);
 static void *pending_arg;
 static int worker_stack_caps;
@@ -149,7 +152,8 @@ static esp_err_t spi_bridge_send_command(spi_id_t id, const void *data, uint8_t 
     if(bad_probe_reply==3) status.reachable_mask|=1U<<active_probe.count;
     assert(capacity==sizeof(status)); memcpy(output,&status,sizeof(status)); return ESP_OK;
   }
-  if (id == SPI_ID_WIFI_PORT_SCAN_TARGET_LIST) {
+  if (id == SPI_ID_WIFI_PORT_SCAN_TARGET_LIST || id == SPI_ID_WIFI_UDP_SCAN_START) {
+    unsigned protocol=id==SPI_ID_WIFI_UDP_SCAN_START ? PORT_SCAN_PROTO_UDP : PORT_SCAN_PROTO_TCP;
     check_tcp_phase();
     assert(polls_left==0);
     ++starts; if (refused) return ESP_ERR_INVALID_STATE;
@@ -161,14 +165,20 @@ static esp_err_t spi_bridge_send_command(spi_id_t id, const void *data, uint8_t 
     uint32_t host=ntohl(inet_addr(last_ip));
     if(starts>1) {
       assert(host>=last_tcp_host);
-      if(host==last_tcp_host) assert(active_ports[0]>last_tcp_port);
+      if(host==last_tcp_host && active_protocol==protocol) assert(active_ports[0]>last_tcp_port);
       else if(expect_all_ports) assert(last_tcp_port==65535);
     }
+    active_protocol=protocol;
+    if(protocol==PORT_SCAN_PROTO_UDP) ++udp_batches; else ++tcp_batches;
     last_tcp_host=host; last_tcp_port=active_ports[active_count-1];
     ++batches; scanned_ports += active_count; polls_left = busy_polls;
     if (remove_sd_batch==batches) sd_mounted=false;
     if (cancel_batch == batches) port_scanner_stop();
     return ESP_OK;
+  }
+  if (id == SPI_ID_WIFI_UDP_SCAN_STATUS) {
+    spi_wifi_udp_scan_status_t status={.error=(uint32_t)udp_error,.is_running=bad_udp_status};
+    assert(capacity==sizeof(status) && polls_left==0); memcpy(output,&status,sizeof(status)); return ESP_OK;
   }
   if (id == SPI_ID_WIFI_PORT_SCAN_STOP) { ++stops; polls_left=0; return ESP_OK; }
   if (id == SPI_ID_WIFI_SCAN_STATUS) {
@@ -182,7 +192,10 @@ static esp_err_t spi_bridge_send_command(spi_id_t id, const void *data, uint8_t 
   if (index == SPI_DATA_INDEX_COUNT) { *(uint16_t *)output = bad_count ? active_count+1 : all_open ? active_count : 0; return ESP_OK; }
   assert(index < active_count && capacity == sizeof(spi_port_scan_result_t));
   if (index==fail_result_index) return ESP_ERR_TIMEOUT;
-  spi_port_scan_result_t result = {.port=active_ports[index], .protocol=0, .status=0};
+  spi_port_scan_result_t result = {.port=active_ports[index], .protocol=active_protocol, .status=mixed_udp && active_protocol==PORT_SCAN_PROTO_UDP ? index%3 : 0};
+  if(malformed_result==1) result.protocol=PORT_SCAN_PROTO_COUNT;
+  if(malformed_result==2) result.status=PORT_SCAN_STATUS_COUNT;
+  if(malformed_result==3 && index) result.port=active_ports[0];
   memcpy(result.ip_str, last_ip, 16); memset(result.banner, 'A', sizeof(result.banner));
   memcpy(output, &result, sizeof(result)); if (bad_frame) --header->length;
   return ESP_OK;
@@ -231,20 +244,23 @@ static void check_tcp_phase(void) {
 }
 #define PORT_SCAN_DEFAULT_LAST 1024
 #define PORT_SCAN_POLL_MS 200
-static struct { int count; const char *sval[1]; } ip_arg;
+static struct { int count; const char *sval[1]; } ip_arg, protocol_arg;
 static struct { int count; int ival[1]; } min_arg, max_arg;
 static struct { int count; } common_arg;
 static struct {
   __typeof__(ip_arg) *ip;
   __typeof__(min_arg) *min, *max;
   __typeof__(common_arg) *common;
+  __typeof__(ip_arg) *protocol;
   void *end;
-} s_port_args={&ip_arg,&min_arg,&max_arg,&common_arg,NULL};
+} s_port_args={&ip_arg,&min_arg,&max_arg,&common_arg,&protocol_arg,NULL};
 static int arg_parse(int argc, char **argv, void **table) { return 0; }
 static void arg_print_errors(FILE *stream, void *end, const char *name) {}
 /* CONSOLE */
 static void reset(void) {
   assert(!s_status.is_busy && !s_is_page_busy && !has_radio && !has_power);
+  active_protocol=udp_batches=tcp_batches=malformed_result=0;
+  udp_error=ESP_OK; mixed_udp=bad_udp_status=false; protocol_arg.count=0;
   probe_hosts_total=bad_probe_reply=0;
   probe_fail_at=0; fail_host_map=expect_all_ports=false;
   host_map_bytes=0; last_tcp_host=0; last_tcp_port=0;
@@ -538,6 +554,45 @@ int main(void) {
   ping.target_mode=PORT_SCANNER_RANGE;
   reset(); strcpy(ping.target,"255.255.255.254-255.255.255.255"); run(&ping);
   assert(probes==1 && probe_hosts_total==2 && s_status.hosts_done==2);
+  reset(); port_scanner_config_t udp={.protocol_mode=PORT_SCANNER_BOTH,
+    .target_mode=PORT_SCANNER_HOST,.port_mode=PORT_SCANNER_CUSTOM_PORTS,
+    .target="10.0.0.1",.ports="22,53,123"};
+  all_open=true; mixed_udp=true; sd_mounted=true; run(&udp);
+  assert(tcp_batches==1 && udp_batches==1 && s_status.ports_total==6 && s_status.ports_done==6);
+  assert(s_status.found==4 && s_status.uncertain==1 && s_status.filtered==1 && s_status.saved==6);
+  strcpy(archive,s_status.archive_path); run_page(archive,0,&page); assert(page.total==6);
+  for(unsigned i=0;i<6;++i) {
+    assert(page.results[i].protocol==(i<3 ? PORT_SCAN_PROTO_TCP : PORT_SCAN_PROTO_UDP));
+    assert(page.results[i].status==(i<3 ? PORT_SCAN_STATUS_OPEN : (i-3)%3));
+  }
+  reset(); udp.protocol_mode=PORT_SCANNER_UDP; udp.port_mode=PORT_SCANNER_COMMON_PORTS; run(&udp);
+  assert(tcp_batches==0 && udp_batches==1 && active_count==19 && active_ports[0]==53);
+  bool has_ntp=false, has_snmp=false;
+  for(unsigned i=0;i<active_count;++i) { has_ntp|=active_ports[i]==123; has_snmp|=active_ports[i]==161; }
+  assert(has_ntp && has_snmp);
+  reset(); udp.port_mode=PORT_SCANNER_CUSTOM_PORTS; all_open=true; udp_error=ESP_FAIL;
+  sd_mounted=true; run(&udp); assert(s_status.state==PORT_SCANNER_FAILED && s_status.saved==3);
+  reset(); bad_udp_status=true; run(&udp); assert(s_status.error==ESP_ERR_INVALID_RESPONSE);
+  for(unsigned i=1;i<=3;++i) {
+    reset(); malformed_result=i; all_open=true; run(&udp);
+    assert(s_status.error==ESP_ERR_INVALID_RESPONSE && s_status.found==(i==3 ? 1 : 0));
+  }
+  reset(); cancel_batch=1; busy_polls=5; all_open=true; mixed_udp=true;
+  udp_error=ESP_ERR_INVALID_STATE; run(&udp);
+  assert(s_status.state==PORT_SCANNER_CANCELLED && s_status.found==1 && s_status.uncertain==1 && s_status.filtered==1);
+  reset(); udp.is_ping_enabled=true; udp.target_mode=PORT_SCANNER_RANGE;
+  strcpy(udp.target,"10.0.0.1-10.0.0.9"); probe_reply_every=4; run(&udp);
+  assert(probes==2 && udp_batches==2 && s_status.hosts_responded==2 && tcp_batches==0);
+  reset(); udp.is_ping_enabled=false; udp.target_mode=PORT_SCANNER_HOST; strcpy(udp.target,"10.0.0.1");
+  udp.port_mode=PORT_SCANNER_ALL_PORTS; udp.protocol_mode=PORT_SCANNER_BOTH; run(&udp);
+  assert(scanned_ports==131070 && s_status.ports_total==131070 && s_status.ports_done==131070);
+  reset(); protocol_arg.count=1; protocol_arg.sval[0]="udp"; common_arg.count=1;
+  assert(subcmd_portscan(0,NULL)==0 && tcp_batches==0 && udp_batches==1);
+  reset(); protocol_arg.count=1; protocol_arg.sval[0]="both";
+  assert(subcmd_portscan(0,NULL)==0 && tcp_batches==1 && udp_batches==1);
+  reset(); protocol_arg.count=1; protocol_arg.sval[0]="invalid";
+  assert(subcmd_portscan(0,NULL)==1 && starts==0);
+  udp.protocol_mode=PORT_SCANNER_PROTOCOL_COUNT; assert(port_scanner_validate(&udp)==ESP_ERR_INVALID_ARG);
   test_archive_groups();
   puts("PASS: grouped archive/IP/port paging, large hosts, deterministic replacement, partial cancellation, checked deletion, scanner bounds, ping batches, I/O errors and ownership");
 }

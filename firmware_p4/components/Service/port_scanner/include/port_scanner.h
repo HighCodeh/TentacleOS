@@ -62,7 +62,15 @@ typedef enum {
   PORT_SCANNER_STATE_COUNT
 } port_scanner_state_t;
 
+typedef enum {
+  PORT_SCANNER_TCP,
+  PORT_SCANNER_UDP,
+  PORT_SCANNER_BOTH,
+  PORT_SCANNER_PROTOCOL_COUNT
+} port_scanner_protocol_t;
+
 typedef struct {
+  port_scanner_protocol_t protocol_mode;
   port_scanner_target_t target_mode;
   port_scanner_ports_t port_mode;
   bool is_ping_enabled;
@@ -86,6 +94,9 @@ typedef struct {
   uint32_t ports_done;
   uint32_t ports_total;
   uint32_t found;
+  uint32_t uncertain;
+  uint32_t filtered;
+  port_scan_protocol_t active_protocol;
   uint16_t stored;
   uint32_t saved;
   esp_err_t storage_error;

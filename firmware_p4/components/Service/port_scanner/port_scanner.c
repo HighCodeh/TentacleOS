@@ -54,7 +54,7 @@
 
 typedef struct {
   port_scanner_config_t config;
-  uint8_t ports[PORT_BITMAP_BYTES];
+  uint8_t ports[PORT_SCAN_PROTO_COUNT][PORT_BITMAP_BYTES];
   uint8_t *reachable_hosts;
   uint16_t batch[PORT_BATCH_SIZE];
   uint8_t payload[SPI_MAX_PAYLOAD];
@@ -68,6 +68,26 @@ typedef struct {
 } port_scanner_page_job_t;
 
 static const char *TAG = "PORT_SCANNER_SVC";
+static const uint16_t COMMON_UDP_PORTS[] = {53,
+                                            67,
+                                            68,
+                                            69,
+                                            123,
+                                            137,
+                                            138,
+                                            161,
+                                            162,
+                                            500,
+                                            514,
+                                            520,
+                                            623,
+                                            1194,
+                                            1900,
+                                            4500,
+                                            5353,
+                                            5683,
+                                            11211};
+#define COMMON_UDP_PORTS_COUNT (sizeof(COMMON_UDP_PORTS) / sizeof(COMMON_UDP_PORTS[0]))
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static port_scanner_snapshot_t s_status;
@@ -92,6 +112,7 @@ static esp_err_t discover_hosts(port_scanner_job_t *job, uint32_t first, uint32_
 esp_err_t port_scanner_validate(const port_scanner_config_t *config) {
   if (config == NULL || (unsigned)config->target_mode >= PORT_SCANNER_TARGET_COUNT ||
       (unsigned)config->port_mode >= PORT_SCANNER_PORTS_COUNT ||
+      (unsigned)config->protocol_mode >= PORT_SCANNER_PROTOCOL_COUNT ||
       memchr(config->target, '\0', sizeof(config->target)) == NULL ||
       memchr(config->ports, '\0', sizeof(config->ports)) == NULL)
     return ESP_ERR_INVALID_ARG;
@@ -441,7 +462,8 @@ static esp_err_t wait_batch(esp_err_t start_error) {
   }
 }
 
-static esp_err_t scan_batch(port_scanner_job_t *job, const char *ip, uint16_t count) {
+static esp_err_t
+scan_batch(port_scanner_job_t *job, const char *ip, uint16_t count, port_scan_protocol_t protocol) {
   // Existing target-list wire request: IP[16], result limit, port count, ports.
   const uint16_t capacity = PORT_BATCH_SIZE;
   uint8_t *payload = job->payload;
@@ -449,7 +471,8 @@ static esp_err_t scan_batch(port_scanner_job_t *job, const char *ip, uint16_t co
   memcpy(payload + PORT_SCANNER_IP_LENGTH, &capacity, sizeof(capacity));
   memcpy(payload + PORT_COUNT_OFFSET, &count, sizeof(count));
   memcpy(payload + PORT_LIST_OFFSET, job->batch, count * sizeof(*job->batch));
-  esp_err_t error = rpc(SPI_ID_WIFI_PORT_SCAN_TARGET_LIST,
+  esp_err_t error = rpc(protocol == PORT_SCAN_PROTO_TCP ? SPI_ID_WIFI_PORT_SCAN_TARGET_LIST
+                                                        : SPI_ID_WIFI_UDP_SCAN_START,
                         payload,
                         PORT_LIST_OFFSET + count * sizeof(*job->batch),
                         NULL,
@@ -460,6 +483,18 @@ static esp_err_t scan_batch(port_scanner_job_t *job, const char *ip, uint16_t co
   error = wait_batch(error);
   if (error != ESP_OK)
     return error;
+  esp_err_t scan_error = ESP_OK;
+  if (protocol == PORT_SCAN_PROTO_UDP) {
+    spi_wifi_udp_scan_status_t status;
+    error = rpc(SPI_ID_WIFI_UDP_SCAN_STATUS, NULL, 0, &status, sizeof(status));
+    if (error != ESP_OK)
+      return error;
+    if (status.is_running != 0 || status.reserved[0] != 0 || status.reserved[1] != 0 ||
+        status.reserved[2] != 0)
+      return ESP_ERR_INVALID_RESPONSE;
+    scan_error =
+        stopped() && status.error == ESP_ERR_INVALID_STATE ? ESP_OK : (esp_err_t)status.error;
+  }
   uint16_t index = SPI_DATA_INDEX_COUNT, total = 0;
   error = rpc(SPI_ID_SYSTEM_DATA, &index, sizeof(index), &total, sizeof(total));
   if (error != ESP_OK || total > count)
@@ -470,28 +505,40 @@ static esp_err_t scan_batch(port_scanner_job_t *job, const char *ip, uint16_t co
     error = rpc(SPI_ID_SYSTEM_DATA, &index, sizeof(index), &record, sizeof(record));
     if (error != ESP_OK)
       goto save_results;
-    if (memcmp(record.ip_str, ip, sizeof(record.ip_str)) != 0 ||
-        record.protocol != PORT_SCAN_PROTO_TCP || record.status != PORT_SCAN_STATUS_OPEN) {
+    if (memcmp(record.ip_str, ip, sizeof(record.ip_str)) != 0 || record.protocol != protocol ||
+        (record.status != PORT_SCAN_STATUS_OPEN &&
+         (protocol != PORT_SCAN_PROTO_UDP || (record.status != PORT_SCAN_STATUS_OPEN_FILTERED &&
+                                              record.status != PORT_SCAN_STATUS_FILTERED)))) {
       error = ESP_ERR_INVALID_RESPONSE;
       goto save_results;
     }
     bool has_port = false;
     for (uint16_t i = 0; i < count; ++i)
       has_port |= record.port == job->batch[i];
+    for (uint16_t i = 0; i < received; ++i)
+      if (job->results[i].port == record.port)
+        has_port = false;
     if (!has_port) {
       error = ESP_ERR_INVALID_RESPONSE;
       goto save_results;
     }
     port_scan_result_t *result = &job->results[index];
-    *result = (port_scan_result_t){
-        .port = record.port, .protocol = PORT_SCAN_PROTO_TCP, .status = PORT_SCAN_STATUS_OPEN};
+    *result =
+        (port_scan_result_t){.port = record.port, .protocol = protocol, .status = record.status};
     memcpy(result->ip_str, record.ip_str, sizeof(result->ip_str));
     memcpy(result->banner, record.banner, sizeof(result->banner));
     result->banner[sizeof(result->banner) - 1] = '\0';
     ++received;
     portENTER_CRITICAL(&s_lock);
-    if (s_status.found != UINT32_MAX)
-      ++s_status.found;
+    if (record.status == PORT_SCAN_STATUS_OPEN) {
+      if (s_status.found != UINT32_MAX)
+        ++s_status.found;
+    } else if (record.status == PORT_SCAN_STATUS_FILTERED) {
+      if (s_status.filtered != UINT32_MAX)
+        ++s_status.filtered;
+    } else if (s_status.uncertain != UINT32_MAX) {
+      ++s_status.uncertain;
+    }
     if (s_status.stored < PORT_SCANNER_RESULTS_MAX) {
       s_results[s_status.stored++] = *result;
     } else {
@@ -511,7 +558,7 @@ save_results:
     if (storage_error != ESP_OK)
       return storage_error;
   }
-  return error;
+  return error != ESP_OK ? error : scan_error;
 }
 
 static esp_err_t probe_hosts(uint32_t first, uint8_t count, uint16_t *out_reachable) {
@@ -607,22 +654,36 @@ static void worker(void *argument) {
   error = get_bounds(&job->config, &first, &last);
   if (error != ESP_OK)
     goto cleanup;
-  if (job->config.port_mode == PORT_SCANNER_COMMON_PORTS) {
-    int ports[COMMON_PORTS_MAX];
-    int count = common_ports_load(ports, COMMON_PORTS_MAX);
-    for (int i = 0; i < count; ++i)
-      if (ports[i] > 0 && ports[i] <= PORT_LIMIT)
-        job->ports[ports[i] / OCTET_BITS] |= (uint8_t)(1U << (ports[i] % OCTET_BITS));
-  } else {
-    const char *ports =
-        job->config.port_mode == PORT_SCANNER_ALL_PORTS ? "1-65535" : job->config.ports;
-    error = parse_ports(ports, job->ports);
-    if (error != ESP_OK)
-      goto cleanup;
-  }
+  const uint8_t first_protocol =
+      job->config.protocol_mode == PORT_SCANNER_UDP ? PORT_SCAN_PROTO_UDP : PORT_SCAN_PROTO_TCP;
+  const uint8_t last_protocol =
+      job->config.protocol_mode == PORT_SCANNER_TCP ? PORT_SCAN_PROTO_TCP : PORT_SCAN_PROTO_UDP;
   uint32_t ports_total = 0;
-  for (uint32_t port = 1; port <= PORT_LIMIT; ++port)
-    ports_total += (job->ports[port / OCTET_BITS] >> (port % OCTET_BITS)) & 1U;
+  for (uint8_t protocol = first_protocol; protocol <= last_protocol; ++protocol) {
+    uint8_t *bitmap = job->ports[protocol];
+    if (job->config.port_mode == PORT_SCANNER_COMMON_PORTS) {
+      if (protocol == PORT_SCAN_PROTO_TCP) {
+        int ports[COMMON_PORTS_MAX];
+        int count = common_ports_load(ports, COMMON_PORTS_MAX);
+        for (int i = 0; i < count; ++i)
+          if (ports[i] > 0 && ports[i] <= PORT_LIMIT)
+            bitmap[ports[i] / OCTET_BITS] |= (uint8_t)(1U << (ports[i] % OCTET_BITS));
+      } else {
+        for (size_t i = 0; i < COMMON_UDP_PORTS_COUNT; ++i) {
+          uint16_t port = COMMON_UDP_PORTS[i];
+          bitmap[port / OCTET_BITS] |= (uint8_t)(1U << (port % OCTET_BITS));
+        }
+      }
+    } else {
+      const char *ports =
+          job->config.port_mode == PORT_SCANNER_ALL_PORTS ? "1-65535" : job->config.ports;
+      error = parse_ports(ports, bitmap);
+      if (error != ESP_OK)
+        goto cleanup;
+    }
+    for (uint32_t port = 1; port <= PORT_LIMIT; ++port)
+      ports_total += (bitmap[port / OCTET_BITS] >> (port % OCTET_BITS)) & 1U;
+  }
   if (ports_total == 0) {
     error = ESP_ERR_INVALID_ARG;
     goto cleanup;
@@ -671,20 +732,25 @@ static void worker(void *argument) {
     memcpy(s_status.current_ip, ip, sizeof(ip));
     s_status.ports_done = 0;
     portEXIT_CRITICAL(&s_lock);
-    uint16_t count = 0;
-    for (uint32_t port = 1; port <= PORT_LIMIT && !stopped(); ++port) {
-      if ((job->ports[port / OCTET_BITS] & (1U << (port % OCTET_BITS))) != 0)
-        job->batch[count++] = (uint16_t)port;
-      if (count != PORT_BATCH_SIZE && !(port == PORT_LIMIT && count != 0))
-        continue;
-      error = scan_batch(job, ip, count);
-      if (error != ESP_OK)
-        goto cleanup;
+    for (uint8_t protocol = first_protocol; protocol <= last_protocol && !stopped(); ++protocol) {
       portENTER_CRITICAL(&s_lock);
-      if (!s_is_stop_requested)
-        s_status.ports_done += count;
+      s_status.active_protocol = protocol;
       portEXIT_CRITICAL(&s_lock);
-      count = 0;
+      uint16_t count = 0;
+      for (uint32_t port = 1; port <= PORT_LIMIT && !stopped(); ++port) {
+        if ((job->ports[protocol][port / OCTET_BITS] & (1U << (port % OCTET_BITS))) != 0)
+          job->batch[count++] = (uint16_t)port;
+        if (count != PORT_BATCH_SIZE && !(port == PORT_LIMIT && count != 0))
+          continue;
+        error = scan_batch(job, ip, count, protocol);
+        if (error != ESP_OK)
+          goto cleanup;
+        portENTER_CRITICAL(&s_lock);
+        if (!s_is_stop_requested)
+          s_status.ports_done += count;
+        portEXIT_CRITICAL(&s_lock);
+        count = 0;
+      }
     }
     if (stopped())
       break;

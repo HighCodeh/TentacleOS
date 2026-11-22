@@ -66,12 +66,15 @@ typedef enum {
   WIFI_PORT_SCAN_ADDRESS,
   WIFI_PORT_SCAN_PORTS,
   WIFI_PORT_SCAN_LIST,
+  WIFI_PORT_SCAN_PROTOCOL,
   WIFI_PORT_SCAN_PING,
   WIFI_PORT_SCAN_START,
   WIFI_PORT_SCAN_RESULTS,
   WIFI_PORT_SCAN_SAVED,
   WIFI_PORT_SCAN_COUNT
 } wifi_port_scan_row_t;
+
+static const char *PROTOCOL_NAMES[] = {"TCP", "UDP", "TCP + UDP"};
 
 static lv_obj_t *s_screen;
 static lv_timer_t *s_timer;
@@ -222,7 +225,7 @@ static void build_screen(void) {
   const char *title = s_show_files       ? "SAVED NETWORKS"
                       : s_show_hosts     ? s_archive_label[0] ? s_archive_label : "FOUND IPs"
                       : s_use_sd_results ? s_host.ip
-                      : s_show_results   ? "OPEN TCP PORTS"
+                      : s_show_results   ? "PORT RESULTS"
                                          : "PORT SCAN";
   s_menu = menu_component_create(root, title, SCAN_ICON);
   s_start_label = NULL;
@@ -239,7 +242,15 @@ static void build_screen(void) {
                  s_sd_page.hosts[i].ip,
                  (unsigned long)s_sd_page.hosts[i].count);
       else
-        snprintf(row, sizeof(row), "%s:%d", s_sd_page.results[i].ip_str, s_sd_page.results[i].port);
+        snprintf(row,
+                 sizeof(row),
+                 "%s:%d/%s%s",
+                 s_sd_page.results[i].ip_str,
+                 s_sd_page.results[i].port,
+                 s_sd_page.results[i].protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP",
+                 s_sd_page.results[i].status == PORT_SCAN_STATUS_OPEN_FILTERED ? " ?"
+                 : s_sd_page.results[i].status == PORT_SCAN_STATUS_FILTERED    ? " F"
+                                                                               : "");
       menu_component_add_item(&s_menu, NULL, row);
     }
     if (s_page_count == 0) {
@@ -278,7 +289,15 @@ static void build_screen(void) {
       if (!port_scanner_get_result(i, &result))
         break;
       char row[ROW_TEXT_LENGTH];
-      snprintf(row, sizeof(row), "%s:%d", result.ip_str, result.port);
+      snprintf(row,
+               sizeof(row),
+               "%s:%d/%s%s",
+               result.ip_str,
+               result.port,
+               result.protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP",
+               result.status == PORT_SCAN_STATUS_OPEN_FILTERED ? " ?"
+               : result.status == PORT_SCAN_STATUS_FILTERED    ? " F"
+                                                               : "");
       menu_component_add_item(&s_menu, NULL, row);
       ++s_page_count;
     }
@@ -290,6 +309,7 @@ static void build_screen(void) {
     menu_component_add_selector(&s_menu, NULL, "Address", "");
     menu_component_add_selector(&s_menu, NULL, "Ports", "");
     menu_component_add_selector(&s_menu, NULL, "List / range", "");
+    menu_component_add_selector(&s_menu, NULL, "Protocol", "");
     menu_component_add_selector(&s_menu, NULL, "Ping first", "");
     lv_obj_t *start = menu_component_add_item(&s_menu, NULL, "Scan");
     s_start_label = start != NULL ? lv_obj_get_child(start, 0) : NULL;
@@ -378,6 +398,8 @@ static void refresh(lv_timer_t *timer) {
                                     WIFI_PORT_SCAN_LIST,
                                     s_config.port_mode == PORT_SCANNER_CUSTOM_PORTS ? s_config.ports
                                                                                     : "Preset");
+  menu_component_set_selector_value(
+      &s_menu, WIFI_PORT_SCAN_PROTOCOL, PROTOCOL_NAMES[s_config.protocol_mode]);
   menu_component_set_selector_value(
       &s_menu, WIFI_PORT_SCAN_PING, s_config.is_ping_enabled ? "On" : "Off");
   if (s_start_label != NULL)
@@ -636,7 +658,10 @@ static void input(const input_event_t *event, void *context) {
     }
   } else if (!status.is_busy) {
     int direction = event->button == INPUT_BTN_LEFT ? -1 : 1;
-    if (selected == WIFI_PORT_SCAN_PING) {
+    if (selected == WIFI_PORT_SCAN_PROTOCOL) {
+      s_config.protocol_mode = (s_config.protocol_mode + direction + PORT_SCANNER_PROTOCOL_COUNT) %
+                               PORT_SCANNER_PROTOCOL_COUNT;
+    } else if (selected == WIFI_PORT_SCAN_PING) {
       s_config.is_ping_enabled = !s_config.is_ping_enabled;
     } else if (selected == WIFI_PORT_SCAN_TARGET) {
       s_config.target_mode = (s_config.target_mode + direction + PORT_SCANNER_TARGET_COUNT) %
@@ -691,10 +716,17 @@ static void show_detail(const port_scan_result_t *result) {
   char detail[DETAIL_TEXT_LENGTH];
   snprintf(detail,
            sizeof(detail),
-           "%s:%d/TCP\nOPEN\n%s",
+           "%s:%d/%s\n%s\n%s",
            result->ip_str,
            result->port,
-           result->banner[0] != '\0' ? result->banner : "No banner");
+           result->protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP",
+           result->status == PORT_SCAN_STATUS_OPEN       ? "OPEN"
+           : result->status == PORT_SCAN_STATUS_FILTERED ? "FILTERED"
+                                                         : "OPEN|FILTERED",
+           result->banner[0] != '\0'                          ? result->banner
+           : result->status == PORT_SCAN_STATUS_OPEN_FILTERED ? "No UDP reply; open not confirmed"
+           : result->status == PORT_SCAN_STATUS_FILTERED      ? "ICMP destination unreachable"
+                                                              : "No banner");
   msgbox_open(LV_SYMBOL_WIFI, detail, "OK", NULL, NULL);
 }
 
@@ -787,12 +819,18 @@ static void refresh_execution(const port_scanner_snapshot_t *status) {
   bool is_discovery = status->is_ping_enabled && !status->is_discovery_complete;
   uint32_t hosts_total = status->is_ping_enabled ? status->hosts_responded : status->hosts_total;
   uint32_t hosts_done = status->hosts_done - status->hosts_skipped;
-  const char *phase = status->state == PORT_SCANNER_RUNNING
-                          ? (is_discovery              ? "1/2 DISCOVERY"
-                             : status->is_ping_enabled ? "2/2 TCP SCAN"
-                             : status->current_ip[0]   ? "SCANNING"
-                                                       : "PREPARING")
-                          : STATE_NAMES[status->state];
+  bool is_udp = status->active_protocol == PORT_SCAN_PROTO_UDP;
+  const char *phase = STATE_NAMES[status->state];
+  if (status->state == PORT_SCANNER_RUNNING) {
+    if (is_discovery)
+      phase = "1/2 DISCOVERY";
+    else if (status->is_ping_enabled)
+      phase = is_udp ? "2/2 UDP SCAN" : "2/2 TCP SCAN";
+    else if (status->current_ip[0] != '\0')
+      phase = is_udp ? "UDP SCAN" : "TCP SCAN";
+    else
+      phase = "PREPARING";
+  }
   if (is_discovery)
     snprintf(text, sizeof(text), "%s", phase);
   else
@@ -836,6 +874,12 @@ static void refresh_execution(const port_scanner_snapshot_t *status) {
              "PING x%u   %lu skipped",
              status->probe_count,
              (unsigned long)status->hosts_skipped);
+  else if (status->uncertain != 0 || status->filtered != 0)
+    snprintf(text,
+             sizeof(text),
+             "%lu uncertain   %lu filtered",
+             (unsigned long)status->uncertain,
+             (unsigned long)status->filtered);
   else
     snprintf(text,
              sizeof(text),
@@ -861,11 +905,22 @@ static void refresh_execution(const port_scanner_snapshot_t *status) {
     if (port_scanner_get_result(s_run_first + i, &s_run_results[i])) {
       ++s_run_count;
       lv_obj_remove_flag(s_run_items[i], LV_OBJ_FLAG_HIDDEN);
-      snprintf(text, sizeof(text), "%s:%d", s_run_results[i].ip_str, s_run_results[i].port);
+      snprintf(text,
+               sizeof(text),
+               "%s:%d/%s",
+               s_run_results[i].ip_str,
+               s_run_results[i].port,
+               s_run_results[i].protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP");
       lv_label_set_text(s_run_titles[i], text);
-      lv_label_set_text(s_run_banners[i],
-                        s_run_results[i].banner[0] != '\0' ? s_run_results[i].banner
-                                                           : "TCP open; no banner");
+      const char *banner = s_run_results[i].banner;
+      if (s_run_results[i].status == PORT_SCAN_STATUS_OPEN_FILTERED)
+        banner = "OPEN|FILTERED: no UDP reply";
+      else if (s_run_results[i].status == PORT_SCAN_STATUS_FILTERED)
+        banner = "FILTERED: ICMP unreachable";
+      else if (banner[0] == '\0')
+        banner = s_run_results[i].protocol == PORT_SCAN_PROTO_UDP ? "UDP OPEN: reply received"
+                                                                  : "TCP OPEN: no banner";
+      lv_label_set_text(s_run_banners[i], banner);
       lv_obj_set_style_bg_opa(
           s_run_items[i], i == s_run_selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     } else {
@@ -874,13 +929,13 @@ static void refresh_execution(const port_scanner_snapshot_t *status) {
   }
   if (s_run_count == 0) {
     lv_obj_remove_flag(s_run_empty, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(s_run_empty,
-                      is_discovery
-                          ? (status->is_busy ? "Finding hosts before TCP" : "TCP scan not started")
-                      : status->is_ping_enabled && status->is_discovery_complete && hosts_total == 0
-                          ? "No hosts replied to ping"
-                      : status->is_busy ? "Waiting for open ports..."
-                                        : "No open ports found");
+    lv_label_set_text(
+        s_run_empty,
+        is_discovery ? (status->is_busy ? "Finding hosts before ports" : "Port scan not started")
+        : status->is_ping_enabled && status->is_discovery_complete && hosts_total == 0
+            ? "No hosts replied to ping"
+        : status->is_busy ? "Waiting for open ports..."
+                          : "No open ports found");
   } else {
     lv_obj_add_flag(s_run_empty, LV_OBJ_FLAG_HIDDEN);
   }

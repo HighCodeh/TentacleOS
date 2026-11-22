@@ -137,16 +137,19 @@ Progress and apply/save errors appear on screen. See
 
 Wi-Fi → Port Scan opens target/port configuration before starting. It supports
 live gateway/subnet discovery, IPv4 ranges, CIDR and custom port lists/ranges, plus
-optional Ping first (off by default). Scan opens a separate execution view showing
+TCP/UDP/Both selection and optional Ping first (off by default). Scan opens a separate execution view showing
 current IP, phase, counters, progress and a flat IP:port/banner list. `PING xN`
 shows discovery of up to eight addresses and the first IP in that batch.
 With Ping first, **1/2 DISCOVERY** completes the entire interval and shows
-probed/total IPs plus responders; **2/2 TCP SCAN** then scans those hosts one at a
+probed/total IPs plus responders; **2/2 TCP SCAN** or **2/2 UDP SCAN** then scans those hosts one at a
 time and shows completed/responding hosts and current ports. The bar measures
-each phase separately. Cancelling discovery starts no TCP work; cancelling TCP
+each phase separately. Cancelling discovery starts no port work; cancelling ports
 keeps the partial port results. Its first BACK
 stops in place; the second returns to setup. Themed layout supports both orientations.
-Its Service worker publishes progress and saves all collected open ports to an
+UDP results show OPEN, OPEN|FILTERED (silence) or FILTERED (ICMP rejection).
+Only OPEN increments the open counter; uncertainty and filtering have separate
+counters. Saved rows retain protocol and state, with full labels in details.
+Its Service worker publishes progress and saves all collected results to an
 SD archive keyed by the scanned interval, keeping a bounded live preview. A new
 scan of that interval replaces the old one, retaining the new partial data on
 cancellation. Saved scans opens networks/intervals, then unique IPs, then their

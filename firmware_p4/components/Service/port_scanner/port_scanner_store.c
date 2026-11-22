@@ -125,12 +125,24 @@ port_scanner_store_append(const char *path, const port_scan_result_t *results, u
     const port_scan_result_t *result = &results[i];
     char line[RECORD_BYTES + 1];
     if (memchr(result->ip_str, '\0', sizeof(result->ip_str)) == NULL || result->port <= 0 ||
-        result->port > UINT16_MAX || result->protocol != PORT_SCAN_PROTO_TCP ||
-        result->status != PORT_SCAN_STATUS_OPEN) {
+        result->port > UINT16_MAX ||
+        (result->protocol != PORT_SCAN_PROTO_TCP && result->protocol != PORT_SCAN_PROTO_UDP) ||
+        (result->status != PORT_SCAN_STATUS_OPEN &&
+         (result->protocol != PORT_SCAN_PROTO_UDP ||
+          (result->status != PORT_SCAN_STATUS_OPEN_FILTERED &&
+           result->status != PORT_SCAN_STATUS_FILTERED)))) {
       error = ESP_ERR_INVALID_ARG;
       goto cleanup;
     }
-    snprintf(line, sizeof(line), "%-15s,%05u,TCP,OPEN,", result->ip_str, (unsigned)result->port);
+    snprintf(line,
+             sizeof(line),
+             "%-15s,%05u,%s,%s,",
+             result->ip_str,
+             (unsigned)result->port,
+             result->protocol == PORT_SCAN_PROTO_TCP ? "TCP" : "UDP",
+             result->status == PORT_SCAN_STATUS_OPEN       ? "OPEN"
+             : result->status == PORT_SCAN_STATUS_FILTERED ? "FILT"
+                                                           : "OPFL");
     for (uint32_t j = 0; j < BANNER_BYTES; ++j) {
       uint8_t byte = (uint8_t)result->banner[j];
       line[BANNER_OFFSET + j * HEX_CHARS_PER_BYTE] = HEX[byte >> HEX_SHIFT];
@@ -456,12 +468,18 @@ static esp_err_t inspect(FILE *file, uint32_t *out_count, bool *out_partial) {
 }
 
 static esp_err_t decode(const char *line, port_scan_result_t *out_result) {
+  bool is_tcp = memcmp(line + TYPE_OFFSET, "TCP,OPEN,", BANNER_OFFSET - TYPE_OFFSET) == 0;
+  bool is_udp_open = memcmp(line + TYPE_OFFSET, "UDP,OPEN,", BANNER_OFFSET - TYPE_OFFSET) == 0;
+  bool is_udp_unknown = memcmp(line + TYPE_OFFSET, "UDP,OPFL,", BANNER_OFFSET - TYPE_OFFSET) == 0;
+  bool is_udp_filtered = memcmp(line + TYPE_OFFSET, "UDP,FILT,", BANNER_OFFSET - TYPE_OFFSET) == 0;
   if (line[IP_BYTES] != ',' || line[TYPE_OFFSET - 1] != ',' ||
-      memcmp(line + TYPE_OFFSET, "TCP,OPEN,", BANNER_OFFSET - TYPE_OFFSET) != 0 ||
+      (!is_tcp && !is_udp_open && !is_udp_unknown && !is_udp_filtered) ||
       line[RECORD_BYTES - 1] != '\n')
     return ESP_ERR_INVALID_RESPONSE;
-  *out_result =
-      (port_scan_result_t){.protocol = PORT_SCAN_PROTO_TCP, .status = PORT_SCAN_STATUS_OPEN};
+  *out_result = (port_scan_result_t){.protocol = is_tcp ? PORT_SCAN_PROTO_TCP : PORT_SCAN_PROTO_UDP,
+                                     .status = is_udp_unknown    ? PORT_SCAN_STATUS_OPEN_FILTERED
+                                               : is_udp_filtered ? PORT_SCAN_STATUS_FILTERED
+                                                                 : PORT_SCAN_STATUS_OPEN};
   memcpy(out_result->ip_str, line, IP_BYTES);
   for (uint32_t i = IP_BYTES; i > 0 && out_result->ip_str[i - 1] == ' '; --i)
     out_result->ip_str[i - 1] = '\0';

@@ -17,23 +17,29 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Wi-Fi service
 
-## TCP port scanning
+## TCP and UDP port scanning
 
 Wi-Fi → Port Scan configures the current gateway, one IPv4 address, the local
 subnet, an inclusive IP range or a CIDR such as /16 or /24, with common, custom
-or all TCP ports. Optional Ping first filters each host through ICMP before TCP;
+or all ports and a TCP/UDP/Both selector. Optional Ping first filters hosts before ports;
 it defaults off because an online host can block echo replies. The C5
 `wifi_host_probe` service probes up to eight consecutive addresses on one socket
 using the shared async radio worker. It retains two 400 ms attempts per address,
 retries only unanswered hosts and uses cancellable receive waits and bounded memory.
 P4 completes ping discovery over the entire selected interval and retains the
-responders in a PSRAM bitmap before scanning their TCP ports, one host at a time.
-Scan opens a separate live status/result view with discovery and TCP phase progress.
-Cancelling discovery starts no TCP work; cancelling TCP retains collected results.
+responders in a PSRAM bitmap before scanning their selected ports, one host at a time.
+Scan opens a separate live status/result view with discovery and TCP/UDP phase progress.
+Cancelling discovery starts no port work; cancelling ports retains collected results.
 C5 tracks each concurrent TCP connection until it completes or the connect
 deadline expires. A fast reply/refusal on another port does not end the pending
 connections' wait. This readiness fix requires the updated C5 app; Common and
 Custom share the corrected engine.
+UDP uses up to four sockets plus raw ICMP on the existing runner, with two 500 ms
+attempts per unanswered port. A datagram confirms OPEN; silence means OPEN|FILTERED;
+correlated ICMP distinguishes closed (omitted) from FILTERED. Socket errors stop
+with partial results. DNS/NTP get protocol probes; other ports get empty datagrams.
+Both mode scans TCP then UDP per host; the UI/archive preserve protocol and state,
+counting only confirmed responses as open. Both chips require the UDP update.
 Results are archived on microSD by scanned interval; repeating that interval
 replaces the old scan, including with new partial results on cancellation.
 Saved scans browses networks/intervals, IPs and ports with LEFT/RIGHT paging and
