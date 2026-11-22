@@ -23,6 +23,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/inet.h"
 
 #include <stdatomic.h>
 
@@ -42,6 +43,7 @@
 #include "wifi_deauther.h"
 #include "wifi_flood.h"
 #include "wifi_service.h"
+#include "wifi_host_probe.h"
 #include "wardrive_radio.h"
 #include "wifi_sniffer.h"
 #include "wifi_quick_scan.h"
@@ -128,6 +130,14 @@ typedef struct {
   int list_size;
   int max_results;
 } port_scan_dispatch_req_t;
+
+static portMUX_TYPE s_probe_lock = portMUX_INITIALIZER_UNLOCKED;
+static spi_wifi_host_probe_status_t s_probe_status;
+static char s_probe_ip[SPI_WIFI_HOST_PROBE_IP_LENGTH];
+static spi_wifi_host_probe_batch_req_t s_probe_batch_req;
+static spi_wifi_host_probe_batch_status_t s_probe_batch_status;
+_Static_assert(SPI_WIFI_HOST_PROBE_BATCH_MAX == WIFI_HOST_PROBE_MAX_HOSTS,
+               "Probe batch capacity must match the wire contract");
 
 static port_scan_dispatch_req_t s_port_scan_req;
 static port_scan_result_t s_port_scan_raw[PORT_SCAN_MAX_RESULTS];
@@ -309,6 +319,26 @@ static void port_scan_hit(const port_scan_result_t *hit, void *ctx) {
   s_port_scan_count++; // bump last: the P4 only reads indices below the count
 }
 
+static void host_probe_worker(void) {
+  bool is_reachable = false;
+  esp_err_t error = wifi_host_probe_run(s_probe_ip, &is_reachable);
+  portENTER_CRITICAL(&s_probe_lock);
+  s_probe_status =
+      (spi_wifi_host_probe_status_t){.error = (uint32_t)error, .is_reachable = is_reachable};
+  portEXIT_CRITICAL(&s_probe_lock);
+}
+
+static void host_probe_batch_worker(void) {
+  uint16_t reachable = 0;
+  esp_err_t error =
+      wifi_host_probe_run_batch(s_probe_batch_req.first_ip, s_probe_batch_req.count, &reachable);
+  portENTER_CRITICAL(&s_probe_lock);
+  s_probe_batch_status.error = (uint32_t)error;
+  s_probe_batch_status.reachable_mask = reachable;
+  s_probe_batch_status.is_running = 0;
+  portEXIT_CRITICAL(&s_probe_lock);
+}
+
 static void scan_fn_port_scan(void) {
   const port_scan_dispatch_req_t *r = &s_port_scan_req;
   switch (r->kind) {
@@ -405,6 +435,11 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       id != SPI_ID_WIFI_QUICK_STOP) {
     return SPI_STATUS_BUSY;
   }
+
+  if (((id >= SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE && id <= SPI_ID_WIFI_PORT_SCAN_CIDR) ||
+       id == SPI_ID_WIFI_HOST_PROBE_START || id == SPI_ID_WIFI_HOST_PROBE_BATCH_START) &&
+      (spi_bridge_async_scan_busy() || session_manager_is_active() || atomic_load(&s_step_busy)))
+    return SPI_STATUS_BUSY;
 
   switch (id) {
     case SPI_ID_WIFI_WARD_SCAN:
@@ -1031,6 +1066,62 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     case SPI_ID_WIFI_AP_SAVE_SD:
       return ap_scanner_save_results_to_sd_card() ? SPI_STATUS_OK : SPI_STATUS_ERROR;
 
+    case SPI_ID_WIFI_HOST_PROBE_START: {
+      if (len != sizeof(s_probe_ip) || memchr(payload, '\0', len) == NULL)
+        return SPI_STATUS_INVALID_ARG;
+      memcpy(s_probe_ip, payload, sizeof(s_probe_ip));
+      wifi_host_probe_reset();
+      portENTER_CRITICAL(&s_probe_lock);
+      s_probe_status = (spi_wifi_host_probe_status_t){.is_running = 1};
+      portEXIT_CRITICAL(&s_probe_lock);
+      if (spi_bridge_async_scan_start(host_probe_worker))
+        return SPI_STATUS_OK;
+      portENTER_CRITICAL(&s_probe_lock);
+      s_probe_status = (spi_wifi_host_probe_status_t){.error = ESP_ERR_INVALID_STATE};
+      portEXIT_CRITICAL(&s_probe_lock);
+      return SPI_STATUS_BUSY;
+    }
+
+    case SPI_ID_WIFI_HOST_PROBE_STATUS:
+      portENTER_CRITICAL(&s_probe_lock);
+      memcpy(out_resp_payload, &s_probe_status, sizeof(s_probe_status));
+      portEXIT_CRITICAL(&s_probe_lock);
+      *out_resp_len = sizeof(s_probe_status);
+      return SPI_STATUS_OK;
+
+    case SPI_ID_WIFI_HOST_PROBE_BATCH_START: {
+      if (len != sizeof(spi_wifi_host_probe_batch_req_t))
+        return SPI_STATUS_INVALID_ARG;
+      spi_wifi_host_probe_batch_req_t request;
+      memcpy(&request, payload, sizeof(request));
+      if (request.count == 0 || request.count > SPI_WIFI_HOST_PROBE_BATCH_MAX ||
+          ntohl(request.first_ip) > UINT32_MAX - (request.count - 1U))
+        return SPI_STATUS_INVALID_ARG;
+      for (size_t i = 0; i < sizeof(request.reserved); ++i)
+        if (request.reserved[i] != 0)
+          return SPI_STATUS_INVALID_ARG;
+      s_probe_batch_req = request;
+      wifi_host_probe_reset();
+      portENTER_CRITICAL(&s_probe_lock);
+      s_probe_batch_status = (spi_wifi_host_probe_batch_status_t){
+          .first_ip = request.first_ip, .count = request.count, .is_running = 1};
+      portEXIT_CRITICAL(&s_probe_lock);
+      if (spi_bridge_async_scan_start(host_probe_batch_worker))
+        return SPI_STATUS_OK;
+      portENTER_CRITICAL(&s_probe_lock);
+      s_probe_batch_status.error = ESP_ERR_INVALID_STATE;
+      s_probe_batch_status.is_running = 0;
+      portEXIT_CRITICAL(&s_probe_lock);
+      return SPI_STATUS_BUSY;
+    }
+
+    case SPI_ID_WIFI_HOST_PROBE_BATCH_STATUS:
+      portENTER_CRITICAL(&s_probe_lock);
+      memcpy(out_resp_payload, &s_probe_batch_status, sizeof(s_probe_batch_status));
+      portEXIT_CRITICAL(&s_probe_lock);
+      *out_resp_len = sizeof(s_probe_batch_status);
+      return SPI_STATUS_OK;
+
     case SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE: {
       if (len < sizeof(spi_port_scan_range_req_t))
         return SPI_STATUS_INVALID_ARG;
@@ -1115,6 +1206,7 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
 
     case SPI_ID_WIFI_PORT_SCAN_STOP:
       port_scan_request_abort();
+      wifi_host_probe_cancel();
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_GET_MAC: {

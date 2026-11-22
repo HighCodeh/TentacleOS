@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 #include <strings.h>
 
 #include "esp_log.h"
@@ -32,7 +33,7 @@
 
 static const char *TAG = "PORT_SCANNER";
 
-static volatile bool s_abort_requested = false;
+static atomic_bool s_abort_requested = false;
 static port_scan_hit_cb_t s_hit_cb = NULL;
 static void *s_hit_ctx = NULL;
 
@@ -42,11 +43,11 @@ void port_scan_set_hit_cb(port_scan_hit_cb_t cb, void *ctx) {
 }
 
 void port_scan_request_abort(void) {
-  s_abort_requested = true;
+  atomic_store(&s_abort_requested, true);
 }
 
 void port_scan_reset_abort(void) {
-  s_abort_requested = false;
+  atomic_store(&s_abort_requested, false);
 }
 
 #define SCAN_DELAY_MS         5
@@ -92,7 +93,7 @@ int port_scan_target_range(const char *target_ip,
   int nb = 0;
   ESP_LOGI(TAG, "TCP scan %s ports %d-%d", target_ip, start_port, end_port);
   for (int port = start_port; port <= end_port; port++) {
-    if (count >= max_results || s_abort_requested)
+    if (count >= max_results || atomic_load(&s_abort_requested))
       break;
     batch[nb++] = port;
     if (nb == PORT_SCAN_BATCH) {
@@ -101,7 +102,7 @@ int port_scan_target_range(const char *target_ip,
       vTaskDelay(SCAN_DELAY_MS / portTICK_PERIOD_MS);
     }
   }
-  if (nb > 0 && count < max_results && !s_abort_requested)
+  if (nb > 0 && count < max_results && !atomic_load(&s_abort_requested))
     scan_ports_batch(target_ip, batch, nb, results, &count, max_results);
   return count;
 }
@@ -114,9 +115,9 @@ int port_scan_target_list(const char *target_ip,
   int count = 0;
   int batch[PORT_SCAN_BATCH];
   int nb = 0;
-  ESP_LOGI(TAG, "TCP scan %s (%d ports)", target_ip, list_size);
+  ESP_LOGD(TAG, "TCP scan %s (%d ports)", target_ip, list_size);
   for (int i = 0; i < list_size; i++) {
-    if (count >= max_results || s_abort_requested)
+    if (count >= max_results || atomic_load(&s_abort_requested))
       break;
     batch[nb++] = port_list[i];
     if (nb == PORT_SCAN_BATCH) {
@@ -125,7 +126,7 @@ int port_scan_target_list(const char *target_ip,
       vTaskDelay(SCAN_DELAY_MS / portTICK_PERIOD_MS);
     }
   }
-  if (nb > 0 && count < max_results && !s_abort_requested)
+  if (nb > 0 && count < max_results && !atomic_load(&s_abort_requested))
     scan_ports_batch(target_ip, batch, nb, results, &count, max_results);
   return count;
 }
@@ -233,7 +234,7 @@ static void scan_ports_batch(const char *ip,
   int pl = 0;
   for (int i = 0; i < nports && i < PORT_SCAN_BATCH && pl < (int)sizeof(plist) - 8; i++)
     pl += snprintf(plist + pl, sizeof(plist) - pl, "%d ", ports[i]);
-  ESP_LOGI(TAG, "scanning %s ports: %s", ip, plist);
+  ESP_LOGD(TAG, "scanning %s ports: %s", ip, plist);
 
   struct sockaddr_in dest = {0};
   dest.sin_family = AF_INET;
@@ -290,8 +291,14 @@ static void scan_ports_batch(const char *ip,
         extract_banner(raw, len, banner, sizeof(banner));
       else
         strcpy(banner, "(Without Banner)");
-      add_result(
-          ip, sports[i], PORT_SCAN_PROTO_TCP, PORT_SCAN_STATUS_OPEN, banner, results, count, max_results);
+      add_result(ip,
+                 sports[i],
+                 PORT_SCAN_PROTO_TCP,
+                 PORT_SCAN_STATUS_OPEN,
+                 banner,
+                 results,
+                 count,
+                 max_results);
     }
     close(s);
   }
@@ -347,7 +354,7 @@ static int scan_network_iterator(uint32_t ip_start_hbo,
   ESP_LOGI(TAG, "Scanning %u hosts...", diff + 1);
   uint32_t ip_curr = ip_start_hbo;
 
-  while (ip_curr <= ip_end_hbo && count < max_results && !s_abort_requested) {
+  while (ip_curr <= ip_end_hbo && count < max_results && !atomic_load(&s_abort_requested)) {
     struct in_addr ip_struct;
     ip_struct.s_addr = htonl(ip_curr);
     char current_ip_str[16];

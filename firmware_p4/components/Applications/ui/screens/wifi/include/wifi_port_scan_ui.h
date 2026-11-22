@@ -21,10 +21,10 @@ extern "C" {
 #endif
 
 /**
- * @brief Open the WiFi port-scanner screen: a target host is scanned and
- *        the open TCP/UDP ports are listed with their service and banner.
+ * @brief Configure TCP targets/ports, start a scan and inspect results.
  */
 void ui_wifi_port_scan_open(void);
+void ui_wifi_port_scan_close(void);
 
 #ifdef __cplusplus
 }

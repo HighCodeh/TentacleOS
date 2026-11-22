@@ -17,6 +17,25 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # Wi-Fi service
 
+## TCP port scanning
+
+Wi-Fi → Port Scan configures the current gateway, one IPv4 address, the local
+subnet, an inclusive IP range or a CIDR such as /16 or /24, with common, custom
+or all TCP ports. Optional Ping first filters each host through ICMP before TCP;
+it defaults off because an online host can block echo replies. The C5
+`wifi_host_probe` service probes up to eight consecutive addresses on one socket
+using the shared async radio worker. It retains two 400 ms attempts per address,
+retries only unanswered hosts and uses cancellable receive waits and bounded memory.
+P4 completes ping discovery over the entire selected interval and retains the
+responders in a PSRAM bitmap before scanning their TCP ports, one host at a time.
+Scan opens a separate live status/result view with discovery and TCP phase progress.
+Cancelling discovery starts no TCP work; cancelling TCP retains collected results.
+Results are archived on microSD by scanned interval; repeating that interval
+replaces the old scan, including with new partial results on cancellation.
+Saved scans browses networks/intervals, IPs and ports with LEFT/RIGHT paging and
+confirmed deletion, using bounded page memory. See [port scanner](../port_scanner/README.md)
+for batching, progress, live preview limits, SD error handling and cancellation.
+
 ## Progressive AP scanning on Highboy
 
 AP discovery screens use `wifi_live_scan` and the shared `wifi_live_scan_ui`:

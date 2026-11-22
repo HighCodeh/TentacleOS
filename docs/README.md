@@ -75,6 +75,7 @@ below; in-tree READMEs point to it.
 | `ota` | [README.md](ota/README.md)  |
 | `pc_monitor` | [README.md](pc_monitor/README.md) - computer telemetry |
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
+| `port_scanner` | [README.md](port_scanner/README.md) - configurable IPv4/TCP scanning |
 | `power_manager` | [README.md](power_manager/README.md) - battery, USB input budget and power-state management service |
 | `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `recovery` | [README.md](recovery/README.md)  |

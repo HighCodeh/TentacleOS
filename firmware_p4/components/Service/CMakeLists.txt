@@ -69,6 +69,8 @@ idf_component_register(SRCS
   "font/font.c"
   "icons/icons.c"
   "connection_settings/connection_settings.c"
+  "port_scanner/port_scanner.c"
+  "port_scanner/port_scanner_store.c"
   "wifi/wifi_service.c"
   "wifi/wifi_capture_queue.c"
   "wifi/mac_vendor.c"
@@ -128,6 +130,7 @@ idf_component_register(SRCS
   "font/include"
   "icons/include"
   "connection_settings/include"
+  "port_scanner/include"
   "wifi/include"
   "boot_report/include"
   "boot_sound/include"
@@ -200,6 +203,10 @@ set_source_files_properties("muse/hb_muse_p4_service.c" PROPERTIES COMPILE_OPTIO
 
 # Size optimization and LTO keep both script engines in the existing OTA slots.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Os -flto=2 -ffat-lto-objects)
+
+# The bounded port-scan coordinator favors size within the existing OTA slot.
+set_source_files_properties("port_scanner/port_scanner.c" PROPERTIES COMPILE_OPTIONS "-Oz")
+set_source_files_properties("port_scanner/port_scanner_store.c" PROPERTIES COMPILE_OPTIONS "-Oz")
 
 set_source_files_properties("wifi/mac_vendor.c" PROPERTIES
     COMPILE_OPTIONS "-Oz" COMPILE_DEFINITIONS "MAC_VENDOR_ESPRESSIF_ONLY=1")

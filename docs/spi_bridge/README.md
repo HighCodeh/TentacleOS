@@ -701,6 +701,10 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 | `SPI_ID_WIFI_CLIENT_SAVE_SD` | `0x46` | `0x0146` |
 | `SPI_ID_WIFI_AP_SAVE_FLASH` | `0x47` | `0x0147` |
 | `SPI_ID_WIFI_AP_SAVE_SD` | `0x48` | `0x0148` |
+| `SPI_ID_WIFI_HOST_PROBE_START` | `0x5C` | `0x015C` |
+| `SPI_ID_WIFI_HOST_PROBE_STATUS` | `0x5D` | `0x015D` |
+| `SPI_ID_WIFI_HOST_PROBE_BATCH_START` | `0x5E` | `0x015E` |
+| `SPI_ID_WIFI_HOST_PROBE_BATCH_STATUS` | `0x5F` | `0x015F` |
 | `SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE` | `0x49` | `0x0149` |
 | `SPI_ID_WIFI_PORT_SCAN_TARGET_LIST` | `0x4A` | `0x014A` |
 | `SPI_ID_WIFI_PORT_SCAN_NETWORK` | `0x4B` | `0x014B` |
@@ -710,6 +714,22 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 | `SPI_ID_WIFI_GET_IP_INFO` | `0x4F` | `0x014F` |
 | `SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN` | `0xA0` | `0x01A0` |
 | `SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK` | `0xA1` | `0x01A1` |
+
+Port-scanner ICMP discovery uses HOST_PROBE_BATCH_START/STATUS on the C5 shared
+radio worker. START takes `spi_wifi_host_probe_batch_req_t` (8 bytes: first IPv4
+in network byte order, count 1–8, three zero reserved bytes). IPv4 overflow is
+rejected. STATUS returns `spi_wifi_host_probe_batch_status_t` (12 bytes: 32-bit
+error, first IPv4, 16-bit reachable mask, count and running bytes). Bit i maps to
+first IPv4 + i. P4 checks the echoed range, idle state and mask bounds before
+scanning ports. Each batch uses one socket and preserves per-address reply windows.
+The original HOST_PROBE_START/STATUS operations retain their 16-byte IPv4 string
+request and 8-byte error/running/reachable response for single-host callers.
+While busy, overlapping scan starts are rejected before shared request mutation.
+`SPI_ID_WIFI_SCAN_STATUS` observes runner completion;
+`SPI_ID_WIFI_PORT_SCAN_STOP` cancels ICMP as well as TCP work. Both v2 header copies
+reserve these IDs; update both applications to use batch discovery. See
+[port scanner](../port_scanner/README.md) for timeout and cancellation semantics.
+
 
 ### Bluetooth (`0x02`)
 

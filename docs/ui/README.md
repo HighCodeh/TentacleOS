@@ -135,6 +135,28 @@ keyboard/timer; a Service-owned worker completes independently after BACK.
 Progress and apply/save errors appear on screen. See
 [connection settings](../connection_settings/README.md) for fields and lifecycle.
 
+Wi-Fi → Port Scan opens target/port configuration before starting. It supports
+live gateway/subnet discovery, IPv4 ranges, CIDR and custom port lists/ranges, plus
+optional Ping first (off by default). Scan opens a separate execution view showing
+current IP, phase, counters, progress and a flat IP:port/banner list. `PING xN`
+shows discovery of up to eight addresses and the first IP in that batch.
+With Ping first, **1/2 DISCOVERY** completes the entire interval and shows
+probed/total IPs plus responders; **2/2 TCP SCAN** then scans those hosts one at a
+time and shows completed/responding hosts and current ports. The bar measures
+each phase separately. Cancelling discovery starts no TCP work; cancelling TCP
+keeps the partial port results. Its first BACK
+stops in place; the second returns to setup. Themed layout supports both orientations.
+Its Service worker publishes progress and saves all collected open ports to an
+SD archive keyed by the scanned interval, keeping a bounded live preview. A new
+scan of that interval replaces the old one, retaining the new partial data on
+cancellation. Saved scans opens networks/intervals, then unique IPs, then their
+ports and banner details. Results opens the current scan's IP list. LEFT/RIGHT
+pages directly, without Previous/Next rows. The IP list includes Delete scan with
+confirmation and asynchronous deletion; BACK returns one level. Eight entries
+are read per page through a cancellable Service worker, including archives from
+previous boots. SD errors appear on screen. The close hook also cancels pending reads. Neither SPI nor
+file I/O runs in LVGL. See [port scanner](../port_scanner/README.md) for the full workflow.
+
 ### 4. Create the screen source
 Create the files under `ui/screens/bluetooth/`.
 

@@ -324,6 +324,10 @@ typedef enum {
   SPI_ID_WIFI_WARD_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x59),
   SPI_ID_WIFI_WARD_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5A),
   SPI_ID_WIFI_WARD_RECORD = SPI_CMD(SPI_CAT_WIFI, 0x5B),
+  SPI_ID_WIFI_HOST_PROBE_START = SPI_CMD(SPI_CAT_WIFI, 0x5C), // IPv4 string[16], async
+  SPI_ID_WIFI_HOST_PROBE_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5D),
+  SPI_ID_WIFI_HOST_PROBE_BATCH_START = SPI_CMD(SPI_CAT_WIFI, 0x5E),
+  SPI_ID_WIFI_HOST_PROBE_BATCH_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5F),
   SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
   SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
   SPI_ID_WIFI_SCAN_STEP_RECORD =
@@ -1230,6 +1234,30 @@ typedef struct {
   uint32_t netmask;
   uint32_t gw;
 } __attribute__((packed)) spi_wifi_ip_info_t;
+
+#define SPI_WIFI_HOST_PROBE_IP_LENGTH 16
+#define SPI_WIFI_HOST_PROBE_BATCH_MAX 8
+
+typedef struct __attribute__((packed)) {
+  uint32_t error;
+  uint8_t is_running;
+  uint8_t is_reachable;
+  uint8_t reserved[2];
+} spi_wifi_host_probe_status_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t first_ip; // Network byte order; consecutive addresses.
+  uint8_t count;
+  uint8_t reserved[3];
+} spi_wifi_host_probe_batch_req_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t error;
+  uint32_t first_ip;
+  uint16_t reachable_mask; // Bit i corresponds to first_ip + i.
+  uint8_t count;
+  uint8_t is_running;
+} spi_wifi_host_probe_batch_status_t;
 
 /**
  * @brief Port scan request with target IP and port range.

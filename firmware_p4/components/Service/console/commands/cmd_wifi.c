@@ -20,6 +20,8 @@
 #include "argtable3/argtable3.h"
 #include "esp_console.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "ap_scanner.h"
 #include "beacon_spam.h"
@@ -27,7 +29,7 @@
 #include "deauther_detector.h"
 #include "evil_twin.h"
 #include "common_ports.h"
-#include "port_scan.h"
+#include "port_scanner.h"
 #include "probe_monitor.h"
 #include "signal_monitor.h"
 #include "spi_bridge.h"
@@ -38,6 +40,9 @@
 #include "led_control.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
+
+#define PORT_SCAN_DEFAULT_LAST 1024
+#define PORT_SCAN_POLL_MS      200
 
 static const char *TAG = "CMD_WIFI";
 
@@ -497,38 +502,39 @@ static int subcmd_portscan(int argc, char **argv) {
     return 1;
   }
 
-  const char *ip = s_port_args.ip->sval[0];
-  bool common = s_port_args.common->count > 0;
-  int min = (s_port_args.min->count > 0) ? s_port_args.min->ival[0] : 1;
-  int max = (s_port_args.max->count > 0) ? s_port_args.max->ival[0] : 1024;
-
-  int ports[COMMON_PORTS_MAX];
-  int nports = 0;
-  if (common) {
-    nports = common_ports_load(ports, COMMON_PORTS_MAX);
-    printf("Starting Port Scan on %s (%d common ports). This block the console...\n", ip, nports);
-  } else {
-    printf("Starting Port Scan on %s (%d-%d). This block the console...\n", ip, min, max);
-  }
-
-  // Allocate results on heap to avoid stack overflow (C5 caps at 32 hits).
-  port_scan_result_t *results = malloc(sizeof(port_scan_result_t) * 32);
-  if (results == NULL) {
-    printf("Memory error.\n");
+  port_scanner_config_t config = {.target_mode = PORT_SCANNER_HOST,
+                                  .port_mode = s_port_args.common->count > 0
+                                                   ? PORT_SCANNER_COMMON_PORTS
+                                                   : PORT_SCANNER_CUSTOM_PORTS};
+  snprintf(config.target, sizeof(config.target), "%s", s_port_args.ip->sval[0]);
+  snprintf(config.ports,
+           sizeof(config.ports),
+           "%d-%d",
+           s_port_args.min->count > 0 ? s_port_args.min->ival[0] : 1,
+           s_port_args.max->count > 0 ? s_port_args.max->ival[0] : PORT_SCAN_DEFAULT_LAST);
+  esp_err_t error = port_scanner_start(&config);
+  if (error != ESP_OK) {
+    ESP_LOGW(TAG, "Cannot start port scan: %s", esp_err_to_name(error));
+    led_signal_warning();
     return 1;
   }
-
-  int count = common ? port_scan_target_list(ip, ports, nports, results, 32)
-                     : port_scan_target_range(ip, min, max, results, 32);
-
-  printf("Scan finished. Found %d open ports:\n", count);
-  for (int i = 0; i < count; i++) {
-    printf("  %d/%s: %s\n",
-           results[i].port,
-           (results[i].protocol == PORT_SCAN_PROTO_TCP) ? "TCP" : "UDP",
-           results[i].banner);
+  port_scanner_snapshot_t status;
+  do {
+    vTaskDelay(pdMS_TO_TICKS(PORT_SCAN_POLL_MS));
+    port_scanner_get_snapshot(&status);
+  } while (status.is_busy);
+  ESP_LOGI(TAG,
+           "Scan: %lu found, %u retained, %s",
+           (unsigned long)status.found,
+           status.stored,
+           esp_err_to_name(status.error));
+  for (uint16_t i = 0; i < status.stored; ++i) {
+    port_scan_result_t result;
+    if (port_scanner_get_result(i, &result))
+      ESP_LOGI(TAG, "%s:%d/TCP: %s", result.ip_str, result.port, result.banner);
   }
-  free(results);
+  if (status.error != ESP_OK)
+    return 1;
   return 0;
 }
 
