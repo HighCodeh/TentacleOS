@@ -30,6 +30,10 @@ P4 completes ping discovery over the entire selected interval and retains the
 responders in a PSRAM bitmap before scanning their TCP ports, one host at a time.
 Scan opens a separate live status/result view with discovery and TCP phase progress.
 Cancelling discovery starts no TCP work; cancelling TCP retains collected results.
+C5 tracks each concurrent TCP connection until it completes or the connect
+deadline expires. A fast reply/refusal on another port does not end the pending
+connections' wait. This readiness fix requires the updated C5 app; Common and
+Custom share the corrected engine.
 Results are archived on microSD by scanned interval; repeating that interval
 replaces the old scan, including with new partial results on cancellation.
 Saved scans browses networks/intervals, IPs and ports with LEFT/RIGHT paging and

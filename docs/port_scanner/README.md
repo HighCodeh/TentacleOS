@@ -176,6 +176,16 @@ The worker sends the existing target-list SPI operation in batches of at most
 scan when all ports in a batch are open. Iterating hosts on P4 supports /16 without
 expanding C5 tables or relying on its legacy 256-address network operation.
 Each batch has a 45-second watchdog, with bounded RPCs and cooperative cancellation.
+Inside each 32-port request, C5 connects to up to eight ports concurrently. A
+`select()` event resolves only the sockets reported ready, checking `SO_ERROR`;
+pending connections remain watched until completion or the existing one-second
+connect deadline. A fast RST on another port cannot discard a later SSH response.
+The deadline is absolute, so early readiness and interrupted waits cannot restart
+the timeout. Waits use at most 50 ms slices to observe STOP. All sockets close on
+completion, timeout, cancellation and wait errors; already confirmed open ports
+remain reportable on cancellation without waiting for banners. Banner reads and
+the existing HTTP fallback use checked, bounded send/receive timeouts; no banner
+does not change an established connection's OPEN result.
 A transport failure initiates STOP and retains ownership until the C5 confirms idle;
 results already collected remain readable. The UI may leave while this cleanup
 continues. With ping enabled, P4 starts `SPI_ID_WIFI_HOST_PROBE_BATCH_START`
@@ -190,6 +200,9 @@ paired-v2 headers; the original single-address 0x015C/0x015D layouts remain avai
 Update both apps for batch discovery; an older C5 reports an unsupported operation.
 The two-phase coordinator and its progress UI require only a P4 update if C5
 already supports those batch operations.
+The TCP readiness correction runs on C5 and requires updating C5; a P4-only flash
+does not install it. It does not change the SPI protocol or port selection lists.
+
 `Service/wifi/wifi_host_probe` runs on the existing C5 radio scan runner, using
 one short-lived raw ICMP socket per batch and bounded scratch on the existing
 internal worker stack. Eight hosts fit below the SDK's ten-entry ARP table;
@@ -220,6 +233,14 @@ scan lifecycle and results remain available through service/UI feedback.
 
 ## Validation
 
+- `python3 tools/highboy/tests/test_tcp_port_scan.py`: production C5 TCP engine
+  and P4 Common loader with timed fake sockets under ASan/UBSan. A fast refusal
+  alongside delayed SSH reproduces the former missing-port bug. Both the bundled
+  Common file and built-in list now retain SSH/AirTunes results. Cases cover
+  Custom selection, staggered readiness, near-deadline replies, silent ports,
+  interrupted/failed waits, immediate connects/refusals, socket/setup failures,
+  cancellation, result capacity and banners. Every allocated socket must close.
+  The aggregate host runner includes this regression; no network access occurs.
 - `python3 tools/highboy/tests/test_port_scanner.py`: production service with mocked
   SPI, allocation/task failures, invalid addresses/ports, /16, /31, /32, actual
   gateway/subnet, complete 1–65535 coverage, deduplication, result saturation,

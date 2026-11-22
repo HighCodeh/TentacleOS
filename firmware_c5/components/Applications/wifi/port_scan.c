@@ -24,6 +24,7 @@
 #include <strings.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/err.h"
@@ -50,12 +51,16 @@ void port_scan_reset_abort(void) {
   atomic_store(&s_abort_requested, false);
 }
 
-#define SCAN_DELAY_MS         5
-#define NETWORK_SCAN_DELAY_MS 20
-#define FLAG_TYPE_RANGE       0
-#define FLAG_TYPE_LIST        1
-#define PORT_SCAN_BATCH       8   // concurrent non-blocking connects (LWIP_MAX_SOCKETS=10)
-#define BANNER_RECV_MS        250 // brief wait for a banner once a port is open
+#define SCAN_DELAY_MS                5
+#define NETWORK_SCAN_DELAY_MS        20
+#define FLAG_TYPE_RANGE              0
+#define FLAG_TYPE_LIST               1
+#define PORT_SCAN_BATCH              8   // concurrent non-blocking connects (LWIP_MAX_SOCKETS=10)
+#define BANNER_RECV_MS               250 // brief wait for a banner once a port is open
+#define BANNER_BUFFER_BYTES          512
+#define CONNECT_POLL_US              50000
+#define MICROSECONDS_PER_SECOND      1000000
+#define MICROSECONDS_PER_MILLISECOND 1000
 
 static void scan_ports_batch(const char *ip,
                              const int *ports,
@@ -211,12 +216,6 @@ static void extract_banner(const char *raw, int rawlen, char *out, int outcap) {
     strcpy(out, "(Without Banner)");
 }
 
-// Scan up to PORT_SCAN_BATCH TCP ports on one IP concurrently: fire all the
-// non-blocking connects, then select() once for writability. A socket that
-// becomes writable with SO_ERROR 0 is open; SO_ERROR set means closed (RST);
-// never writable within the timeout means filtered. This is ~PORT_SCAN_BATCH x
-// faster than one connect at a time. UDP connect-scanning was dropped: a silent
-// UDP port is indistinguishable from open, so it only produced false positives.
 static void scan_ports_batch(const char *ip,
                              const int *ports,
                              int nports,
@@ -227,8 +226,10 @@ static void scan_ports_batch(const char *ip,
   int sports[PORT_SCAN_BATCH];
   int nsock = 0;
   int maxfd = -1;
-  fd_set wset;
-  FD_ZERO(&wset);
+  bool is_open[PORT_SCAN_BATCH] = {false};
+  int32_t pending_count = 0;
+  fd_set pending;
+  FD_ZERO(&pending);
 
   char plist[80];
   int pl = 0;
@@ -241,20 +242,30 @@ static void scan_ports_batch(const char *ip,
   dest.sin_addr.s_addr = inet_addr(ip);
 
   for (int i = 0; i < nports && i < PORT_SCAN_BATCH; i++) {
+    if (atomic_load(&s_abort_requested))
+      break;
     int s = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (s < 0)
       continue;
     int flags = fcntl(s, F_GETFL, 0);
-    fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    if (flags < 0 || fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) {
+      ESP_LOGW(TAG, "Cannot configure non-blocking TCP socket: %d", errno);
+      close(s);
+      continue;
+    }
     dest.sin_port = htons(ports[i]);
     int err = connect(s, (struct sockaddr *)&dest, sizeof(dest));
     if (err == 0 || errno == EINPROGRESS) {
       socks[nsock] = s;
       sports[nsock] = ports[i];
+      is_open[nsock] = err == 0;
       nsock++;
-      FD_SET(s, &wset);
-      if (s > maxfd)
-        maxfd = s;
+      if (err != 0) {
+        FD_SET(s, &pending);
+        ++pending_count;
+        if (s > maxfd)
+          maxfd = s;
+      }
     } else {
       close(s); // immediate failure (e.g. no route)
     }
@@ -262,35 +273,77 @@ static void scan_ports_batch(const char *ip,
   if (nsock == 0)
     return;
 
-  struct timeval tv = {.tv_sec = PORT_SCAN_CONNECT_TIMEOUT_S, .tv_usec = 0};
-  select(maxfd + 1, NULL, &wset, NULL, &tv);
+  int64_t deadline =
+      esp_timer_get_time() + (int64_t)PORT_SCAN_CONNECT_TIMEOUT_S * MICROSECONDS_PER_SECOND;
+  while (pending_count != 0 && !atomic_load(&s_abort_requested)) {
+    int64_t remaining = deadline - esp_timer_get_time();
+    if (remaining <= 0)
+      break;
+    fd_set writable = pending;
+    fd_set exceptions = pending;
+    struct timeval timeout = {.tv_sec = 0,
+                              .tv_usec = remaining < CONNECT_POLL_US ? remaining : CONNECT_POLL_US};
+    int32_t ready = select(maxfd + 1, NULL, &writable, &exceptions, &timeout);
+    if (ready < 0) {
+      if (errno == EINTR)
+        continue;
+      ESP_LOGW(TAG, "TCP connect wait failed: %d", errno);
+      break;
+    }
+    if (ready == 0)
+      continue;
+    // A fast refusal must not close connections still completing in this batch.
+    for (int32_t i = 0; i < nsock; ++i) {
+      int32_t s = socks[i];
+      if (s < 0 || !FD_ISSET(s, &pending) || (!FD_ISSET(s, &writable) && !FD_ISSET(s, &exceptions)))
+        continue;
+      int32_t so_error = 0;
+      socklen_t length = sizeof(so_error);
+      is_open[i] = getsockopt(s, SOL_SOCKET, SO_ERROR, &so_error, &length) == 0 && so_error == 0 &&
+                   FD_ISSET(s, &writable);
+      FD_CLR(s, &pending);
+      --pending_count;
+      if (!is_open[i]) {
+        close(s);
+        socks[i] = -1;
+      }
+    }
+  }
+
+  for (int32_t i = 0; i < nsock; ++i) {
+    if (!is_open[i] && socks[i] >= 0) {
+      close(socks[i]);
+      socks[i] = -1;
+    }
+  }
 
   for (int i = 0; i < nsock; i++) {
     int s = socks[i];
-    int so_error = 0;
-    socklen_t l = sizeof(so_error);
-    bool open = FD_ISSET(s, &wset) && getsockopt(s, SOL_SOCKET, SO_ERROR, &so_error, &l) == 0 &&
-                so_error == 0;
-    if (open && *count < max_results) {
+    if (s < 0)
+      continue;
+    if (is_open[i] && *count < max_results) {
       char banner[PORT_SCAN_MAX_BANNER_LEN];
-      // Restore blocking so SO_RCVTIMEO bounds the banner grab.
-      int flags = fcntl(s, F_GETFL, 0);
-      fcntl(s, F_SETFL, flags & ~O_NONBLOCK);
-      struct timeval rt = {.tv_sec = 0, .tv_usec = BANNER_RECV_MS * 1000};
-      setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rt, sizeof(rt));
-      // Passive read first (SSH/FTP/SMTP announce on connect); if nothing, probe
-      // with a minimal HTTP GET so web servers reply with their Server header.
-      char raw[512];
-      int len = recv(s, raw, sizeof(raw) - 1, 0);
-      if (len <= 0) {
-        static const char http_probe[] = "GET / HTTP/1.0\r\n\r\n";
-        send(s, http_probe, sizeof(http_probe) - 1, 0);
-        len = recv(s, raw, sizeof(raw) - 1, 0);
+      strcpy(banner, "(Without Banner)");
+      if (!atomic_load(&s_abort_requested)) {
+        int flags = fcntl(s, F_GETFL, 0);
+        struct timeval rt = {.tv_sec = 0, .tv_usec = BANNER_RECV_MS * MICROSECONDS_PER_MILLISECOND};
+        bool can_read = flags >= 0 &&
+                        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rt, sizeof(rt)) == 0 &&
+                        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &rt, sizeof(rt)) == 0 &&
+                        fcntl(s, F_SETFL, flags & ~O_NONBLOCK) == 0;
+        if (can_read) {
+          char raw[BANNER_BUFFER_BYTES];
+          int len = recv(s, raw, sizeof(raw) - 1, 0);
+          if (len <= 0 && !atomic_load(&s_abort_requested)) {
+            static const char http_probe[] = "GET / HTTP/1.0\r\n\r\n";
+            if (send(s, http_probe, sizeof(http_probe) - 1, 0) > 0 &&
+                !atomic_load(&s_abort_requested))
+              len = recv(s, raw, sizeof(raw) - 1, 0);
+          }
+          if (len > 0)
+            extract_banner(raw, len, banner, sizeof(banner));
+        }
       }
-      if (len > 0)
-        extract_banner(raw, len, banner, sizeof(banner));
-      else
-        strcpy(banner, "(Without Banner)");
       add_result(ip,
                  sports[i],
                  PORT_SCAN_PROTO_TCP,

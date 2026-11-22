@@ -23,12 +23,43 @@ that same source tree; the changed P4 libsodium compile policy is the comparison
 variable. Existing partitions, features, trust identities and vendor sources
 are unchanged. This is build evidence, not runtime performance acceptance.
 
-## Later partition migration
+## Current P4 storage budget
 
-The measurements below are historical. The current V2.03 GPS-test expansion uses `0x300000` bytes per P4
-slot and `0x1D0000` bytes for assets (after the earlier NFC expansion). See the current
-[layout and measured headroom](README.md#flash-and-storage-boundary). This is an
-explicit installation migration, not a change to the historical optimization results.
+The scanner integration uses two 0x310000-byte OTA slots. Lossless frame
+compression reduces assets allocation by 152 KiB; 128 KiB is reassigned to the
+slots and the smaller LittleFS partition retains 68 KiB free. Decoder code is
+included in the final app size; decoded images retain their existing RAM usage.
+See [current layout and migration](README.md#flash-and-storage-boundary).
+Local ESP-IDF v6.1 validation on 2026-11-23, including restored Home shortcuts,
+IMU recovery, saved Wi-Fi connections, the P4 console boot command and the
+scanner's internal-stack correction, grouped SD archives with deletion/replacement,
+live execution view and full-interval ICMP discovery before TCP scanning:
+P4 application 3,167,760 bytes, 43,504 bytes free per slot.
+The LittleFS image contains 198 files, including 24
+new license sidecars; every packaged file was compared with staging and all 41
+frame pixel buffers were compared with uncompressed conversion through the real
+LVGL decoder. Static linker headroom is 222,294 bytes on P4 (floor 163,840) and
+67,282 bytes on C5 (floor 61,440); runtime heap/stack and hardware rendering were
+not measured. The C5 credential writer, terminated asset-buffer corrections, ICMP probe
+and TCP readiness correction build to 2,143,200 bytes (1,002,528 bytes free in its existing
+OTA slot). Its dedicated 8 KiB internal
+task stack is allocated at runtime and is not included in linker headroom.
+The P4 scanner also allocates its 6 KiB worker stack internally for flash-backed
+port-list reads, releasing it when the scan worker exits. Its bulk data remains
+in PSRAM; the temporary internal allocation is separate from linker headroom.
+The archive reader uses its own short-lived 6 KiB internal stack, mutually
+exclusive with scanning. Its page job, retained service page and UI page buffer
+remain in PSRAM; archive length does not grow these buffers. Runtime SD timing
+and stack high-water marks remain to be measured on hardware.
+Grouped network/IP/port pages and deletion reuse that worker; binary searches over
+ordered CSV records avoid a growing host index or whole-file RAM allocation.
+ICMP discovery reuses the C5 scan worker with one socket and bounded scratch for
+eight hosts; it allocates no extra task stack per address.
+P4 retains discovered hosts in a temporary PSRAM bitmap (one bit per selected
+address, 8,192 bytes for /16), checked before starting discovery and freed on all
+worker exit paths. It adds no internal-RAM buffer or persistent host index.
+Critical compiler policies pass the existing CI audit.
+Measurements in the sections below are historical checkpoints, not current slots.
 
 ## Selected policy
 
@@ -41,7 +72,7 @@ C5, radio-driver and emulator compilation policies are unchanged.
 
 ## Application size
 
-The original P4 slot remains **2,949,120 bytes** (`0x2d0000`).
+The original P4 slot at that checkpoint was **2,949,120 bytes** (`0x2d0000`).
 
 | Candidate | Application bytes | Free bytes | SHA-256 |
 | --- | ---: | ---: | --- |
