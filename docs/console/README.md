@@ -79,8 +79,32 @@ require device acceptance.
 | `date` | Shows the UTC wall-clock (with sync state and source), or sets it. | `date [<YYYY-MM-DD> <HH:MM:SS>]` |
 | `ip` | Shows current network interfaces (IP, Mask, GW, MAC) for STA and AP. | `ip` |
 | `reboot` | Reboots the Highboy (P4). | `reboot` |
+| `p4 boot` | Restarts P4 into the ROM serial downloader. | `p4 boot` |
 | `firstboot` | Clears the first-boot onboarding + screen-tips flags so they run on the next reset. | `firstboot` |
 | `capprep` | Skips onboarding (wizard + tips) and restarts clean, for screen capture. | `capprep` |
+
+### P4 download mode (`p4 boot`)
+
+Run `p4 boot` at the `highboy>` prompt to request ROM download mode without
+holding LEFT or unplugging the cable. This command requires a running P4
+application; it does not recover an unresponsive firmware. Close the serial
+monitor after the restart so the programmer can open the same P4 UART port.
+For manual esptool access, select `--before no-reset` to preserve the mode
+already selected by the command. Existing [update and partition checks](../highboy/APP_UPDATE.md)
+still apply; entering ROM mode does not authorize a full flash or migrate assets.
+
+The command drains UART output, calls the [P4 board boot control](../pins/README.md#p4-software-download),
+then uses `esp_restart()` so registered shutdown handlers still run (including
+disabling bridge recovery and unmounting storage). A UART timeout, disabled
+download eFuse or failed register readback aborts the command with an error.
+It does not change eFuses, firmware, partitions or the C5 boot mode.
+
+`--after no-reset` intentionally leaves the chip in the downloader after flashing.
+The forced-download flag is retained hardware state; do not assume every warm
+reset clears it. A full power cycle can clear it if the programmer leaves the
+device in ROM. Entry and return-to-app behavior on the board still require
+physical acceptance; host tests cover argument rejection, error paths and
+the drain/arm/restart sequence.
 
 ### External UART GPS (`gps`)
 

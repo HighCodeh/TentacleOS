@@ -157,6 +157,19 @@ using the project’s fixed 3.0 V drive reference; electrical acceptance remains
 IR TX/RX now execute on C5 GPIO6/10 through the [remote IR backend](../ir/README.md).
 P4 GPIO0/1 remain exclusively reset/boot controls.
 
+### P4 software download
+
+`board_pins_prepare_download_p4()` checks `DIS_DOWNLOAD_MODE` and
+`DIS_FORCE_DOWNLOAD` eFuses without writing them, then sets and reads back
+`LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT` in `LP_SYSTEM_REG_SYS_CTRL_REG` using the
+pinned SDK's P4 register definitions. Other control bits are preserved.
+The caller must immediately use `esp_restart()` after success; this helper only
+arms the mode and does not reset either processor or drive the LEFT bootstrap.
+The [console command](../console/README.md#p4-download-mode-p4-boot) owns output
+draining, user feedback and the normal shutdown/restart path. Host mocks verify
+both eFuse rejections, readback failure and preservation of unrelated bits;
+physical ROM entry/exit remains to be checked on V2.03.
+
 ### C5 normal-boot reset
 
 `board_pins_reset_c5()` releases BOOT (P4 GPIO1 low), waits 10 ms, asserts reset

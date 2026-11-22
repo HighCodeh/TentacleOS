@@ -18,9 +18,13 @@
 #include <stddef.h>
 
 #include "driver/gpio.h"
+#include "esp_efuse.h"
+#include "esp_efuse_table.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "soc/lp_system_reg.h"
+#include "soc/soc.h"
 
 #include "pin_def.h"
 
@@ -56,6 +60,17 @@ esp_err_t board_pins_init(void) {
   }
   ESP_LOGI(TAG, "High Boy V2.03 safe outputs initialized");
   return ESP_OK;
+}
+
+esp_err_t board_pins_prepare_download_p4(void) {
+  if (esp_efuse_read_field_bit(ESP_EFUSE_DIS_DOWNLOAD_MODE) ||
+      esp_efuse_read_field_bit(ESP_EFUSE_DIS_FORCE_DOWNLOAD)) {
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+
+  REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+  return REG_GET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT) != 0 ? ESP_OK
+                                                                                         : ESP_FAIL;
 }
 
 esp_err_t board_pins_reset_c5(void) {

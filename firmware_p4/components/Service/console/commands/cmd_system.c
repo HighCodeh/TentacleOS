@@ -20,6 +20,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "driver/uart.h"
 #include "esp_console.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -29,6 +30,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "board_pins.h"
 #include "c5_flasher.h"
 #include "hb_muse_p4_service.h"
 #include "led_control.h"
@@ -39,6 +41,10 @@
 #define C5_WAIT_STEP_MS    500U
 #define C5_WAIT_DEFAULT_MS 10000U
 #define C5_WAIT_MAX_MS     60000U
+#define P4_BOOT_ARG_COUNT  2
+#define P4_BOOT_DRAIN_MS   1000U
+
+static const char *TAG = "CMD_SYSTEM";
 
 static esp_err_t c5_wait_for_link(uint32_t timeout_ms) {
   if (timeout_ms < C5_WAIT_STEP_MS)
@@ -306,6 +312,32 @@ static int cmd_free(int argc, char **argv) {
 
 static int cmd_reboot(int argc, char **argv) {
   printf("Rebooting...\n");
+  esp_restart();
+  return 0;
+}
+
+static int cmd_p4(int argc, char **argv) {
+  if (argc != P4_BOOT_ARG_COUNT || strcmp(argv[1], "boot") != 0) {
+    ESP_LOGW(TAG, "Usage: p4 boot");
+    led_signal_warning();
+    return 1;
+  }
+
+  ESP_LOGI(TAG,
+           "Entering P4 ROM download mode; close the monitor and use esptool --before no-reset");
+  led_signal_info();
+  esp_err_t ret = uart_wait_tx_done(CONFIG_ESP_CONSOLE_UART_NUM, pdMS_TO_TICKS(P4_BOOT_DRAIN_MS));
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "P4 boot aborted: console drain failed: %s", esp_err_to_name(ret));
+    led_signal_error();
+    return 1;
+  }
+  ret = board_pins_prepare_download_p4();
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "P4 ROM download unavailable: %s", esp_err_to_name(ret));
+    led_signal_error();
+    return 1;
+  }
   esp_restart();
   return 0;
 }
@@ -607,6 +639,14 @@ void register_system_commands(void) {
       .func = &cmd_reboot,
   };
   ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_reboot_def));
+
+  const esp_console_cmd_t cmd_p4_def = {
+      .command = "p4",
+      .help = "P4: boot (enter ROM download mode for flashing)",
+      .hint = NULL,
+      .func = &cmd_p4,
+  };
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_p4_def));
 
   const esp_console_cmd_t cmd_firstboot_def = {
       .command = "firstboot",

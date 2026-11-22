@@ -23,6 +23,8 @@ extern "C" {
 #endif
 
 esp_err_t board_pins_init(void);
+// Arms ROM download for the next restart; caller must immediately call esp_restart().
+esp_err_t board_pins_prepare_download_p4(void);
 // Caller must exclusively own an idle bridge. Normal boot only; never asserts BOOT.
 esp_err_t board_pins_reset_c5(void);
 // Caller must exclusively own an idle bridge. Holds BOOT asserted until P4 restart.

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-"""Execute production boot GPIO code with GPIO failure injection."""
+"""Execute production boot controls with GPIO, eFuse and register failure injection."""
 import os
 from pathlib import Path
 import shlex
@@ -30,11 +30,30 @@ def main():
         tmp = Path(temporary)
         (tmp / "driver").mkdir()
         (tmp / "freertos").mkdir()
+        (tmp / "soc").mkdir()
         fixtures = {
             "freertos/FreeRTOS.h": "#define pdMS_TO_TICKS(ms) (ms)\n",
             "freertos/task.h": "void vTaskDelay(int ticks);\n",
-            "esp_err.h": "#pragma once\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL 1\n#define ESP_ERR_INVALID_STATE 2\n",
+            "esp_err.h": "#pragma once\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL 1\n#define ESP_ERR_INVALID_STATE 2\n#define ESP_ERR_NOT_SUPPORTED 3\n",
             "esp_log.h": '#define ESP_LOGE(tag, ...) ((void)(tag))\n#define ESP_LOGI(tag, ...) ((void)(tag))\n',
+            "esp_efuse.h": '''#pragma once
+#include <stdbool.h>
+typedef struct { int index; } esp_efuse_desc_t;
+bool esp_efuse_read_field_bit(const esp_efuse_desc_t *field[]);
+''',
+            "esp_efuse_table.h": '''#include "esp_efuse.h"
+extern const esp_efuse_desc_t *ESP_EFUSE_DIS_DOWNLOAD_MODE[];
+extern const esp_efuse_desc_t *ESP_EFUSE_DIS_FORCE_DOWNLOAD[];
+''',
+            "soc/soc.h": '''#include <stdint.h>
+void mock_set_bit(uint32_t reg, uint32_t mask);
+uint32_t mock_get_bit(uint32_t reg, uint32_t mask);
+#define REG_SET_BIT(reg, mask) mock_set_bit(reg, mask)
+#define REG_GET_BIT(reg, mask) mock_get_bit(reg, mask)
+''',
+            "soc/lp_system_reg.h": '''#define LP_SYSTEM_REG_SYS_CTRL_REG 0x50110008U
+#define LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT (1U << 2)
+''',
             "driver/gpio.h": '''#include <stdint.h>
 #include "esp_err.h"
 typedef int gpio_num_t;
@@ -67,6 +86,46 @@ esp_err_t gpio_config(const gpio_config_t *config);
                 harness += '_Static_assert(GPIO_BTN_OK_PIN == 32, "B2/OK");\n'
                 harness += '_Static_assert(GPIO_BTN_DOWN_PIN == 7 && GPIO_BTN_BACK_PIN == 6 && GPIO_BTN_LEFT_PIN == 35 && GPIO_BTN_RIGHT_PIN == 13 && GPIO_BTN_UP_PIN == 3, "V2.03 buttons");\n'
                 harness += '#if defined(GPIO_IR_TX_PIN) || defined(GPIO_AUDIO_EN_PIN)\n#error P4 must not own IR or amplifier control\n#endif\n'
+                harness += '''
+static const esp_efuse_desc_t disabled_download = {0}, disabled_force = {1};
+const esp_efuse_desc_t *ESP_EFUSE_DIS_DOWNLOAD_MODE[] = {&disabled_download, NULL};
+const esp_efuse_desc_t *ESP_EFUSE_DIS_FORCE_DOWNLOAD[] = {&disabled_force, NULL};
+static bool efuse_disabled[2], register_failure;
+static uint32_t control_register, register_writes;
+bool esp_efuse_read_field_bit(const esp_efuse_desc_t *field[]) {
+  assert(field == ESP_EFUSE_DIS_DOWNLOAD_MODE || field == ESP_EFUSE_DIS_FORCE_DOWNLOAD);
+  return efuse_disabled[field[0]->index];
+}
+void mock_set_bit(uint32_t reg, uint32_t mask) {
+  assert(reg == LP_SYSTEM_REG_SYS_CTRL_REG && mask == LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+  ++register_writes;
+  if (!register_failure) control_register |= mask;
+}
+uint32_t mock_get_bit(uint32_t reg, uint32_t mask) {
+  assert(reg == LP_SYSTEM_REG_SYS_CTRL_REG && mask == LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+  return control_register & mask;
+}
+static void test_p4_download(void) {
+  const uint32_t unrelated = 0xA5A50001U;
+  for (unsigned disabled = 1; disabled < 4; ++disabled) {
+    efuse_disabled[0] = (disabled & 1) != 0;
+    efuse_disabled[1] = (disabled & 2) != 0;
+    control_register = unrelated;
+    assert(board_pins_prepare_download_p4() == ESP_ERR_NOT_SUPPORTED);
+    assert(control_register == unrelated && register_writes == 0);
+  }
+  efuse_disabled[0] = efuse_disabled[1] = false;
+  register_failure = true;
+  assert(board_pins_prepare_download_p4() == ESP_FAIL);
+  assert(control_register == unrelated && register_writes == 1);
+  register_failure = false;
+  assert(board_pins_prepare_download_p4() == ESP_OK);
+  assert(control_register == (unrelated | LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT));
+  assert(register_writes == 2);
+  assert(board_pins_prepare_download_p4() == ESP_OK);
+  assert(control_register == (unrelated | LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT));
+}
+'''
             else:
                 harness += '_Static_assert(GPIO_IR_RX_PIN == 10 && GPIO_HAPTIC_INT_PIN == 1, "C5 inputs");\n'
                 harness += '#define EXPECT_RETAINED_PINS 0x73U\n'
@@ -166,6 +225,7 @@ int main(void) {
   assert(!board_pins_haptic_irq_pending());
 #endif
 #ifndef GPIO_HAPTIC_INT_PIN
+  test_p4_download();
   download_test = 1;
   for (int failure = -1; failure < 3; failure++) {
     download_calls = 0; download_fail = failure; reset_delay = 0;
@@ -193,7 +253,7 @@ int main(void) {
                        str(tmp / "test.c"), "-o", str(tmp / "test")]
             subprocess.run(command, check=True)
             subprocess.run([str(tmp / "test")], check=True)
-            print(f"PASS: {target} V2.03 boot levels, latch-before-output and every GPIO failure")
+            print(f"PASS: {target} V2.03 boot controls, latch-before-output and failure injection")
 
 
 if __name__ == "__main__":
