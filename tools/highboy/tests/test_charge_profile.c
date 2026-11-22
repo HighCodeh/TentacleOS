@@ -26,13 +26,17 @@ static unsigned s_adc_reads, s_conversions, s_drop_on_conversion;
 static int64_t s_now_us;
 
 const char *esp_err_to_name(int error) { (void)error; return "fixture"; }
-void *xSemaphoreCreateMutex(void) { return (void *)1; }
+static bool s_input_locked;
+static bool s_bad_input_readback;
+void *xSemaphoreCreateMutex(void) { return (void *)2; }
 int xSemaphoreTake(void *handle, uint32_t ticks) {
-  (void)ticks; assert(handle && !s_locked);
+  (void)ticks;
+  if (handle==(void *)2) { if(s_input_locked) return 0; s_input_locked=true;return pdTRUE; }
+  assert(handle && !s_locked);
   if (s_fail_lock) return 0;
   s_locked=true; return pdTRUE;
 }
-void xSemaphoreGive(void *handle) { assert(handle && s_locked);s_locked=false; }
+void xSemaphoreGive(void *handle) { if(handle==(void *)2) {assert(s_input_locked);s_input_locked=false;return;} assert(handle && s_locked);s_locked=false; }
 int64_t esp_timer_get_time(void) { return s_now_us; }
 void vTaskDelay(uint32_t ticks) { s_now_us += ticks*1000; }
 int gpio_config(const gpio_config_t *config) { (void)config;return ESP_OK; }
@@ -44,7 +48,7 @@ int i2c_master_bus_add_device(void *bus,const i2c_device_config_t *cfg,void **ou
   (void)bus;(void)cfg;*out=(void *)1;return ESP_OK;
 }
 int i2c_master_transmit(void *device,const uint8_t *data,size_t length,int timeout) {
-  assert(device==s_dev && s_locked && length==2 && timeout>0);
+  assert(device==s_dev && (s_locked || (s_input_locked && data[0]==REG00_INPUT)) && length==2 && timeout>0);
   if (data[0]==s_fail_write) return ESP_FAIL;
   s_regs[data[0]]=data[1];
   if (data[0]==REG02_ADC_CONTROL && (data[1]&REG02_CONV_START)) {
@@ -55,13 +59,14 @@ int i2c_master_transmit(void *device,const uint8_t *data,size_t length,int timeo
 }
 int i2c_master_transmit_receive(void *device,const uint8_t *reg,size_t count,
                                 uint8_t *out,size_t length,int timeout) {
-  assert(device==s_dev && s_locked && count==1 && length==1 && timeout>0);
+  assert(device==s_dev && (s_locked || (s_input_locked && *reg==REG00_INPUT)) && count==1 && length==1 && timeout>0);
   if (*reg==s_fail_read) return ESP_FAIL;
   if (*reg==REG02_ADC_CONTROL && (s_regs[*reg]&REG02_CONV_START) &&
       ++s_adc_reads>=2 && !s_stall_adc) s_regs[*reg]&=(uint8_t)~REG02_CONV_START;
-  *out=s_regs[*reg];return ESP_OK;
+  *out=s_regs[*reg];if(s_bad_input_readback && *reg==REG00_INPUT) *out^=1;return ESP_OK;
 }
 static void reset(void) {
+  s_input_locked=s_bad_input_readback=false;s_input_lock=(void *)2;s_is_input_isolated=false;s_has_external_input_hiz=false;s_present=false;
   memset(s_regs,0,sizeof(s_regs));
   s_regs[REG03_POWER_CONTROL]=0x0a; // SYS_MIN 3500 mV, charge and OTG off
   s_regs[REG04_CHARGE_CURRENT]=6;
@@ -136,5 +141,34 @@ int main(void) {
   reset();s_regs[REG03_POWER_CONTROL]|=REG03_CHG_CONFIG;
   assert(bq25896_set_charge_enable_for_profile(true,POWER_PROFILE_CHARGE_COUNT)==ESP_ERR_INVALID_ARG);
   assert(!enabled());
+  reset();s_regs[REG00_INPUT]=0xbf;
+  assert(bq25896_init()==ESP_OK && s_regs[REG00_INPUT]==0x48); // boot clamps retained input
+  uint16_t applied=0;
+  uint8_t before[BQ25896_REGISTER_COUNT];memcpy(before,s_regs,sizeof(before));
+  s_locked=true; // ADC owner remains busy: the input path must still work.
+  assert(bq25896_set_usb_input_limit(900,&applied)==ESP_OK && applied==900 && s_locked);
+  assert(s_regs[REG00_INPUT]==0x50 && !s_input_locked);
+  assert(!memcmp(before+1,s_regs+1,sizeof(before)-1)); // cell charge and all other registers untouched
+  assert(bq25896_set_usb_input_limit(500,&applied)==ESP_OK && applied==500 && s_regs[0]==0x48);
+  s_locked=false;
+  assert(bq25896_set_usb_input_limit(1000,&applied)==ESP_ERR_INVALID_ARG && applied==0);
+  assert(bq25896_set_usb_input_limit(900,NULL)==ESP_ERR_INVALID_ARG);
+  s_input_locked=true;assert(bq25896_set_usb_input_limit(500,&applied)==ESP_ERR_TIMEOUT);s_input_locked=false;
+  s_fail_read=REG00_INPUT;
+  assert(bq25896_set_usb_input_limit(900,&applied)!=ESP_OK && applied==0 && s_regs[0]==0xc8);
+  s_fail_read=-1;assert(bq25896_set_usb_input_limit(500,&applied)==ESP_OK && applied==500 && s_regs[0]==0x48);
+  s_fail_write=REG00_INPUT;
+  assert(bq25896_set_usb_input_limit(900,&applied)!=ESP_OK && applied==0);
+  s_fail_write=-1;assert(bq25896_set_usb_input_limit(500,&applied)==ESP_OK && applied==500);
+  s_bad_input_readback=true;
+  assert(bq25896_set_usb_input_limit(900,&applied)==ESP_ERR_INVALID_RESPONSE && applied==0 && s_regs[0]==0xc8);
+  s_bad_input_readback=false;assert(bq25896_set_usb_input_limit(500,&applied)==ESP_OK);
+  s_regs[0]=0xc8; // HIZ from another owner must remain set.
+  assert(bq25896_set_usb_input_limit(900,&applied)==ESP_OK && applied==0 && (s_regs[0]&0x80));
+  s_fail_read=REG00_INPUT;
+  assert(bq25896_set_usb_input_limit(500,&applied)!=ESP_OK && applied==0);
+  s_fail_read=-1;
+  assert(bq25896_set_usb_input_limit(900,&applied)==ESP_OK && applied==0 && (s_regs[0]&0x80));
+  assert(bq25896_set_input_current_limit(500,&applied)==ESP_ERR_NOT_SUPPORTED);
   puts("PASS: actual charger profile at 3024 mV, generic floor, boundaries, latched low-cell recovery, fresh ADC, faults and I2C failure stops");
 }

@@ -34,8 +34,14 @@ extern "C" {
 #include "power_profile.h"
 
 /* High Boy V2 schematic U4: BQ25896RTWR, 7-bit I2C address 0x6B. */
-#define BQ25896_I2C_ADDR       0x6B
-#define BQ25896_REGISTER_COUNT 0x15
+#define BQ25896_I2C_ADDR         0x6B
+#define BQ25896_REGISTER_COUNT   0x15
+#define BQ25896_USB_FALLBACK_MA  500
+#define BQ25896_USB_BOARD_MAX_MA 900
+
+// V2.03 REG00 owner, independent of slow ADC sampling. Only the USB service calls this.
+// Failure attempts input isolation; out_applied_ma stays zero until verified.
+esp_err_t bq25896_set_usb_input_limit(uint16_t requested_ma, uint16_t *out_applied_ma);
 
 /** Battery charge state reported by REG0B.CHRG_STAT. */
 typedef enum {

@@ -38,6 +38,7 @@
 #include "audio_i2s.h"
 #include "board_service.h"
 #include "husb320.h"
+#include "usb_power.h"
 #include "boot_sound.h"
 #include "input_manager.h"
 #include "bridge_manager.h"
@@ -242,6 +243,7 @@ esp_err_t kernel_init(void) {
 
   // 5. Peripherals
   led_rgb_init();
+  boot_report_record("usb-power", false, usb_power_init());
   battery_service_init();
   // AW8623 stays in remote reset until the haptic worker owns an operation.
   cc1101_init();

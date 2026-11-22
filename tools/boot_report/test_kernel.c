@@ -62,11 +62,12 @@ static esp_err_t bluetooth_service_init(void) {++s_ble_init;return ESP_OK;}
 static esp_err_t bluetooth_service_start(void) {assert(s_ble_init);++s_ble_start;return ESP_OK;}
 static esp_err_t bluetooth_service_start_advertising(void) {assert(s_ble_start);++s_ble_adv;return ESP_OK;}
 static bool s_board_ready;
-static unsigned s_i2c_calls,s_charger_calls,s_typec_calls;
+static unsigned s_i2c_calls,s_charger_calls,s_typec_calls,s_usb_power_calls;
 static int s_i2c_result,s_charger_result,s_typec_result;
 static int init_i2c(void) {assert(s_board_ready);assert(++s_i2c_calls==1);return s_i2c_result;}
 static int bq25896_init(void) {assert(s_i2c_calls==1 && s_i2c_result==ESP_OK);assert(++s_charger_calls==1);return s_charger_result;}
 static int husb320_init(void) {assert(s_charger_calls==1);assert(++s_typec_calls==1);return s_typec_result;}
+static int usb_power_init(void) {assert(s_i2c_calls==1);++s_usb_power_calls;return s_i2c_result==ESP_OK?s_charger_result:ESP_FAIL;}
 static void assert_power_attempted(void) {
   assert(s_i2c_calls==1);
   assert(s_charger_calls==(s_i2c_result==ESP_OK));
@@ -131,12 +132,12 @@ static void reset(void) {s_board_ready=false;
   strcpy(g_config_wifi.ap.ip_addr,"192.168.4.1");g_config_wifi.ap.max_conn=2;
   g_config_ble.enabled=false;g_config_ble.advertising=true;strcpy(g_config_ble.name,"Saved BLE");g_config_ble.max_conn=2;
   s_wifi_config=s_ble_config=s_ble_init=s_ble_start=s_ble_adv=0;s_ble_config_result=ESP_OK;
-  s_i2c_calls=s_charger_calls=s_typec_calls=0;
+  s_i2c_calls=s_charger_calls=s_typec_calls=s_usb_power_calls=0;
   s_i2c_result=s_charger_result=s_typec_result=ESP_OK;
   s_sd=s_config=s_theme=s_radios=s_normal_ui=s_safe_ui=s_indev=s_lvgl=s_panel=s_monitor=s_complete=s_sound=0;
   s_nvs_result=s_assets_result=s_panel_result=s_lvgl_result=ESP_OK;s_loop=s_combo=false;s_expect_ui=true;
 }
-static void minimal(void) {assert(!s_wifi_config && !s_ble_config && !s_ble_init && !s_ble_start && !s_ble_adv);assert(s_config==0 && s_theme==0 && s_radios==0 && s_normal_ui==0 && s_sound==0 && s_monitor==1 && s_complete==1);}
+static void minimal(void) {assert(s_usb_power_calls==0);assert(!s_wifi_config && !s_ble_config && !s_ble_init && !s_ble_start && !s_ble_adv);assert(s_config==0 && s_theme==0 && s_radios==0 && s_normal_ui==0 && s_sound==0 && s_monitor==1 && s_complete==1);}
 int main(void) {
   reset();s_nvs_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);minimal();assert(s_sd==0 && s_safe_ui==1);
   reset();s_loop=true;assert(kernel_init()!=ESP_OK);minimal();assert(s_sd==0 && s_safe_ui==1);
@@ -146,6 +147,7 @@ int main(void) {
   reset();s_loop=true;s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);minimal();assert(!s_expect_ui && s_indev==0 && s_safe_ui==0);
   reset();s_lvgl_result=ESP_FAIL;assert(kernel_init()!=ESP_OK);assert(s_radios==0 && s_normal_ui==0 && s_monitor==1 && !s_expect_ui);
   reset();assert(kernel_init()==ESP_OK);assert(s_config==2 && s_theme==1 && s_radios==2 && s_normal_ui==1 && s_sound==1 && s_monitor==1 && s_complete==1);
+  assert(s_usb_power_calls==1);
   assert(s_wifi_config==1 && s_ble_config==1 && !s_ble_init && !s_ble_start && !s_ble_adv);
   reset();g_config_wifi.enabled=true;g_config_ble.enabled=true;assert(kernel_init()==ESP_OK);
   assert(s_wifi_config==1 && s_ble_config==1 && s_ble_init==1 && s_ble_start==1 && s_ble_adv==1);

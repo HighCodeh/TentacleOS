@@ -160,13 +160,31 @@ Recovery boot keeps the boot-selected CP2105 route and does not start native USB
 
 ## Type-C role and power
 
-U2 HUSB320-BA000 has ADDR strapped low through R26 (910 kΩ), selecting `0x42`;
+U2 HUSB320-BA000 has ADDR strapped low through R26 (910 kΩ), selecting the
+**seven-bit address `0x21`**. Datasheet Table 11 places R/W in bit 0: `0x42` and
+`0x43` are the on-wire write/read address bytes, not ESP-IDF device addresses.
+Passing `0x42` to the seven-bit SDK API sends `0x84` and targets the wrong device.
+The owner's repeated bus scans confirmed `0x21`. With the corrected app installed,
+the reported 2026-11-22 boot passed identity and sink configuration readback and
+reported a valid attached source advertising 3 A. Other source/cable scenarios
+remain subject to the hardware checks below.
+
 PORT is floating (DRP default), EN_N is grounded, and INT/ID are not routed to
-firmware inputs. The new `Drivers/husb320` boot initializer checks DEVICE_TYPE,
+firmware inputs. The `Drivers/husb320` initializer checks DEVICE_TYPE,
 sets PORTROLE to sink-only with Try/accessory modes disabled, enables CONTROL1,
 and reads both settings back. It runs after I²C initialization even in recovery.
 No automatic source/OTG or VBUS discharge command is issued. Charger current
-policy remains with BQ25896; this driver does not infer a current budget from CC.
+policy remains outside this driver. `husb320_read_source()` reads the advertised
+CC current only after checking sink role, enable, attachment, VBUS, orientation,
+TYPE and consistent STATUS reads (tables 29–30). The device handle and mutex
+live until reboot; retries reuse them. Boot and the USB power worker serialize
+initialization. Invalid or incomplete samples never report a high-current source.
+A failed initialization preserves its actual error for later reads; failed samples
+include the last accessed register, rather than replacing every error with
+`ESP_ERR_INVALID_STATE`. The register identifies the last transaction, not an
+electrical diagnosis or proof of a damaged chip.
+See [automatic USB input policy](../power_manager/README.md#usb-input-budget-on-v203)
+for polling, fallback, charging limits and test scope.
 
 Register definitions and enable behavior follow the manufacturer's
 [HUSB320 datasheet, tables 21 and 23](https://en.hynetek.com/uploadfiles/site/219/news/cd136f46-0b6d-43db-81da-3750dd522663.pdf).
@@ -179,7 +197,9 @@ P4/C5 resets, J15, UART/native enumeration and shutdown with/without VBUS on V2.
 
 `tools/board_control/test_consumers.py` exercises the production mux and HUSB320
 code with fault injection, including GPIO failure, lost/late acknowledgement,
-reboot during detach, readback mismatch and every I²C transaction failure.
+reboot during detach, readback mismatch and every I²C transaction failure. The
+HUSB320 mock checks on-wire address bytes independently of the driver constant
+and rejects the former `0x42` seven-bit configuration with NACK.
 
 ## TinyUSB Callbacks
 

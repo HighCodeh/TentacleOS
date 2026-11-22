@@ -30,6 +30,7 @@
 #include "bq27220.h"
 #include "bq25896.h"
 #include "power_profile.h"
+#include "usb_power.h"
 #include "led_control.h"
 #include "tos_config.h"
 
@@ -109,9 +110,9 @@ static const char *chg_name(bq25896_charge_status_t state) {
 static const char *vbus_name(bq25896_vbus_status_t state) {
   switch (state) {
     case VBUS_STATUS_USB_HOST:
-      return "USB host / SDP";
+      return "USB500 (PSEL)";
     case VBUS_STATUS_ADAPTER_PORT:
-      return "adapter";
+      return "adapter (PSEL)";
     case VBUS_STATUS_OTG:
       return "OTG output";
     default:
@@ -180,6 +181,21 @@ static int cmd_battery(int argc, char **argv) {
   show_profile(battery_service_profile_get());
   battery_charge_snapshot_t service = {0};
   bool have_service = battery_service_get_charge(&service);
+  usb_power_snapshot_t usb;
+  if (usb_power_get(&usb)) {
+    ESP_LOGI(TAG,
+             "USB-C: valid=%d attached=%d advertised=%u mA (0=default/unknown); "
+             "source=%s last_reg=0x%02X; input=%u mA control=%s",
+             usb.is_source_valid,
+             usb.is_attached,
+             usb.advertised_ma,
+             esp_err_to_name(usb.source_error),
+             usb.source_reg,
+             usb.applied_ma,
+             esp_err_to_name(usb.input_error));
+  } else {
+    ESP_LOGI(TAG, "USB-C input policy unavailable");
+  }
   printf("Charge service: requested=%d valid=%d status=%s\n",
          service.requested,
          have_service,

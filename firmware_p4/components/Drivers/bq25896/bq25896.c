@@ -33,18 +33,22 @@
 #include "pin_def.h"
 #include "power_profile.h"
 
-#define I2C_TIMEOUT_MS      100
-#define DRIVER_LOCK_MS      300
-#define POWER_OFF_LOCK_MS   5000
-#define I2C_FAIL_RECOVER    3
-#define BATTERY_MIN_MV      3200
-#define BATTERY_MAX_MV      4200
-#define BQ25896_EXPECTED_PN 0
-#define ADC_POLL_MS         20
-#define ADC_DEADLINE_US     1200000
-#define BATTERY_ADC_BASE_MV 2304U
-#define BATTERY_ADC_STEP_MV 20U
-#define BATTERY_ADC_MASK    0x7F
+#define I2C_TIMEOUT_MS          100
+#define DRIVER_LOCK_MS          300
+#define POWER_OFF_LOCK_MS       5000
+#define I2C_FAIL_RECOVER        3
+#define BATTERY_MIN_MV          3200
+#define BATTERY_MAX_MV          4200
+#define BQ25896_EXPECTED_PN     0
+#define ADC_POLL_MS             20
+#define ADC_DEADLINE_US         1200000
+#define BATTERY_ADC_BASE_MV     2304U
+#define BATTERY_ADC_STEP_MV     20U
+#define BATTERY_ADC_MASK        0x7F
+#define USB_INPUT_TIMEOUT_MS    15
+#define USB_INPUT_BASE_MA       100
+#define USB_INPUT_STEP_MA       50
+#define USB_INPUT_FALLBACK_CODE ((BQ25896_USB_FALLBACK_MA - USB_INPUT_BASE_MA) / USB_INPUT_STEP_MA)
 
 enum {
   REG00_INPUT = 0x00,
@@ -121,6 +125,11 @@ static const uint16_t s_boost_current_ma[8] = {500, 750, 1200, 1400, 1650, 1875,
 
 static i2c_master_dev_handle_t s_dev = NULL;
 static SemaphoreHandle_t s_lock = NULL;
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+static SemaphoreHandle_t s_input_lock;
+static bool s_is_input_isolated;
+static bool s_has_external_input_hiz;
+#endif
 static bool s_present = false;
 static bool s_is_recovery_required; // guarded by s_lock; reinitialization does not clear it
 static uint32_t s_i2c_fail_streak = 0;
@@ -371,6 +380,13 @@ esp_err_t bq25896_init(void) {
   }
 
 #ifdef CONFIG_HIGHBOY_BOARD_V203
+  if (s_input_lock == NULL)
+    s_input_lock = xSemaphoreCreateMutex();
+  if (s_input_lock == NULL) {
+    ESP_LOGE(TAG, "USB input lock allocation failed");
+    unlock_driver();
+    return ESP_ERR_NO_MEM;
+  }
   ret = pack_boot_unlocked();
   s_present = ret == ESP_OK;
   unlock_driver();
@@ -588,7 +604,9 @@ static esp_err_t pack_boot_unlocked(void) {
   if (result == ESP_OK)
     result = pack_limits_unlocked(regs);
   /* Keep USB input available when the guarded charge service starts. */
-  esp_err_t restored = pack_write_unlocked(REG00_INPUT, REG00_EN_HIZ, 0);
+  esp_err_t restored = pack_write_unlocked(REG00_INPUT,
+                                           REG00_EN_HIZ | REG00_EN_ILIM | REG00_IINLIM_MASK,
+                                           REG00_EN_ILIM | USB_INPUT_FALLBACK_CODE);
   if (result == ESP_OK)
     result = restored;
   if (result != ESP_OK)
@@ -817,6 +835,50 @@ esp_err_t bq25896_set_charge_enable_for_profile(bool enable, power_profile_charg
     ret = update_reg_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, enable ? REG03_CHG_CONFIG : 0);
     unlock_driver();
   }
+  return ret;
+#endif
+}
+
+esp_err_t bq25896_set_usb_input_limit(uint16_t requested_ma, uint16_t *out_applied_ma) {
+  if (out_applied_ma == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_applied_ma = 0;
+  if (requested_ma != BQ25896_USB_FALLBACK_MA && requested_ma != BQ25896_USB_BOARD_MAX_MA)
+    return ESP_ERR_INVALID_ARG;
+#ifndef CONFIG_HIGHBOY_BOARD_V203
+  return ESP_ERR_NOT_SUPPORTED;
+#else
+  if (!s_present || s_dev == NULL || s_input_lock == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_input_lock, pdMS_TO_TICKS(USB_INPUT_TIMEOUT_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  // REG00 has its own runtime owner so ADC conversions cannot delay a USB downgrade.
+  uint8_t reg = REG00_INPUT, current = 0, check = 0;
+  esp_err_t ret = i2c_master_transmit_receive(s_dev, &reg, 1, &current, 1, USB_INPUT_TIMEOUT_MS);
+  if (ret == ESP_OK)
+    s_has_external_input_hiz = (current & REG00_EN_HIZ) && !s_is_input_isolated;
+  bool has_external_hiz = s_has_external_input_hiz;
+  uint8_t target = REG00_EN_ILIM | ((requested_ma - USB_INPUT_BASE_MA) / USB_INPUT_STEP_MA);
+  if (has_external_hiz)
+    target |= REG00_EN_HIZ;
+  const uint8_t packet[] = {REG00_INPUT, target};
+  if (ret == ESP_OK && current != target)
+    ret = i2c_master_transmit(s_dev, packet, sizeof(packet), USB_INPUT_TIMEOUT_MS);
+  if (ret == ESP_OK)
+    ret = i2c_master_transmit_receive(s_dev, &reg, 1, &check, 1, USB_INPUT_TIMEOUT_MS);
+  if (ret == ESP_OK && check != target)
+    ret = ESP_ERR_INVALID_RESPONSE;
+  if (ret == ESP_OK) {
+    s_is_input_isolated = false;
+    if (!(check & REG00_EN_HIZ))
+      *out_applied_ma = requested_ma;
+  } else {
+    const uint8_t isolate[] = {REG00_INPUT, REG00_EN_HIZ | REG00_EN_ILIM | USB_INPUT_FALLBACK_CODE};
+    // Even an unacknowledged write can reach silicon. Restore only our own HIZ on retry.
+    s_is_input_isolated = !has_external_hiz;
+    (void)i2c_master_transmit(s_dev, isolate, sizeof(isolate), USB_INPUT_TIMEOUT_MS);
+  }
+  xSemaphoreGive(s_input_lock);
   return ret;
 #endif
 }

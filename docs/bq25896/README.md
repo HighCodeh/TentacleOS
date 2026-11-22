@@ -77,12 +77,24 @@ alone is insufficient to qualify the cell's CEDV model, board current sensing
 and temperature input. No live gauge RAM, OTP or chemistry profile is changed
 by profile selection. The read-only BQ27220 driver cannot write the gauge capacity or chemistry.
 
-The BQ25896 is I2C0 address 0x6B, with active-low CE on P4 GPIO33.
+The BQ25896 is I2C0 address 0x6B. On the V2.03 schematic CE_N is grounded;
+P4 GPIO33 controls OTG_IUSB, not CE. PSEL is pulled high by R99, so the
+`USB500 (PSEL)` status is not USB host/charger discovery.
 The BQ27220 gauge is sampled independently. `power_profile.h` records the
 reported nominal capacity and retained charge limits; the runtime retains 384 mA
 and 4176 mV. The profile-specific lower voltage boundary changes normal-charge eligibility;
 charger register limits, the gauge model, NTC interpretation, precharge, OTG,
 partitions and C5 firmware are unchanged.
+
+### USB input current
+
+The [USB power service](../power_manager/README.md#usb-input-budget-on-v203)
+automatically selects a 500 or 900 mA input ceiling from confirmed Type-C
+advertisement, with register readback and fallback on failures. Boot restores
+500 mA with EN_ILIM enabled before the service starts. R11's 390-ohm hardware
+ILIM limit is retained. Dedicated REG00 ownership avoids waiting behind the ADC
+conversion mutex; cell-current, temperature and low-voltage policy are unchanged.
+The console separates CC advertisement from the BQ's PSEL-derived source code.
 
 ### Charging and protection
 

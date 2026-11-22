@@ -16,14 +16,24 @@
 #ifndef HUSB320_H
 #define HUSB320_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Boot-only device/sink policy. No host role or VBUS source enable.
+typedef struct {
+  bool is_attached;
+  uint8_t last_reg;       // Last accessed register on failure, zero on success/no transfer.
+  uint16_t advertised_ma; // Zero means default USB current, not a negotiated budget.
+} husb320_source_t;
+
+// System-lifetime device; boot and the USB power worker serialize initialization.
 esp_err_t husb320_init(void);
+esp_err_t husb320_read_source(husb320_source_t *out_source);
 
 #ifdef __cplusplus
 }

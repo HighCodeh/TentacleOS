@@ -22,6 +22,78 @@ state forwarded to the C5. It defaults to enabled and is saved in
 `/sdcard/config/system.conf`; missing keys in older configurations use that default.
 Settings > Power toggles it with checked persistence and rollback on save failure.
 
+## USB input budget on V2.03
+
+`Service/power_manager/usb_power.c` owns the system-lifetime USB input worker.
+After charger and LED initialization, it polls the HUSB320 source snapshot and
+programs only the BQ25896 input budget. The policy applies with the display on
+or off, on either the UART bridge or native USB path; it does not depend on a
+screen or on Bluetooth/Wi-Fi. Initialization failure leaves the boot input limit
+at 500 mA and is recorded in the boot report.
+
+| Observed source | BQ25896 input ceiling |
+| --- | --- |
+| Normal sink, VBUS present, consistent CC advertisement of 1.5 A or 3 A for at least 250 ms | 900 mA |
+| Default USB current, disconnected, accessory, invalid/inconsistent reading or I2C failure | 500 mA fallback |
+
+The fallback preserves the board's existing 500 mA policy; it is not proof of
+USB enumeration or suspend-current compliance. CC default does not distinguish
+a computer from a wall charger. USB-A chargers without a higher CC advertisement
+stay at the fallback. The service never requests USB-PD voltages or enables OTG.
+
+R11 = 390 ohms on the V2.03 schematic limits input through the BQ25896 ILIM pin
+(355 A-ohms nominal / 390 ohms, approximately 910 mA; silicon tolerance applies).
+The 900 mA software ceiling retains EN_ILIM; it cannot override that hardware
+limit. See the [TI BQ25896 datasheet](https://www.ti.com/lit/ds/symlink/bq25896.pdf),
+Input Current Limit and ILIM specifications. This is USB input current, shared
+by the system and charger, not cell current. The battery policy still limits
+charge to 384 mA / 4176 mV. The sampled effective limit may be lower because
+of ICO, input-voltage regulation or ILIM; 900 mA is a ceiling, not a guaranteed
+measured draw. ICO and VINDPM remain enabled as previously configured. Board TS has not been qualified as cell temperature;
+this change does not enable the cell's 1 A maximum-charge specification.
+
+The high-budget polling interval is 20 ms; fallback polling is 250 ms. A lower,
+missing or invalid advertisement drops the request on the first observed sample;
+an upgrade requires fresh stability again. The HUSB320 driver checks sink role,
+enable, attachment, orientation, VBUS, TYPE and matching STATUS reads. Failed
+sink initialization is retried at most every 2 s, after reducing the input budget.
+I2C transfers have bounded waits, but shared-bus scheduling and physical downgrade
+latency still require hardware measurement; these are not hard real-time claims.
+
+`bq25896_set_usb_input_limit()` owns REG00 after boot under a separate mutex.
+This prevents the main driver's long ADC conversion wait from holding up a
+source downgrade. Generic V2.03 register writes still reject REG00 mutations.
+The worker reads back every applied limit, preserving external HIZ and forcing
+EN_ILIM on. A transfer/readback error attempts HIZ input isolation and then the
+worker retries 500 mA; the published applied current stays zero until verified.
+A persistent bus failure cannot guarantee that a write reached silicon. The
+worker clears only its own isolation on successful retry, never enables cell
+charging, and leaves the battery fault/voltage/recovery checks in force.
+
+`usb_power_get()` returns a synchronized snapshot, rejecting data older than
+one second. `battery` reports CC advertisement, attachment, verified input budget
+and separate `source=` / `control=` errors, plus the last HUSB320 register
+accessed on a source failure. `control=ESP_OK` confirms the input-limit operation,
+not successful USB-C detection. These are separate from the BQ25896 PSEL source code. The Battery
+screen shows the actual sampled input register limit beneath USB voltage;
+net cell current remains a separate field. Logs and LED feedback are emitted on
+policy changes and rate limited together to one event per five seconds.
+
+Host validation: `tools/power_policy/test_usb_power.py` covers source changes,
+stability, downgrade, stale snapshots, initialization and control failures.
+`tools/board_control/test_consumers.py` exercises the actual HUSB320 transactions;
+`tools/highboy/tests/test_charge_profile.py` covers the actual REG00 path while
+the ADC mutex is held, HIZ ownership, readback/transfer failures and unchanged
+cell limits. These run with ASan/UBSan and are included in `tools/highboy/test.command`.
+
+Reported hardware validation on 2026-11-22: the corrected app passed the USB-C
+boot stage, detected a 3 A CC advertisement and raised the verified input limit
+from 500 to 900 mA. The charger reported an effective 900 mA input limit, 350 mA
+cell current with ICHG still 384 mA, no input-current DPM and no latched/live
+faults. These are device register/ADC readings, not external current measurements.
+Hardware acceptance still requires both cable orientations, charger-to-computer
+swaps, disconnect/reconnect, screen sleep and real input/cell current measurements.
+
 ## C5 idle sleep
 
 `Service/power_manager` checks boot readiness, Wi-Fi (including capture), BLE

@@ -78,6 +78,7 @@ idf_component_register(SRCS
   "sys_time/sys_time.c"
   "power_manager/power_manager.c"
   "power_manager/power_manager_usb.c"
+  "power_manager/usb_power.c"
 
   ${STORAGE_API_SRCS}
   ${STORAGE_VFS_SRCS}

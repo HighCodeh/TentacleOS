@@ -61,7 +61,7 @@ below; in-tree READMEs point to it.
 | `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
-| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization |
+| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization and live CC current advertisement |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
 | `imu` | [README.md](imu/README.md) - motion acquisition, calibration and snapshots |
 | `input_manager` | [README.md](input_manager/README.md)  |
@@ -75,7 +75,7 @@ below; in-tree READMEs point to it.
 | `ota` | [README.md](ota/README.md)  |
 | `pc_monitor` | [README.md](pc_monitor/README.md) - computer telemetry |
 | `pins` | [README.md](pins/README.md) - board pin assignment definitions |
-| `power_manager` | [README.md](power_manager/README.md) - battery and power-state management service |
+| `power_manager` | [README.md](power_manager/README.md) - battery, USB input budget and power-state management service |
 | `qmi8658a` | [README.md](qmi8658a/README.md) - synchronized six-axis SPI driver |
 | `recovery` | [README.md](recovery/README.md)  |
 | `rf_frontend` | [README.md](rf_frontend/README.md) - shared NFC/LF antenna and native RFID ownership |
