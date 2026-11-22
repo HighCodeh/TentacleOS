@@ -43,6 +43,7 @@ typedef enum {
 typedef enum {
   PORT_SCAN_STATUS_OPEN = 0,
   PORT_SCAN_STATUS_OPEN_FILTERED,
+  PORT_SCAN_STATUS_FILTERED,
   PORT_SCAN_STATUS_COUNT
 } port_scan_status_t;
 
@@ -58,7 +59,7 @@ typedef struct {
 } port_scan_result_t;
 
 /**
- * @brief Scan a single target over a port range (TCP and UDP).
+ * @brief Scan a single target over a port range (TCP).
  *
  * @param target_ip    Target IP address string.
  * @param start_port   First port to scan.
@@ -74,7 +75,7 @@ int port_scan_target_range(const char *target_ip,
                            int max_results);
 
 /**
- * @brief Scan a single target over a list of ports (TCP and UDP).
+ * @brief Scan a single target over a list of ports (TCP).
  *
  * @param target_ip    Target IP address string.
  * @param port_list    Array of ports to scan.

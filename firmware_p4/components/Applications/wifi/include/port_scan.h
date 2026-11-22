@@ -43,6 +43,7 @@ typedef enum {
 typedef enum {
   PORT_SCAN_STATUS_OPEN = 0,
   PORT_SCAN_STATUS_OPEN_FILTERED,
+  PORT_SCAN_STATUS_FILTERED,
   PORT_SCAN_STATUS_COUNT
 } port_scan_status_t;
 

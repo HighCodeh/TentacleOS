@@ -328,6 +328,8 @@ typedef enum {
   SPI_ID_WIFI_HOST_PROBE_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5D),
   SPI_ID_WIFI_HOST_PROBE_BATCH_START = SPI_CMD(SPI_CAT_WIFI, 0x5E),
   SPI_ID_WIFI_HOST_PROBE_BATCH_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x5F),
+  SPI_ID_WIFI_UDP_SCAN_START = SPI_CMD(SPI_CAT_WIFI, 0x60), // TCP list layout; max 32 ports.
+  SPI_ID_WIFI_UDP_SCAN_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x61),
   SPI_ID_WIFI_SCAN_STEP = SPI_CMD(SPI_CAT_WIFI, 0x56), // [bitmap slot u8], async
   SPI_ID_WIFI_SCAN_STEP_STATUS = SPI_CMD(SPI_CAT_WIFI, 0x57),
   SPI_ID_WIFI_SCAN_STEP_RECORD =
@@ -1259,6 +1261,12 @@ typedef struct __attribute__((packed)) {
   uint8_t is_running;
 } spi_wifi_host_probe_batch_status_t;
 
+typedef struct __attribute__((packed)) {
+  uint32_t error;
+  uint8_t is_running;
+  uint8_t reserved[3];
+} spi_wifi_udp_scan_status_t;
+
 /**
  * @brief Port scan request with target IP and port range.
  */
@@ -1302,7 +1310,7 @@ typedef struct {
   char ip_str[16];
   uint16_t port;
   uint8_t protocol; // 0 = TCP, 1 = UDP
-  uint8_t status;   // 0 = OPEN, 1 = OPEN_FILTERED
+  uint8_t status;   // 0 = OPEN, 1 = OPEN_FILTERED, 2 = FILTERED
   char banner[64];
 } __attribute__((packed)) spi_port_scan_result_t;
 

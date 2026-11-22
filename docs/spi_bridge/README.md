@@ -705,6 +705,8 @@ in [`../host_link/protocol.md`](../host_link/protocol.md).
 | `SPI_ID_WIFI_HOST_PROBE_STATUS` | `0x5D` | `0x015D` |
 | `SPI_ID_WIFI_HOST_PROBE_BATCH_START` | `0x5E` | `0x015E` |
 | `SPI_ID_WIFI_HOST_PROBE_BATCH_STATUS` | `0x5F` | `0x015F` |
+| `SPI_ID_WIFI_UDP_SCAN_START` | `0x60` | `0x0160` |
+| `SPI_ID_WIFI_UDP_SCAN_STATUS` | `0x61` | `0x0161` |
 | `SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE` | `0x49` | `0x0149` |
 | `SPI_ID_WIFI_PORT_SCAN_TARGET_LIST` | `0x4A` | `0x014A` |
 | `SPI_ID_WIFI_PORT_SCAN_NETWORK` | `0x4B` | `0x014B` |
@@ -726,10 +728,21 @@ The original HOST_PROBE_START/STATUS operations retain their 16-byte IPv4 string
 request and 8-byte error/running/reachable response for single-host callers.
 While busy, overlapping scan starts are rejected before shared request mutation.
 `SPI_ID_WIFI_SCAN_STATUS` observes runner completion;
-`SPI_ID_WIFI_PORT_SCAN_STOP` cancels ICMP as well as TCP work. Both v2 header copies
+`SPI_ID_WIFI_PORT_SCAN_STOP` cancels ICMP, TCP and UDP work. Both v2 header copies
 reserve these IDs; update both applications to use batch discovery. See
 [port scanner](../port_scanner/README.md) for timeout and cancellation semantics.
 
+
+UDP_SCAN_START uses a 16-byte NUL-terminated IPv4, little-endian capacity/count,
+and 1–32 little-endian nonzero ports. Exact length and capacity/count bounds are
+validated before shared request mutation. UDP uses the same exclusive async runner;
+wait for SCAN_STATUS idle, then UDP_SCAN_STATUS (8-byte packed uint32 error,
+uint8 running, three reserved zero bytes) and SYSTEM_DATA for collected results.
+The existing record layout carries protocol TCP=0/UDP=1 and status OPEN=0,
+OPEN_FILTERED=1, FILTERED=2. Socket/allocation failures are explicit; partial results
+remain readable. After socket cleanup, the C5 logs each collected UDP record at
+INFO level with its IP, port, state and banner/reason; logging does not consume
+probe reply windows. Both chips must be updated for these additive v2 operations.
 
 ### Bluetooth (`0x02`)
 

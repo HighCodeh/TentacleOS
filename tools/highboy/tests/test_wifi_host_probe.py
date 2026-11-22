@@ -129,6 +129,7 @@ static bool spi_bridge_async_scan_start(void (*fn)(void)) {
   if(runner_busy || runner_fails) return false;
   runner=fn; runner_busy=true; return true;
 }
+static void wifi_udp_scan_cancel(void) {}
 static void port_scan_request_abort(void) { tcp_cancelled=true; }
 static void reset(unsigned next_mode);
 /* DISPATCH_DECLS */
@@ -301,7 +302,7 @@ with tempfile.TemporaryDirectory(prefix="highboy-host-probe-") as tmp:
     begin = dispatcher.index("  if (((id >= SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE")
     guard = dispatcher[begin:dispatcher.index("\n\n", begin)]
     begin = dispatcher.index("    case SPI_ID_WIFI_HOST_PROBE_START:")
-    cases = dispatcher[begin:dispatcher.index("    case SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE:", begin)]
+    cases = dispatcher[begin:dispatcher.index("    case SPI_ID_WIFI_UDP_SCAN_START:", begin)]
     begin = dispatcher.index("    case SPI_ID_WIFI_PORT_SCAN_STOP:")
     cases += dispatcher[begin:dispatcher.index("    case SPI_ID_WIFI_GET_MAC:", begin)]
     code = CODE.replace("/* DISPATCH_DECLS */", declarations).replace("/* DISPATCH_GUARD */", guard).replace("/* DISPATCH_CASES */", cases)

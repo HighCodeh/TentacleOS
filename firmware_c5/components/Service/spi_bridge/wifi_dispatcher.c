@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+#include "lwip/sockets.h"
 
 #include <stdatomic.h>
 
@@ -44,6 +45,7 @@
 #include "wifi_flood.h"
 #include "wifi_service.h"
 #include "wifi_host_probe.h"
+#include "wifi_udp_scan.h"
 #include "wardrive_radio.h"
 #include "wifi_sniffer.h"
 #include "wifi_quick_scan.h"
@@ -130,6 +132,9 @@ typedef struct {
   int list_size;
   int max_results;
 } port_scan_dispatch_req_t;
+
+static portMUX_TYPE s_udp_lock = portMUX_INITIALIZER_UNLOCKED;
+static spi_wifi_udp_scan_status_t s_udp_status;
 
 static portMUX_TYPE s_probe_lock = portMUX_INITIALIZER_UNLOCKED;
 static spi_wifi_host_probe_status_t s_probe_status;
@@ -319,6 +324,45 @@ static void port_scan_hit(const port_scan_result_t *hit, void *ctx) {
   s_port_scan_count++; // bump last: the P4 only reads indices below the count
 }
 
+static void udp_scan_hit(const wifi_udp_scan_result_t *result, void *context) {
+  (void)context;
+  port_scan_result_t hit = {.port = result->port,
+                            .protocol = PORT_SCAN_PROTO_UDP,
+                            .status = result->status == WIFI_UDP_SCAN_OPEN ? PORT_SCAN_STATUS_OPEN
+                                      : result->status == WIFI_UDP_SCAN_FILTERED
+                                          ? PORT_SCAN_STATUS_FILTERED
+                                          : PORT_SCAN_STATUS_OPEN_FILTERED};
+  memcpy(hit.ip_str, s_port_scan_req.ip, sizeof(hit.ip_str));
+  memcpy(hit.banner, result->banner, sizeof(hit.banner));
+  port_scan_hit(&hit, NULL);
+}
+
+static void udp_scan_worker(void) {
+  const wifi_udp_scan_request_t request = {.ip = s_port_scan_req.ip,
+                                           .ports = s_port_scan_req.ports,
+                                           .count = s_port_scan_req.list_size,
+                                           .on_result = udp_scan_hit};
+  esp_err_t error = wifi_udp_scan_run(&request);
+  // Log after socket cleanup so UART output cannot shorten probe reply windows.
+  for (uint16_t i = 0; i < s_port_scan_count; ++i) {
+    const spi_port_scan_result_t *result = &s_port_scan_records[i];
+    const char *state = result->status == PORT_SCAN_STATUS_OPEN       ? "OPEN"
+                        : result->status == PORT_SCAN_STATUS_FILTERED ? "FILTERED"
+                                                                      : "OPEN|FILTERED";
+    const char *detail = result->banner;
+    if (detail[0] == '\0') {
+      detail = result->status == PORT_SCAN_STATUS_OPEN       ? "(Without Banner)"
+               : result->status == PORT_SCAN_STATUS_FILTERED ? "ICMP destination unreachable"
+                                                             : "No UDP reply";
+    }
+    ESP_LOGI(
+        TAG, "HIT: %s:%u [UDP] %s | %s", result->ip_str, (unsigned)result->port, state, detail);
+  }
+  portENTER_CRITICAL(&s_udp_lock);
+  s_udp_status = (spi_wifi_udp_scan_status_t){.error = (uint32_t)error};
+  portEXIT_CRITICAL(&s_udp_lock);
+}
+
 static void host_probe_worker(void) {
   bool is_reachable = false;
   esp_err_t error = wifi_host_probe_run(s_probe_ip, &is_reachable);
@@ -437,7 +481,8 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
   }
 
   if (((id >= SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE && id <= SPI_ID_WIFI_PORT_SCAN_CIDR) ||
-       id == SPI_ID_WIFI_HOST_PROBE_START || id == SPI_ID_WIFI_HOST_PROBE_BATCH_START) &&
+       id == SPI_ID_WIFI_HOST_PROBE_START || id == SPI_ID_WIFI_HOST_PROBE_BATCH_START ||
+       id == SPI_ID_WIFI_UDP_SCAN_START) &&
       (spi_bridge_async_scan_busy() || session_manager_is_active() || atomic_load(&s_step_busy)))
     return SPI_STATUS_BUSY;
 
@@ -1122,6 +1167,52 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       *out_resp_len = sizeof(s_probe_batch_status);
       return SPI_STATUS_OK;
 
+    case SPI_ID_WIFI_UDP_SCAN_START: {
+      // Validate before touching storage retained by an active worker.
+      const size_t list_offset = sizeof(s_port_scan_req.ip);
+      const size_t header_bytes = list_offset + 2 * sizeof(uint16_t);
+      if (len < header_bytes || memchr(payload, '\0', list_offset) == NULL)
+        return SPI_STATUS_INVALID_ARG;
+      uint16_t capacity, count;
+      memcpy(&capacity, payload + list_offset, sizeof(capacity));
+      memcpy(&count, payload + list_offset + sizeof(capacity), sizeof(count));
+      struct in_addr address;
+      if (count == 0 || count > WIFI_UDP_SCAN_MAX_PORTS || capacity < count ||
+          capacity > PORT_SCAN_MAX_RESULTS || len != header_bytes + count * sizeof(uint16_t) ||
+          inet_pton(AF_INET, (const char *)payload, &address) != 1)
+        return SPI_STATUS_INVALID_ARG;
+      for (uint16_t i = 0; i < count; ++i) {
+        uint16_t port;
+        memcpy(&port, payload + header_bytes + i * sizeof(port), sizeof(port));
+        if (port == 0)
+          return SPI_STATUS_INVALID_ARG;
+      }
+      memset(&s_port_scan_req, 0, sizeof(s_port_scan_req));
+      memcpy(s_port_scan_req.ip, payload, list_offset);
+      if (!parse_port_list(payload, len, list_offset))
+        return SPI_STATUS_INVALID_ARG;
+      wifi_udp_scan_reset();
+      s_port_scan_count = 0;
+      spi_bridge_provide_results_dynamic(
+          s_port_scan_records, &s_port_scan_count, sizeof(spi_port_scan_result_t));
+      portENTER_CRITICAL(&s_udp_lock);
+      s_udp_status = (spi_wifi_udp_scan_status_t){.is_running = 1};
+      portEXIT_CRITICAL(&s_udp_lock);
+      if (spi_bridge_async_scan_start(udp_scan_worker))
+        return SPI_STATUS_OK;
+      portENTER_CRITICAL(&s_udp_lock);
+      s_udp_status = (spi_wifi_udp_scan_status_t){.error = ESP_ERR_INVALID_STATE};
+      portEXIT_CRITICAL(&s_udp_lock);
+      return SPI_STATUS_BUSY;
+    }
+
+    case SPI_ID_WIFI_UDP_SCAN_STATUS:
+      portENTER_CRITICAL(&s_udp_lock);
+      memcpy(out_resp_payload, &s_udp_status, sizeof(s_udp_status));
+      portEXIT_CRITICAL(&s_udp_lock);
+      *out_resp_len = sizeof(s_udp_status);
+      return SPI_STATUS_OK;
+
     case SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE: {
       if (len < sizeof(spi_port_scan_range_req_t))
         return SPI_STATUS_INVALID_ARG;
@@ -1207,6 +1298,7 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     case SPI_ID_WIFI_PORT_SCAN_STOP:
       port_scan_request_abort();
       wifi_host_probe_cancel();
+      wifi_udp_scan_cancel();
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_GET_MAC: {

@@ -39,6 +39,7 @@ idf_component_register(SRCS
   "mqtt_bridge/mqtt_bridge.c"
   "wifi/wifi_service.c"
   "wifi/wifi_host_probe.c"
+  "wifi/wifi_udp_scan.c"
   "wifi/mac_vendor.c"
   "grok_wifi/grok_wifi.c"
   "grok_wifi/grok_wifi_core.c"
