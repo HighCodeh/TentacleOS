@@ -31,6 +31,8 @@ extern "C" {
 
 #include "esp_err.h"
 
+#include "power_profile.h"
+
 /* High Boy V2 schematic U4: BQ25896RTWR, 7-bit I2C address 0x6B. */
 #define BQ25896_I2C_ADDR       0x6B
 #define BQ25896_REGISTER_COUNT 0x15
@@ -112,7 +114,8 @@ typedef struct {
                    ///< OTG.
   bool vbus_good;
   bool adc_continuous;
-  bool adc_valid; ///< Completed conversion; never inferred from reset ADC codes.
+  bool adc_valid;            ///< Completed conversion; never inferred from reset ADC codes.
+  bool is_recovery_required; ///< A present cell at/below 3.0 V was observed during this boot.
   bool ico_enabled;
   bool ico_optimized;
   bool thermal_regulation;
@@ -145,7 +148,7 @@ esp_err_t bq25896_dump_registers(uint8_t regs[BQ25896_REGISTER_COUNT]);
  * On error, output must not be consumed. */
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out);
 
-/** Retained limits for the confirmed charge profile; never enables charging. */
+/** Retained limits for the confirmed 604858 above its discharge cutoff. */
 esp_err_t bq25896_limit_confirmed_604858(void);
 esp_err_t bq25896_stop_charge(void);
 uint8_t bq25896_get_fault(void);
@@ -158,6 +161,8 @@ int bq25896_get_battery_percentage(uint16_t voltage_mv);
 /** Charging is gated by REG03 only; High Boy CE is physically tied low. */
 bool bq25896_get_charge_enable(void);
 esp_err_t bq25896_set_charge_enable(bool enable);
+/** Explicit profile selection; the compatibility setter retains the 3.2 V guard. */
+esp_err_t bq25896_set_charge_enable_for_profile(bool enable, power_profile_charge_t profile);
 
 /** Safe setters return the quantized value actually programmed when requested.
  */

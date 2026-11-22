@@ -42,6 +42,9 @@
 #define BQ25896_EXPECTED_PN 0
 #define ADC_POLL_MS         20
 #define ADC_DEADLINE_US     1200000
+#define BATTERY_ADC_BASE_MV 2304U
+#define BATTERY_ADC_STEP_MV 20U
+#define BATTERY_ADC_MASK    0x7F
 
 enum {
   REG00_INPUT = 0x00,
@@ -119,6 +122,7 @@ static const uint16_t s_boost_current_ma[8] = {500, 750, 1200, 1400, 1650, 1875,
 static i2c_master_dev_handle_t s_dev = NULL;
 static SemaphoreHandle_t s_lock = NULL;
 static bool s_present = false;
+static bool s_is_recovery_required; // guarded by s_lock; reinitialization does not clear it
 static uint32_t s_i2c_fail_streak = 0;
 static uint32_t s_i2c_error_count = 0;
 static uint8_t s_otg_voltage_code = OTG_DEFAULT_VOLTAGE_CODE;
@@ -458,7 +462,6 @@ esp_err_t bq25896_dump_registers(uint8_t regs[BQ25896_REGISTER_COUNT]) {
 
 #define PACK_604858_CURRENT_CODE 6U
 #define PACK_604858_VOLTAGE_CODE 21U
-#define PACK_604858_MIN_MV       3200U
 #define PACK_604858_MAX_MV       4200U
 #define PACK_604858_TS_MIN       50000U
 #define PACK_604858_TS_MAX       65000U
@@ -527,17 +530,22 @@ static esp_err_t pack_limits_unlocked(const uint8_t *regs) {
   return result;
 }
 
-esp_err_t bq25896_limit_confirmed_604858(void) {
+static esp_err_t limit_charge_profile(power_profile_charge_t profile) {
 #ifndef CONFIG_HIGHBOY_BOARD_V203
+  (void)profile;
   return ESP_ERR_NOT_SUPPORTED;
 #else
+  uint16_t minimum_mv = power_profile_charge_min_mv(profile);
+  if (minimum_mv == 0)
+    return ESP_ERR_INVALID_ARG;
   bq25896_telem_t telemetry;
   esp_err_t result = bq25896_read_telemetry(&telemetry);
   if (result != ESP_OK)
     return result;
   if (!telemetry.adc_valid || !telemetry.power_good || telemetry.fault_live ||
-      telemetry.vbat_mv < PACK_604858_MIN_MV || telemetry.vbat_mv > PACK_604858_MAX_MV ||
-      telemetry.ts_milli_pct < PACK_604858_TS_MIN || telemetry.ts_milli_pct > PACK_604858_TS_MAX)
+      telemetry.is_recovery_required || telemetry.vbat_mv < minimum_mv ||
+      telemetry.vbat_mv > PACK_604858_MAX_MV || telemetry.ts_milli_pct < PACK_604858_TS_MIN ||
+      telemetry.ts_milli_pct > PACK_604858_TS_MAX)
     return ESP_ERR_INVALID_STATE;
   result = lock_driver();
   if (result != ESP_OK)
@@ -553,6 +561,10 @@ esp_err_t bq25896_limit_confirmed_604858(void) {
            esp_err_to_name(result));
   return result;
 #endif
+}
+
+esp_err_t bq25896_limit_confirmed_604858(void) {
+  return limit_charge_profile(POWER_PROFILE_CHARGE_604858);
 }
 
 esp_err_t bq25896_stop_charge(void) {
@@ -584,12 +596,13 @@ static esp_err_t pack_boot_unlocked(void) {
   return result;
 }
 
-static bool pack_sample_usable(const bq25896_telem_t *sample) {
+static bool pack_sample_usable(const bq25896_telem_t *sample, power_profile_charge_t profile) {
+  uint16_t minimum_mv = power_profile_charge_min_mv(profile);
   return sample->adc_valid && sample->power_good && !sample->fault_live &&
-         sample->vbat_mv >= PACK_604858_MIN_MV && sample->vbat_mv <= PACK_604858_MAX_MV &&
-         sample->ts_milli_pct >= PACK_604858_TS_MIN && sample->ts_milli_pct <= PACK_604858_TS_MAX &&
-         sample->charge_current_limit_ma <= 384 && sample->charge_voltage_limit_mv <= 4176 &&
-         sample->ichg_ma <= 500 && !sample->otg_enabled;
+         !sample->is_recovery_required && minimum_mv != 0 && sample->vbat_mv >= minimum_mv &&
+         sample->vbat_mv <= PACK_604858_MAX_MV && sample->ts_milli_pct >= PACK_604858_TS_MIN &&
+         sample->ts_milli_pct <= PACK_604858_TS_MAX && sample->charge_current_limit_ma <= 384 &&
+         sample->charge_voltage_limit_mv <= 4176 && sample->ichg_ma <= 500 && !sample->otg_enabled;
 }
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   if (out == NULL) {
@@ -599,6 +612,7 @@ esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   memset(out, 0, sizeof(*out));
   uint8_t regs[BQ25896_REGISTER_COUNT] = {0};
   uint8_t fault_latched = 0;
+  bool is_recovery_required = false;
   esp_err_t ret = lock_driver();
   if (ret == ESP_OK) {
 #ifdef CONFIG_HIGHBOY_BOARD_V203
@@ -606,6 +620,16 @@ esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
 #endif
     if (ret == ESP_OK)
       ret = read_all_unlocked(regs, &fault_latched);
+#ifdef CONFIG_HIGHBOY_BOARD_V203
+    if (ret == ESP_OK && !(regs[REG0C_FAULT] & FAULT_WATCHDOG)) {
+      uint16_t voltage_mv =
+          BATTERY_ADC_BASE_MV + (regs[REG0E_BATTERY_ADC] & BATTERY_ADC_MASK) * BATTERY_ADC_STEP_MV;
+      /* A voltage rebound cannot stand in for the unsupported 20 mA recovery. */
+      if (voltage_mv > BATTERY_ADC_BASE_MV && voltage_mv <= POWER_PROFILE_CUTOFF_MV)
+        s_is_recovery_required = true;
+    }
+    is_recovery_required = s_is_recovery_required;
+#endif
     unlock_driver();
   }
   if (ret != ESP_OK) {
@@ -619,7 +643,9 @@ esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {
   const uint8_t vbus_code = (status & REG0B_VBUS_STAT_MASK) >> 5;
   const uint8_t charge_code = (status & REG0B_CHARGE_STAT_MASK) >> 3;
 
-  out->vbat_mv = 2304 + (uint16_t)(regs[REG0E_BATTERY_ADC] & 0x7F) * 20;
+  out->vbat_mv = BATTERY_ADC_BASE_MV +
+                 (uint16_t)(regs[REG0E_BATTERY_ADC] & BATTERY_ADC_MASK) * BATTERY_ADC_STEP_MV;
+  out->is_recovery_required = is_recovery_required;
   out->vsys_mv = 2304 + (uint16_t)(regs[REG0F_SYSTEM_ADC] & 0x7F) * 20;
   out->vbus_good = (regs[REG11_VBUS_ADC] & REG11_VBUS_GOOD) != 0;
   out->vbus_mv = out->vbus_good ? 2600 + (uint16_t)(regs[REG11_VBUS_ADC] & 0x7F) * 100 : 0;
@@ -755,25 +781,37 @@ bool bq25896_get_charge_enable(void) {
 }
 
 esp_err_t bq25896_set_charge_enable(bool enable) {
+  return bq25896_set_charge_enable_for_profile(enable, POWER_PROFILE_CHARGE_GUARDED);
+}
+
+esp_err_t bq25896_set_charge_enable_for_profile(bool enable, power_profile_charge_t profile) {
+  if (power_profile_charge_min_mv(profile) == 0) {
+    (void)bq25896_stop_charge();
+    return ESP_ERR_INVALID_ARG;
+  }
 #ifdef CONFIG_HIGHBOY_BOARD_V203
   if (!enable)
     return bq25896_stop_charge();
-  esp_err_t result = bq25896_limit_confirmed_604858();
+  esp_err_t result = limit_charge_profile(profile);
   bq25896_telem_t sample;
   if (result == ESP_OK)
     result = bq25896_read_telemetry(&sample);
-  if (result == ESP_OK && !pack_sample_usable(&sample))
+  if (result == ESP_OK && !pack_sample_usable(&sample, profile))
     result = ESP_ERR_INVALID_STATE;
   if (result == ESP_OK)
     result = lock_driver();
   if (result == ESP_OK) {
-    result = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, REG03_CHG_CONFIG);
+    result = s_is_recovery_required
+                 ? ESP_ERR_INVALID_STATE
+                 : pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, REG03_CHG_CONFIG);
     unlock_driver();
   }
   if (result != ESP_OK)
     (void)bq25896_stop_charge();
   return result;
 #else
+  if (profile != POWER_PROFILE_CHARGE_GUARDED)
+    return ESP_ERR_NOT_SUPPORTED;
   esp_err_t ret = lock_driver();
   if (ret == ESP_OK) {
     ret = update_reg_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, enable ? REG03_CHG_CONFIG : 0);

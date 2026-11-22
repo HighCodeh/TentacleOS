@@ -47,10 +47,13 @@ capacity-only configurations migrate to a generic profile of that capacity;
 legacy capacity field; an unknown/malformed ID falls back to the legacy generic
 capacity (2450 mAh when that field is also invalid).
 
-All three profiles retain the current 3200–4200 mV charge eligibility range.
-Selection changes nominal model/capacity metadata, not electrical behavior.
-Low-cell recovery remains unsupported. A stale/unknown model ID follows the
-generic migration rule above.
+The `knlypow_604858` entry permits normal charging with a fresh measured voltage
+strictly above 3000 mV and at most 4200 mV. This fixes the former 3200 mV lockout
+at the reported 3024 mV after a normal discharge. Select this profile explicitly;
+the two generic entries retain their 3200 mV minimum. The mistakenly reported
+504858 is not a catalog entry. A stale/unknown ID follows the generic migration
+rule above. The worker snapshots the selected policy once per polling cycle;
+changing to a generic profile stops charging below its minimum on the next cycle.
 
 The confirmed [QR page](https://qr61.cn/oY4Nxr/qirer5U?format=md) links the
 [604858 A0 specification](https://ncstatic.clewm.net/rsrc/2026/1028/10/f365eb385c4c48af9d816db416b71eba.pdf),
@@ -77,23 +80,43 @@ by profile selection. The read-only BQ27220 driver cannot write the gauge capaci
 The BQ25896 is I2C0 address 0x6B, with active-low CE on P4 GPIO33.
 The BQ27220 gauge is sampled independently. `power_profile.h` records the
 reported nominal capacity and retained charge limits; the runtime retains 384 mA
-and 4176 mV. Charger register limits, the gauge model, NTC interpretation, precharge, OTG,
+and 4176 mV. The profile-specific lower voltage boundary changes normal-charge eligibility;
+charger register limits, the gauge model, NTC interpretation, precharge, OTG,
 partitions and C5 firmware are unchanged.
 
 ### Charging and protection
 
 `battery_service_request_charge(bool)` queues a request. Its background worker
 owns I2C control; a UI request cannot bypass the guard. Charging requires a
-fresh ADC sample, valid USB power, 3200–4200 mV battery voltage, no live charger
-fault, board TS ratio 50–65% REGN, OTG off, and valid existing current/voltage
-limits. A read/control failure stops charging. Board TS is **not validated cell
-temperature**. No unattended low-cell recovery is implemented.
+fresh ADC sample, valid USB power, battery voltage in the selected profile's
+range, no live charger fault, board TS ratio 50–65% REGN, OTG off, and valid
+existing current/voltage limits. A read/control failure stops charging. The
+service rechecks the post-enable sample and stops if a guard changed. Board TS
+is **not validated cell temperature**: the 10–45 C cell requirement has not been
+qualified on hardware. There is no claim of fully validated charging safety or
+calibrated voltage/current accuracy from host tests.
 
-The old 604858 specification calls for 20 mA recovery and 40 mA termination. The charger's minimum
-programmable precharge and termination currents are 64 mA; the retained
-precharge setting is 128 mA. These cannot be made compliant by changing a UI
-indicator or rounding up. Low voltage therefore remains blocked pending a
-compatible recovery method and physical battery/temperature validation.
+`bq25896_set_charge_enable_for_profile()` independently enforces the selected
+minimum with fresh conversions before enabling charge. The existing
+`bq25896_set_charge_enable()` API retains the generic 3200 mV guard. Invalid
+profiles fail closed. Neither API accepts arbitrary voltage/current values.
+The lowest qualifying integer reading for the 604858 is 3001 mV; the BQ25896
+ADC advances in 20 mV steps from 2304 mV, so its first qualifying code is 3004 mV.
+These are measured-voltage decisions, not guarantees about the cell voltage's
+measurement error. The 3024 mV incident is covered by register-level host tests.
+
+A fresh reading of a present cell (above the ADC floor of 2304 mV) at or below
+3000 mV latches `is_recovery_required` in the driver for the rest of that boot.
+The service reports `Low cell: recovery unsupported`. A voltage rebound, profile
+change, Pause/Resume or driver reinitialization cannot clear that latch. It is
+RAM state, not persistent cell history: rebooting does not establish that a cell
+has recovered. Missing/invalid ADC samples do not create a recovery latch.
+
+The 604858 specification calls for 20 mA recovery and 40 mA termination. The
+charger's minimum programmable precharge and termination currents are 64 mA;
+the retained settings are 128 mA precharge and 64 mA termination. The change does
+not implement the manufacturer's overdischarge recovery procedure or claim exact
+termination compliance. No PWM averaging or protection bypass is used.
 See [TI BQ25896 datasheet, REG05](https://www.ti.com/lit/ds/symlink/bq25896.pdf).
 
 ### Manual shutdown
@@ -165,8 +188,8 @@ active model and nominal capacity, actual charging/paused/full state and the
 blocked reason. The screen is read-only for profile selection. The config service
 validates a catalog ID and calls `battery_service_set_profile()` only after saving;
 the immutable catalog index is shared atomically with the worker and renderers.
-This setting changes neither the voltage-to-percent curve nor charger limits or
-gauge calibration. OK
+This setting changes normal-charge eligibility for the confirmed 604858,
+but not the voltage-to-percent curve, charger current/voltage limits or gauge calibration. OK
 pauses or requests charging; all guards remain active. Header and dropdown use
 that same estimate to fill the battery icon and display `~NN%`. A lightning/USB
 symbol reports actual charging/external power separately. The header does not
@@ -193,7 +216,9 @@ Application notifications and activity patterns take priority, including their
 dark gaps. Blocked/low warning patterns remain available. State-change logs are
 deduplicated. See [LED](../led/README.md) for brightness and priority rules.
 
-Host regression coverage includes all catalog profiles across a real config
+Host regression coverage includes register-level normal-charge startup at 3024 mV,
+generic-profile rejection, boundary values, low-cell/rebound latching, USB/fault/
+ADC/I2C failures, second-conversion voltage drops, and all catalog profiles across a real config
 save/load, console list/show/select, invalid/legacy fields, serializer allocation
 failures, failed-save rollback, read-only UI controls, icon band boundaries,
 charge animation transitions and static overlay independence. Native LVGL checks
@@ -216,6 +241,19 @@ confirmed battery absence clears the filter for a future insertion. The estimate
 and its anchors are RAM-only and initialize again after a reboot.
 
 ## Validation
+
+### Reported hardware charging, 2026-11-22
+
+After selecting and saving `knlypow_604858` and requesting charge, the owner
+reported `status=Charging`, charge enabled in fast-charge mode, 3564 mV VBAT
+and 350 mA measured by the BQ25896. The programmed limits remained 384 mA and
+4176 mV, with both live and latched charger faults zero. The console confirmed
+that the selected profile was saved to `/sdcard/config/system.conf`.
+This is one reported charging observation after the previous 3024 mV lockout;
+it does not qualify a full charge cycle, capacity, gauge accuracy, cell
+thermometry or overdischarge recovery.
+
+### Host checks
 
 `python3 tools/highboy/tests/test_battery_filter.py` retains the upstream
 regression cases for repeated cable transitions, stable voltage, real changes,

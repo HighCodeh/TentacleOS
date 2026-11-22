@@ -26,6 +26,7 @@ static bq27220_sample_t gauge;
 static esp_err_t read_error, gauge_error;
 static void (*after_poll)(void);
 static int enables, disables;
+static bool drop_after_enable, fail_control;
 static led_power_state_t power_state;
 void vTaskDelay(int ticks) {
  (void)ticks;
@@ -39,10 +40,17 @@ int xTaskCreatePinnedToCore(void (*fn)(void *),const char *name,int stack,void *
 const char *esp_err_to_name(esp_err_t err) {(void)err;return "mock";}
 esp_err_t bq25896_read_telemetry(bq25896_telem_t *out) {*out=input;out->soc=bq25896_get_battery_percentage(input.vbat_mv);return read_error;}
 esp_err_t bq27220_read_sample(bq27220_sample_t *out) {*out=gauge;return gauge_error;}
-esp_err_t bq25896_set_charge_enable(bool enabled) {
- if(enabled)++enables;else ++disables;input.charge_enabled=enabled;return ESP_OK;
+esp_err_t bq25896_set_charge_enable_for_profile(bool enabled, power_profile_charge_t profile) {
+ assert(power_profile_charge_min_mv(profile)>0);
+ if (fail_control) return ESP_FAIL;
+ if(enabled)++enables;else ++disables;
+ input.charge_enabled=enabled;
+ if(enabled && drop_after_enable) {
+   input.vbat_mv=2984;input.is_recovery_required=true;
+ }
+ return ESP_OK;
 }
-esp_err_t bq25896_stop_charge(void) {++disables;return ESP_OK;}
+esp_err_t bq25896_stop_charge(void) {++disables;input.charge_enabled=false;return ESP_OK;}
 esp_err_t bq25896_reapply_runtime_config(void) {return ESP_OK;}
 bool bq25896_is_present(void) {return true;}
 void led_set_power_state(led_power_state_t state) {power_state=state;}
@@ -92,11 +100,40 @@ int main(void) {
  for (uint32_t i=0;battery_service_profile_at(i);++i) {
    assert(battery_service_set_profile(battery_service_profile_at(i)->id)==ESP_OK);
    poll();assert(s_snap.valid && s_snap.present && s_snap.vbus_present && s_snap.soc==0 && s_snap.is_soc_estimated);
-   assert(s_charge.current_valid && !s_charge.gauge_valid && !enables);
-   assert(!input.charge_enabled && power_state==LED_POWER_BLOCKED);
-   assert(!strcmp(s_charge.status,"Battery voltage too low"));
+   assert(s_charge.current_valid && !s_charge.gauge_valid);
+   if (!strcmp(battery_service_profile_get()->id,"knlypow_604858")) {
+     assert(input.charge_enabled && enables==1);
+     assert(!strcmp(s_charge.status,"Charge enabled - waiting"));
+   } else {
+     assert(!input.charge_enabled && !enables && power_state==LED_POWER_BLOCKED);
+     assert(!strcmp(s_charge.status,"Battery voltage too low"));
+   }
  }
  assert(battery_service_set_profile("generic_2450")==ESP_OK);
+ poll();assert(!input.charge_enabled && disables==1);
+ assert(battery_service_set_profile("knlypow_604858")==ESP_OK);
+ input.vbat_mv=3000;poll();assert(!input.charge_enabled);
+ assert(!strcmp(s_charge.status,"Low cell: recovery unsupported"));
+ input.vbat_mv=3024;input.is_recovery_required=true;poll();assert(!input.charge_enabled);
+ assert(!strcmp(s_charge.status,"Low cell: recovery unsupported"));
+ assert(battery_service_request_charge(false)==ESP_OK);poll();
+ assert(battery_service_request_charge(true)==ESP_OK);poll();assert(!input.charge_enabled);
+ assert(battery_service_set_profile("generic_2000")==ESP_OK);
+ input.vbat_mv=3700;poll();assert(!input.charge_enabled);
+ input.is_recovery_required=false; // A new boot in the driver fixture, not a runtime reset API.
+ assert(battery_service_set_profile("knlypow_604858")==ESP_OK);
+ input.vbat_mv=3024;drop_after_enable=true;poll();
+ assert(!input.charge_enabled && s_charge.valid && input.is_recovery_required);
+ assert(!strcmp(s_charge.status,"Low cell: recovery unsupported"));
+ drop_after_enable=false;input.is_recovery_required=false;input.vbat_mv=3024;
+ fail_control=true;poll();assert(!s_charge.valid && !input.charge_enabled);
+ assert(!strcmp(s_charge.status,"Charge control failed"));
+ fail_control=false;poll();assert(s_charge.valid && input.charge_enabled);
+ assert(battery_service_request_charge(false)==ESP_OK);poll();
+ assert(!input.charge_enabled && !strcmp(s_charge.status,"Charging paused"));
+ assert(battery_service_request_charge(true)==ESP_OK);poll();assert(input.charge_enabled);
+ assert(battery_service_set_profile("generic_2450")==ESP_OK);poll();assert(!input.charge_enabled);
+ enables=disables=0;
  input.vbat_mv=3600;gauge.voltage_mv=3600;input.charging=true;input.chg=CHARGE_STATUS_FAST_CHARGE;
  poll();assert(enables==1 && s_snap.charging && s_snap.soc==40 && s_snap.is_soc_estimated);
  assert(power_state==LED_POWER_CHARGING);

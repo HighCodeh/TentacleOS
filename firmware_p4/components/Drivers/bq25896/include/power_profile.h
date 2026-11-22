@@ -54,6 +54,27 @@ extern "C" {
 #define POWER_PROFILE_BQ_VOLTAGE_STEP_MV    16U
 #define POWER_PROFILE_BQ_TERMINATION_MIN_MA 64U
 
+#define POWER_PROFILE_GUARDED_CHARGE_MIN_MV 3200U
+#define POWER_PROFILE_604858_CHARGE_MIN_MV  (POWER_PROFILE_CUTOFF_MV + 1U)
+
+typedef enum {
+  POWER_PROFILE_CHARGE_GUARDED = 0,
+  POWER_PROFILE_CHARGE_604858,
+  POWER_PROFILE_CHARGE_COUNT,
+} power_profile_charge_t;
+
+/* The 604858 specification permits normal charging above 3.0 V, not recovery. */
+static inline uint16_t power_profile_charge_min_mv(power_profile_charge_t profile) {
+  switch (profile) {
+    case POWER_PROFILE_CHARGE_GUARDED:
+      return POWER_PROFILE_GUARDED_CHARGE_MIN_MV;
+    case POWER_PROFILE_CHARGE_604858:
+      return POWER_PROFILE_604858_CHARGE_MIN_MV;
+    default:
+      return 0;
+  }
+}
+
 static inline uint16_t power_profile_charge_current_ma(uint16_t requested_ma) {
   uint16_t limited = requested_ma > POWER_PROFILE_CHARGE_STANDARD_MA
                          ? POWER_PROFILE_CHARGE_STANDARD_MA

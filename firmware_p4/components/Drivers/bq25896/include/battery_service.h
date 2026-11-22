@@ -34,6 +34,7 @@ typedef struct {
   uint16_t capacity_mah;
   uint16_t nominal_mv;
   uint16_t specified_recovery_ma; ///< Zero means no manufacturer value is available.
+  power_profile_charge_t charge_profile;
 } battery_service_profile_t;
 
 /**
@@ -60,7 +61,7 @@ typedef struct {
  */
 void battery_service_init(void);
 
-/** Immutable catalog; all entries retain the existing guarded charger policy. */
+/** Immutable catalog; only the confirmed 604858 permits normal charge below 3.2 V. */
 const battery_service_profile_t *battery_service_profile_at(uint32_t index);
 const battery_service_profile_t *battery_service_profile_find(const char *id);
 const battery_service_profile_t *battery_service_profile_get(void);

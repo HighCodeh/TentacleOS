@@ -49,8 +49,9 @@ static void show_profile(const battery_service_profile_t *profile) {
   else
     ESP_LOGI(TAG, "Cell recovery specification unavailable");
   ESP_LOGI(TAG,
-           "Charge policy retained: 3200-4200 mV, <=384 mA / 4176 mV; low-cell recovery "
-           "unavailable; gauge unqualified");
+           "Charge policy: %u-4200 mV, <=384 mA / 4176 mV; low-cell recovery "
+           "unavailable; gauge unqualified",
+           power_profile_charge_min_mv(profile->charge_profile));
 }
 
 static int profile_command(int argc, char **argv) {

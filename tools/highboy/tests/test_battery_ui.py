@@ -92,8 +92,11 @@ int main(void){
  snap=(battery_snapshot_t){.soc=-1,.vbat_mv=3004,.present=true,.vbus_present=true};
  ch=(battery_charge_snapshot_t){.requested=true,.current_valid=true,.status="Battery voltage too low",.charger={3004,true,5100}};
  refresh_cb(NULL);assert(!strcmp(s_pct->text,"3.00 V"));
- assert(strstr(s_reason->text,"safe recovery") && !strcmp(s_state->text,"Not charging"));
+ assert(!strcmp(s_reason->text,"Battery voltage too low") && !strcmp(s_state->text,"Not charging"));
  assert(!strcmp(s_current->text,"+0 mA") && !strcmp(s_caption->text,"Percentage unavailable"));
+ ch.status="Low cell: recovery unsupported";refresh_cb(NULL);
+ assert(!strcmp(s_reason->text,ch.status));
+ ch.status="Charge enabled - waiting";refresh_cb(NULL);assert(!strcmp(s_reason->text,ch.status));
  snap.charging=true;snap.vbat_mv=3600;ch.charger.vbat_mv=3600;ch.status="Charging";ch.battery_current_ma=350;
  refresh_cb(NULL);assert(!strcmp(s_state->text,"Charging") && !strcmp(s_pct->text,"3.60 V"));
  snap.soc=45;refresh_cb(NULL);assert(!strcmp(s_pct->text,"45%") && !strcmp(s_caption->text,"State of charge"));

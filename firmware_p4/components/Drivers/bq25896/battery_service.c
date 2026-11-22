@@ -67,13 +67,24 @@ static battery_charge_snapshot_t s_charge;
 static bool s_charge_requested = true;
 static SemaphoreHandle_t s_charge_control;
 static const battery_service_profile_t BATTERY_PROFILES[] = {
-    {BATTERY_SERVICE_DEFAULT_PROFILE, "Generic", POWER_PROFILE_CAPACITY_MAH, PACK_NOMINAL_MV, 0},
-    {"generic_2000", "Generic", POWER_PROFILE_CAPACITY_SMALL_MAH, PACK_NOMINAL_MV, 0},
+    {BATTERY_SERVICE_DEFAULT_PROFILE,
+     "Generic",
+     POWER_PROFILE_CAPACITY_MAH,
+     PACK_NOMINAL_MV,
+     0,
+     POWER_PROFILE_CHARGE_GUARDED},
+    {"generic_2000",
+     "Generic",
+     POWER_PROFILE_CAPACITY_SMALL_MAH,
+     PACK_NOMINAL_MV,
+     0,
+     POWER_PROFILE_CHARGE_GUARDED},
     {"knlypow_604858",
      "KNLYPOW 604858",
      POWER_PROFILE_CAPACITY_SMALL_MAH,
      PACK_NOMINAL_MV,
-     PACK_604858_RECOVERY_MA},
+     PACK_604858_RECOVERY_MA,
+     POWER_PROFILE_CHARGE_604858},
 };
 #define BATTERY_PROFILES_COUNT (sizeof(BATTERY_PROFILES) / sizeof(BATTERY_PROFILES[0]))
 static atomic_uint_least32_t s_profile_index;
@@ -131,14 +142,19 @@ esp_err_t battery_service_request_charge(bool enable) {
 }
 
 #ifdef CONFIG_HIGHBOY_BOARD_V203
-static const char *charge_block_reason(const bq25896_telem_t *t) {
+static const char *charge_block_reason(const bq25896_telem_t *t, power_profile_charge_t profile) {
   if (!t->adc_valid)
     return "Battery reading unavailable";
   if (!t->power_good)
     return "Connect USB to charge";
   if (t->vbat_mv <= 2304)
     return "Battery not detected";
-  if (t->vbat_mv < 3200)
+  if (t->is_recovery_required || t->vbat_mv <= POWER_PROFILE_CUTOFF_MV)
+    return "Low cell: recovery unsupported";
+  uint16_t minimum_mv = power_profile_charge_min_mv(profile);
+  if (minimum_mv == 0)
+    return "Battery profile invalid";
+  if (t->vbat_mv < minimum_mv)
     return "Battery voltage too low";
   if (t->vbat_mv > 4200)
     return "Battery voltage too high";
@@ -169,12 +185,21 @@ static void battery_pack_task(void *arg) {
     esp_err_t error = bq25896_read_telemetry(&next.charger);
     if (error == ESP_OK) {
       next.valid = true;
-      const char *blocked = charge_block_reason(&next.charger);
+      power_profile_charge_t profile = battery_service_profile_get()->charge_profile;
+      const char *blocked = charge_block_reason(&next.charger, profile);
       bool desired = requested && blocked == NULL;
       if (next.charger.charge_enabled != desired) {
-        error = bq25896_set_charge_enable(desired);
+        error = bq25896_set_charge_enable_for_profile(desired, profile);
         if (error == ESP_OK)
           error = bq25896_read_telemetry(&next.charger);
+        if (error == ESP_OK) {
+          blocked = charge_block_reason(&next.charger, profile);
+          if (blocked != NULL && next.charger.charge_enabled) {
+            error = bq25896_stop_charge();
+            if (error == ESP_OK)
+              error = bq25896_read_telemetry(&next.charger);
+          }
+        }
       }
       if (error != ESP_OK) {
         (void)bq25896_stop_charge();

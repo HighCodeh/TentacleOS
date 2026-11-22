@@ -90,8 +90,10 @@ invalid IDs load `generic_2000` for exactly 2000 mAh, or `generic_2450` otherwis
 no model is inferred from capacity. The default is `generic_2450`.
 
 The Battery screen displays the profile but cannot edit it. Profile selection
-changes no gauge or charger registers; all catalog entries retain the existing
-charge guard until model-specific recovery is qualified. See the canonical
+changes no gauge model or charger current/voltage limits. The worker applies
+the selected voltage boundary on its next poll: the confirmed 604858 permits
+normal charging above 3000 mV, while generic profiles retain 3200 mV.
+Overdischarge recovery remains unsupported. See the canonical
 [catalog and charge policy](../bq25896/README.md).
 
 ### Bluetooth boot preference

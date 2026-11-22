@@ -100,9 +100,6 @@ static void refresh_cb(lv_timer_t *timer) {
   else
     lv_label_set_text(s_current, "Unavailable");
   const char *reason = charge_valid && charge.status ? charge.status : "Battery data unavailable";
-  if (charge_valid && charge.charger.vbat_mv > 2304 && charge.charger.vbat_mv < 3200 &&
-      charge.charger.power_good)
-    reason = "Battery too low for safe recovery";
   if (present && (battery.charging || battery.chg == CHARGE_STATUS_CHARGE_DONE ||
                   !battery.vbus_present || (charge_valid && !charge.requested))) {
     if (known)

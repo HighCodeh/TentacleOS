@@ -596,7 +596,10 @@ The footer names the actual Pause/Resume action; the card shows the actual charg
 state and blocked reason. The active model and nominal capacity are read-only;
 LEFT/RIGHT does not change the battery profile. Use `battery profiles` and
 `battery profile <id>` in the P4 console to select and persist a catalog entry.
-The next refresh displays the selected profile. This does not recalibrate the
+The next refresh displays the selected profile. Block reasons come from the
+service; the screen does not impose its own 3200 mV rule. Selecting the confirmed
+604858 allows normal charging above 3000 mV; generic profiles retain 3200 mV.
+This does not recalibrate the
 voltage curve or gauge, or enable low-cell recovery. Power uses the same cached,
 filtered value and queues charge requests through the service. Entering Power
 does not initialize the charger or perform ADC conversions in LVGL. Its explicit
