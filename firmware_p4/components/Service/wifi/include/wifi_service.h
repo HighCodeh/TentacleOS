@@ -61,10 +61,11 @@ void wifi_service_change_to_hotspot(const char *new_ssid);
  * @brief Connect to an access point.
  *
  * @param ssid      Target network SSID.
- * @param password  Network password, or NULL for open networks.
+ * @param password  NULL to reuse saved credentials; empty string for an open network.
  * @return
- *   - ESP_OK on success
- *   - ESP_ERR_INVALID_ARG if ssid is NULL
+ *   - ESP_OK when the connection request is accepted
+ *   - ESP_ERR_NOT_FOUND if saved credentials were requested but are absent
+ *   - ESP_ERR_INVALID_ARG for invalid SSID/password lengths
  */
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password);
 

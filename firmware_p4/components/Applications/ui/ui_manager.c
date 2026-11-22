@@ -444,6 +444,8 @@ typedef void (*ui_close_fn_t)(void);
 
 static ui_close_fn_t screen_close_fn(screen_id_t s) {
   switch (s) {
+    case SCREEN_CONNECT_WIFI:
+      return ui_connect_wifi_close;
     case SCREEN_WIFI_SETTINGS:
     case SCREEN_BLUETOOTH_SETTINGS:
       return ui_connection_radio_close;

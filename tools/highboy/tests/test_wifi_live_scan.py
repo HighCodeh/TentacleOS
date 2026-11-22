@@ -169,6 +169,7 @@ C5_TEST = r"""
 #define pdTRUE 1
 typedef int wifi_band_mode_t;
 typedef struct {
+ uint8_t channel;
  bool show_hidden;
  int scan_type;
  struct { struct { uint32_t min, max; } active; uint32_t passive; } scan_time;
@@ -180,15 +181,19 @@ static void *s_hopper_task_handle;
 static uint16_t s_stored_ap_count;
 static wifi_ap_record_t s_stored_aps[WIFI_SCAN_LIST_SIZE];
 static bool mutex_allowed=true;
-static int releases, band=2, driver_error, result_error;
+static int releases, band=2, driver_error, result_error, band_sets, fail_band_call;
+static bool fail_start;
 static wifi_scan_config_t observed;
 static int xSemaphoreTake(void *m, int timeout) { (void)m;(void)timeout;return mutex_allowed; }
 static void xSemaphoreGive(void *m) { assert(m);releases++; }
-static void wifi_service_start(void) { s_is_active=true; }
+static void wifi_service_start(void) { s_is_active=!fail_start; }
 static int esp_wifi_get_band_mode(int *out) { *out=band;return ESP_OK; }
-static int esp_wifi_set_band_mode(int value) { band=value;return ESP_OK; }
+static int esp_wifi_set_band_mode(int value) {
+ if(++band_sets==fail_band_call)return ESP_ERR_INVALID_STATE;
+ band=value;return ESP_OK;
+}
 static int esp_wifi_scan_start(const wifi_scan_config_t *config, bool block) {
- assert(block); observed=*config; return driver_error;
+ assert(block && band==WIFI_BAND_MODE_AUTO); observed=*config; return driver_error;
 }
 static int esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records) {
  assert(*count==WIFI_SCAN_LIST_SIZE && records==s_stored_aps);
@@ -199,18 +204,39 @@ static void esp_wifi_clear_ap_list(void) {}
 int main(void) {
  assert(wifi_service_scan_step(0)==ESP_OK && band==2 && releases==1);
  assert(s_stored_ap_count==2 && observed.scan_type==WIFI_SCAN_TYPE_ACTIVE);
- assert(observed.show_hidden && observed.channel_bitmap.ghz_2_channels==2);
- assert(observed.channel_bitmap.ghz_5_channels==1 && observed.scan_time.active.max==120);
+ assert(observed.show_hidden && observed.channel==1 && observed.scan_time.active.max==120);
+ assert(observed.channel_bitmap.ghz_2_channels==0 && observed.channel_bitmap.ghz_5_channels==0);
  assert(wifi_service_scan_step(14)==ESP_OK && band==2);
  assert(observed.scan_type==WIFI_SCAN_TYPE_PASSIVE && observed.scan_time.passive==120);
- assert(observed.channel_bitmap.ghz_2_channels==1 && observed.channel_bitmap.ghz_5_channels==2);
- assert(wifi_service_scan_step(41)==ESP_OK && observed.channel_bitmap.ghz_5_channels==(1u<<28));
+ assert(observed.channel==36);
+ assert(observed.channel_bitmap.ghz_2_channels==0 && observed.channel_bitmap.ghz_5_channels==0);
+ assert(wifi_service_scan_step(41)==ESP_OK && observed.channel==177);
+ const uint8_t expected[]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,36,40,44,48,52,56,60,64,
+  100,104,108,112,116,120,124,128,132,136,140,144,149,153,157,161,165,169,173,177};
+ for(unsigned i=0;i<sizeof(expected);++i){
+  assert(wifi_service_scan_step(i)==ESP_OK && observed.channel==expected[i]);
+  assert(observed.scan_type==(i<14?WIFI_SCAN_TYPE_ACTIVE:WIFI_SCAN_TYPE_PASSIVE));
+ }
+ band=WIFI_BAND_MODE_AUTO;int before=band_sets;
+ assert(wifi_service_scan_step(0)==ESP_OK && band_sets==before);
+ band=2;
  assert(wifi_service_scan_step(42)==ESP_ERR_INVALID_ARG);
  driver_error=ESP_ERR_TIMEOUT;
  assert(wifi_service_scan_step(0)==ESP_ERR_TIMEOUT && band==2 && s_stored_ap_count==0);
  driver_error=0;result_error=ESP_ERR_INVALID_STATE;
  assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE && s_stored_ap_count==0);
- result_error=0;s_promiscuous_active=true;
+ result_error=0;
+ fail_band_call=band_sets+1;
+ assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE && s_stored_ap_count==0 && band==2);
+ fail_band_call=band_sets+2;
+ assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE && band==WIFI_BAND_MODE_AUTO && s_stored_ap_count==0);
+ fail_band_call=0;band=2;
+ s_is_active=false;fail_start=true;
+ before=band_sets;
+ assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE && band_sets==before);
+ fail_start=false;
+ assert(wifi_service_scan_step(0)==ESP_OK && s_is_active);
+ s_promiscuous_active=true;
  assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE && band==2);
  s_promiscuous_active=false;s_hopper_task_handle=(void*)1;
  assert(wifi_service_scan_step(0)==ESP_ERR_INVALID_STATE);
@@ -250,4 +276,4 @@ static inline uint16_t esp_rom_crc16_le(uint16_t crc, const uint8_t *p, uint32_t
                     "-I" + str(ROOT / "firmware_c5/components/Service/spi_bridge/include"),
                     str(path / "c5_test.c"), "-o", str(path / "c5_test")], check=True)
     subprocess.run([str(path / "c5_test")], check=True)
-    print("C5 channel scans: bitmap/band, passive 5 GHz, restore, errors and ownership passed")
+    print("C5 channel scans: all 42 channels, passive 5 GHz, no bypass bitmap, band/start failures and restore passed")

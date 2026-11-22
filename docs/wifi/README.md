@@ -36,7 +36,12 @@ a previously discovered SSID. At capacity, existing records still update. A
 stopped snapshot is saved through the existing SD-only AP JSON persistence path.
 
 C5 scans one channel per asynchronous request with 120 ms dwell: active on 2.4 GHz,
-passive on 5 GHz, subject to the driver's country/channel restrictions. The paired
+passive on 5 GHz, subject to the driver's country/channel restrictions. Each slot
+sets the SDK's explicit `channel` field, with no band-bypass bitmap. This avoids
+the misleading per-channel "skip all 5G channels" warnings in AUTO mode without
+switching the radio to a single-band mode for each scan. The original band mode
+is restored if it had to be changed, and failed scans never expose stale results.
+The paired
 v2 SPI headers add Wi-Fi operations `0x56` (start slot), `0x57` (busy/error/count)
 and `0x58` (indexed, 42-byte `spi_wifi_scan_record_t`). C5 keeps a dedicated
 compact completed-channel snapshot containing SSID, BSSID, RSSI, channel and
@@ -59,8 +64,9 @@ cannot enable progressive discovery on an older C5. No flash is performed by
 building either target.
 
 Validation: `python3 tools/highboy/tests/test_wifi_live_scan.py` runs the production
-P4 worker and C5 channel function with host mocks and sanitizers, including stop,
-reentry, malformed replies, capacity, deduplication, statistics and band restore.
+P4 worker and C5 channel function with host mocks and sanitizers, including all
+42 slot/channel mappings, stop, reentry, malformed replies, capacity,
+deduplication, statistics, startup failure and band restore.
 On hardware, check each screen in both orientations: APs arrive while scanning,
 BACK retains selectable results, another BACK exits, and repeated entry/exit
 leaves no scanner running. Verify both bands and connection after stopping.
@@ -167,9 +173,37 @@ network) is replaced with the placeholder `[rede oculta]`.
 ```c
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password);
 ```
-Packs the SSID/password into `spi_wifi_connect_t` and forwards
-`SPI_ID_WIFI_CONNECT` to the C5. The C5 performs the actual join and known-network
-persistence.
+Forwards `SPI_ID_WIFI_CONNECT` to C5. A `NULL` password sends only the
+32-byte SSID field to request saved credentials; `ESP_ERR_NOT_FOUND` means none
+are available. An explicit password sends the full 96-byte `spi_wifi_connect_t`;
+an empty string explicitly selects an open network. Both sides validate lengths,
+including full 32-byte SSIDs and 64-byte PSKs. Credentials remain on C5; the
+lookup never returns the saved password to P4.
+
+Connect to network tries saved credentials when selecting a secured AP and opens
+the keyboard only when absent. A failed attempt offers **Password** to replace
+changed credentials. Success requires the selected SSID and a nonzero IP, rather
+than an old cached connected flag. The footer shows connection progress; Back
+cancels the local wait and closes its timer, without disconnecting an accepted
+radio connection. Completion is synchronized and cannot open a keyboard or modal
+after leaving/re-entering the screen. Only one connection worker can run at once.
+Turning the radio off does not forget saved networks; selecting the network after
+turning it on reuses the password. This does not add unsolicited boot-time joins.
+
+`test_wifi_saved_networks.py` executes production proxy, dispatcher, C5 persistence
+and UI connection functions with SDK/storage fakes and ASan/UBSan. It covers
+radio-restart credential reuse, explicit open networks, failed password replacement,
+read/write failures, malformed request lengths, timeout, cancellation and late
+completion. `test_wifi_saved_ui.py` adds real host LVGL scanner replacement, timer
+reuse/failure, themes and both orientations. These are host checks, not RF tests.
+Update both P4 and C5 apps for the saved-credential request/status semantics;
+existing known-network JSON files need no migration. App-only updates preserve
+those files; flashing the C5 assets image replaces that filesystem with the
+packaged zero-byte `know_networks.json` placeholder. A first lookup treats that
+empty file as no saved networks. After a successful connection, the writer
+replaces it with JSON; subsequent loads use the C5 asset loader's terminating
+NUL without changing the on-disk format. `test_wifi_saved_networks.py` now uses
+the production asset loader for its credential readback checks.
 
 #### `wifi_service_is_connected`
 ```c
@@ -275,10 +309,25 @@ hopping, and JSON config persistence directly on the esp-idf Wi-Fi driver.
 ```c
 void wifi_service_init(void);
 ```
-Initializes the Wi-Fi stack in `APSTA` mode: NVS (erase if needed), default event
+Initializes the Wi-Fi stack in `APSTA` mode: NVS (preserved on failure), default event
 loop + handlers, AP config load (defaults `Darth Maul` / `MyPassword123`), static
 IP and DHCP server. If the loaded config has `enabled == false`, the driver is
 initialized but the radio is **not** started.
+
+Before the radio starts, STA and SoftAP are configured for 20 MHz on both bands,
+then for b/g/n/ax on 2.4 GHz and a/n/ac/ax on 5 GHz. The bandwidth is set first
+to prevent a retained HT40 configuration from downgrading the PHY to 11n.
+Automatic dual-band selection is applied only after `esp_wifi_start()` succeeds;
+the SDK rejects it while stopped. Normal starts, hotspot changes and settings
+rollback use the same checked start helper. A band-configuration failure stops
+the newly started radio; if that cleanup fails, active state remains set and
+the error is reported. No Wi-Fi log level is lowered to hide errors.
+
+`python3 tools/highboy/tests/test_wifi_radio_startup.py` exercises actual init/start
+functions with SDK fakes: retained HT40, enabled/disabled boot, repeated start,
+restart, configuration failures and failed cleanup. AP settings rollback is
+covered by `tools/bluetooth/test_connection_backend.py`. These are host checks;
+both-band discovery and connection stability still require physical validation.
 
 #### `wifi_service_deinit`
 ```c
@@ -339,8 +388,42 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password);
 Connects (as STA) to an external AP.
 - Auth mode chosen by password presence (WPA2_PSK or OPEN).
 - Disconnects any existing connection first.
-- **Persistence:** saves SSID/password to `WIFI_KNOWN_NETWORKS_FILE`, updating the
-  password if the network already exists.
+- **Persistence:** saves the active STA SSID/password to `WIFI_KNOWN_NETWORKS_FILE`
+  only after `IP_EVENT_STA_GOT_IP`. Failed attempts do not overwrite the previous
+  credentials. Identical credentials are not rewritten on each DHCP event.
+  The event callback copies a bounded credential snapshot to a nonblocking FIFO;
+  the `wifi_save` task performs JSON, file I/O and save-result logging. No file
+  access runs on the small default `sys_evt` stack. The copy remains valid if
+  the radio stops or a different connection is requested before the write.
+- A `NULL` password loads a saved entry and returns `ESP_ERR_NOT_FOUND` before
+  changing the radio if absent. An empty string explicitly joins an open network.
+- JSON allocation, parse and write failures are logged without claiming a save;
+  an unreadable existing file is retained. File writes use the storage service's
+  checked temporary-file replacement.
+
+The writer is initialized before registering Wi-Fi events and retried before a
+connection request if allocation previously failed. It owns four PSRAM queue
+slots for the boot lifetime, with an internal queue control block and an 8 KiB
+internal task stack. Flash writes can disable cache, so this stack deliberately
+uses internal RAM; see [ESP-IDF's C5 external-RAM restrictions](https://docs.espressif.com/projects/esp-idf/en/v6.1.1/esp32c5/api-guides/external-ram.html).
+It blocks on the queue at `SYS_PRIO_BACKGROUND` / `SYS_CORE_MAIN`, with no
+periodic polling or power lease. Radio stop/deinit retains this storage worker
+so accepted saves can finish; reinitialization reuses it. Failed initialization
+unwinds resources and rejects new connection requests until a retry succeeds.
+A full queue logs a save error and leaves the connection and accepted entries
+intact; a subsequent IP event can retry. Persistence is asynchronous: wait for
+`Known network saved` before resetting if retaining a new credential matters.
+
+`test_wifi_saved_networks.py` asserts that storage never runs in the IP callback,
+and checks queue saturation, immutable snapshots, FIFO writes, DHCP duplicate
+suppression, allocation/task failures and retry. These host tests do not measure
+FreeRTOS stack high-water marks. The original on-device failure was a `sys_evt`
+stack protection fault immediately after obtaining IP; repeat connection,
+radio off/on and saved-credential reuse on hardware to validate the correction.
+The pinned C5 compiler's `-fstack-usage` check reports 32-byte and 304-byte local
+frames for `event_handler` and `queue_known_network` respectively. Those figures
+exclude callees and are not runtime stack margins. This correction changes only
+the C5 application; the existing paired protocol and stored files are unchanged.
 
 #### `wifi_service_is_connected`
 ```c

@@ -26,6 +26,7 @@
 #include "st7789.h"
 
 #include "keyboard_ui.h"
+#include "led_control.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -44,8 +45,13 @@ static const char *TAG = "CONNECT_WIFI_UI";
 #define CONNECT_POLL_MS      250
 #define CONNECT_TIMEOUT_MS   20000
 
-#define CONNECT_STATE_FAILED    0
-#define CONNECT_STATE_CONNECTED 1
+#define CONNECT_STATE_IDLE      0
+#define CONNECT_STATE_FAILED    1
+#define CONNECT_STATE_CONNECTED 2
+#define CONNECT_STATE_PASSWORD  3
+#define WIFI_SSID_BYTES         32
+#define WIFI_PASSWORD_BYTES     64
+#define JOIN_HINT               "UP/DOWN pick | LEFT/RIGHT page | OK join"
 
 #define SCAN_WAVES_Y_OFS   -6
 #define SCAN_CAPTION_Y_OFS 78
@@ -94,8 +100,14 @@ static ap_entry_t s_aps[WIFI_MAX_APS];
 static int s_sel = 0;
 static lv_obj_t *s_row[WIFI_MAX_APS];
 
-static char s_connect_ssid[33];
-static char s_connect_pass[64];
+static char s_connect_ssid[WIFI_SSID_BYTES + 1];
+static char s_connect_pass[WIFI_PASSWORD_BYTES + 1];
+static bool s_use_saved_password;
+static bool s_is_secured;
+static bool s_connect_cancelled;
+static portMUX_TYPE s_connect_lock = portMUX_INITIALIZER_UNLOCKED;
+static lv_timer_t *s_connect_timer;
+static lv_obj_t *s_join_footer;
 static bool s_connecting = false;
 static uint8_t s_connect_state = 0;
 static uint8_t s_connect_ip[4] = {0};
@@ -112,67 +124,132 @@ static int signal_level(int8_t rssi) {
   return 0;
 }
 
-static void connect_done_cb(void *unused) {
-  (void)unused;
-  if (ui_current_screen() != SCREEN_CONNECT_WIFI)
+static void on_keyboard_submit(const char *text, void *user_data);
+
+static bool connection_busy(void) {
+  portENTER_CRITICAL(&s_connect_lock);
+  bool is_busy = s_connecting;
+  portEXIT_CRITICAL(&s_connect_lock);
+  return is_busy;
+}
+
+static bool connection_cancelled(void) {
+  portENTER_CRITICAL(&s_connect_lock);
+  bool is_cancelled = s_connect_cancelled;
+  portEXIT_CRITICAL(&s_connect_lock);
+  return is_cancelled;
+}
+
+static void edit_password(bool confirm) {
+  if (!confirm || ui_current_screen() != SCREEN_CONNECT_WIFI)
     return;
-  if (s_connect_state == CONNECT_STATE_CONNECTED) {
+  keyboard_open_config(&(keyboard_config_t){.title = "Wi-Fi password",
+                                            .initial = NULL,
+                                            .max_chars = WIFI_PASSWORD_BYTES,
+                                            .min_chars = 1,
+                                            .mode = KEYBOARD_PASSWORD},
+                       on_keyboard_submit,
+                       NULL);
+}
+
+static void connect_done_cb(lv_timer_t *timer) {
+  (void)timer;
+  uint8_t ip[sizeof(s_connect_ip)];
+  portENTER_CRITICAL(&s_connect_lock);
+  uint8_t state = s_connect_state;
+  s_connect_state = CONNECT_STATE_IDLE;
+  memcpy(ip, s_connect_ip, sizeof(ip));
+  portEXIT_CRITICAL(&s_connect_lock);
+  if (state == CONNECT_STATE_IDLE || ui_current_screen() != SCREEN_CONNECT_WIFI)
+    return;
+
+  if (s_join_footer != NULL)
+    ui_chrome_footer_set_text(s_join_footer, JOIN_HINT);
+  if (state == CONNECT_STATE_PASSWORD) {
+    edit_password(true);
+  } else if (state == CONNECT_STATE_CONNECTED) {
     char msg[48];
-    snprintf(msg,
-             sizeof(msg),
-             "CONNECTED\n%u.%u.%u.%u",
-             s_connect_ip[0],
-             s_connect_ip[1],
-             s_connect_ip[2],
-             s_connect_ip[3]);
+    snprintf(msg, sizeof(msg), "CONNECTED\n%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    ESP_LOGI(TAG, "Wi-Fi connected");
+    led_signal_info();
     msgbox_open(LV_SYMBOL_OK, msg, "OK", NULL, NULL);
   } else {
-    msgbox_open(LV_SYMBOL_CLOSE, "CONNECT FAILED\nwrong pass / range?", "OK", NULL, NULL);
+    ESP_LOGW(TAG, "Wi-Fi connection failed");
+    led_signal_warning();
+    msgbox_open(LV_SYMBOL_CLOSE,
+                "CONNECT FAILED\nCheck network or password",
+                s_is_secured ? "Password" : "OK",
+                s_is_secured ? "Back" : NULL,
+                s_is_secured ? edit_password : NULL);
   }
 }
 
 static void wifi_connect_task(void *arg) {
   (void)arg;
-
-  esp_err_t err = wifi_service_connect_to_ap(s_connect_ssid, s_connect_pass);
-  uint32_t waited = 0;
-  while (err == ESP_OK && !wifi_service_is_connected() && waited < CONNECT_TIMEOUT_MS) {
-    vTaskDelay(pdMS_TO_TICKS(CONNECT_POLL_MS));
-    waited += CONNECT_POLL_MS;
-  }
-
-  if (err == ESP_OK && wifi_service_is_connected()) {
-    s_connect_state = CONNECT_STATE_CONNECTED;
-    if (wifi_service_get_ip(0, s_connect_ip) != ESP_OK)
-      memset(s_connect_ip, 0, sizeof(s_connect_ip));
+  uint8_t ip[sizeof(s_connect_ip)] = {0};
+  uint8_t state = CONNECT_STATE_FAILED;
+  esp_err_t err =
+      wifi_service_connect_to_ap(s_connect_ssid, s_use_saved_password ? NULL : s_connect_pass);
+  if (err == ESP_ERR_NOT_FOUND && s_use_saved_password) {
+    state = CONNECT_STATE_PASSWORD;
   } else {
-    s_connect_state = CONNECT_STATE_FAILED;
+    uint32_t waited = 0;
+    while (err == ESP_OK && !connection_cancelled() && waited < CONNECT_TIMEOUT_MS) {
+      const char *ssid = wifi_service_get_connected_ssid();
+      if (ssid != NULL && strcmp(ssid, s_connect_ssid) == 0 &&
+          wifi_service_get_ip(0, ip) == ESP_OK && (ip[0] || ip[1] || ip[2] || ip[3])) {
+        state = CONNECT_STATE_CONNECTED;
+        break;
+      }
+      vTaskDelay(pdMS_TO_TICKS(CONNECT_POLL_MS));
+      waited += CONNECT_POLL_MS;
+    }
   }
+  portENTER_CRITICAL(&s_connect_lock);
+  memset(s_connect_pass, 0, sizeof(s_connect_pass));
+  memcpy(s_connect_ip, ip, sizeof(ip));
+  s_connect_state = s_connect_cancelled ? CONNECT_STATE_IDLE : state;
   s_connecting = false;
-  ui_async_call(connect_done_cb, NULL);
+  portEXIT_CRITICAL(&s_connect_lock);
   vTaskDelete(NULL);
 }
 
 static void start_connection(const char *password) {
-  if (s_connecting || s_scanning)
+  if (connection_busy() || s_scanning || s_connect_timer == NULL)
     return;
-  strncpy(s_connect_pass, password ? password : "", sizeof(s_connect_pass) - 1);
+  s_use_saved_password = password == NULL;
+  strncpy(s_connect_pass, password != NULL ? password : "", sizeof(s_connect_pass) - 1);
   s_connect_pass[sizeof(s_connect_pass) - 1] = '\0';
+  portENTER_CRITICAL(&s_connect_lock);
+  s_connect_cancelled = false;
+  s_connect_state = CONNECT_STATE_IDLE;
   s_connecting = true;
-  ESP_LOGI(TAG, "connecting to '%s'...", s_connect_ssid);
+  portEXIT_CRITICAL(&s_connect_lock);
+  if (s_join_footer != NULL)
+    ui_chrome_footer_set_text(s_join_footer, "Connecting... | BACK return");
+  ESP_LOGI(TAG, "Connecting to '%s'", s_connect_ssid);
+  led_signal_info();
   if (xTaskCreatePinnedToCore(wifi_connect_task,
                               "wifi_conn",
                               WIFI_TASK_STACK_SIZE,
                               NULL,
                               SYS_PRIO_SERVICE_LO,
                               NULL,
-                              SYS_CORE_RADIO) != pdPASS)
+                              SYS_CORE_RADIO) != pdPASS) {
+    portENTER_CRITICAL(&s_connect_lock);
+    memset(s_connect_pass, 0, sizeof(s_connect_pass));
     s_connecting = false;
+    s_connect_state = CONNECT_STATE_FAILED;
+    portEXIT_CRITICAL(&s_connect_lock);
+    ESP_LOGE(TAG, "Failed to create Wi-Fi connection worker");
+    led_signal_error();
+  }
 }
 
 static void on_keyboard_submit(const char *text, void *user_data) {
   (void)user_data;
-  start_connection(text);
+  if (ui_current_screen() == SCREEN_CONNECT_WIFI)
+    start_connection(text);
 }
 
 static void add_sec_glyph(lv_obj_t *card, bool open) {
@@ -283,16 +360,24 @@ static void build_join_list(void) {
   }
 
   apply_net_selection();
-  ui_chrome_footer(s_screen, "UP/DOWN pick | LEFT/RIGHT page | OK join");
+  s_join_footer = ui_chrome_footer(s_screen, JOIN_HINT);
+}
+
+static void screen_deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_connect_wifi_close();
 }
 
 static void build_screen(void) {
+  s_join_footer = NULL;
   if (s_screen != NULL) {
-    lv_obj_del(s_screen);
+    lv_obj_t *old_screen = s_screen;
     s_screen = NULL;
+    lv_obj_del(old_screen);
   }
 
   s_screen = lv_obj_create(NULL);
+  lv_obj_add_event_cb(s_screen, screen_deleted, LV_EVENT_DELETE, NULL);
   lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
   lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -334,6 +419,15 @@ static void scan_done_cb(void *unused) {
   if (ui_current_screen() != SCREEN_CONNECT_WIFI)
     return;
   build_screen();
+  if (s_connect_timer == NULL)
+    s_connect_timer = lv_timer_create(connect_done_cb, CONNECT_POLL_MS, NULL);
+  if (s_connect_timer == NULL) {
+    ESP_LOGE(TAG, "Failed to create Wi-Fi connection timer");
+    led_signal_error();
+    s_scan_state = SCAN_FAIL;
+    build_screen();
+    return;
+  }
   ESP_LOGI(TAG, "scan finished: state=%d, %d AP(s)", (int)s_scan_state, s_ap_count);
 }
 
@@ -380,6 +474,8 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
   const bool join = (s_scan_state == SCAN_DONE && s_ap_count > 0);
+  if (connection_busy() && ev->button != INPUT_BTN_BACK)
+    return;
 
   switch (ev->button) {
     case INPUT_BTN_DOWN:
@@ -416,16 +512,8 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
       if (press && join && s_sel >= 0 && s_sel < s_ap_count) {
         strncpy(s_connect_ssid, s_aps[s_sel].ssid, sizeof(s_connect_ssid) - 1);
         s_connect_ssid[sizeof(s_connect_ssid) - 1] = '\0';
-        if (s_aps[s_sel].open)
-          start_connection("");
-        else
-          keyboard_open_config(&(keyboard_config_t){.title = "Wi-Fi password",
-                                                    .initial = NULL,
-                                                    .max_chars = 64,
-                                                    .min_chars = 1,
-                                                    .mode = KEYBOARD_PASSWORD},
-                               on_keyboard_submit,
-                               NULL);
+        s_is_secured = !s_aps[s_sel].open;
+        start_connection(s_is_secured ? NULL : "");
       }
       break;
     default:
@@ -433,7 +521,20 @@ static void connect_wifi_input(const input_event_t *ev, void *ctx) {
   }
 }
 
+void ui_connect_wifi_close(void) {
+  if (s_connect_timer != NULL) {
+    lv_timer_delete(s_connect_timer);
+    s_connect_timer = NULL;
+  }
+  portENTER_CRITICAL(&s_connect_lock);
+  s_connect_cancelled = true;
+  s_connect_state = CONNECT_STATE_IDLE;
+  portEXIT_CRITICAL(&s_connect_lock);
+  s_join_footer = NULL;
+}
+
 void ui_connect_wifi_open(void) {
+  ui_connect_wifi_close();
   s_scanning = false;
   s_scan_state = SCAN_RUNNING;
   s_ap_count = 0;

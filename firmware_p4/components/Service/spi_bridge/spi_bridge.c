@@ -348,6 +348,8 @@ static esp_err_t status_to_err(spi_status_t status) {
       return ESP_ERR_NOT_SUPPORTED;
     case SPI_STATUS_INVALID_ARG:
       return ESP_ERR_INVALID_ARG;
+    case SPI_STATUS_NOT_FOUND:
+      return ESP_ERR_NOT_FOUND;
     case SPI_STATUS_ERROR:
     default:
       return ESP_FAIL;

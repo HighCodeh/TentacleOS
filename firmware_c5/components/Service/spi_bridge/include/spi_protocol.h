@@ -594,7 +594,8 @@ typedef enum {
   SPI_STATUS_BUSY = 0x01,
   SPI_STATUS_ERROR = 0x02,
   SPI_STATUS_UNSUPPORTED = 0x03,
-  SPI_STATUS_INVALID_ARG = 0x04
+  SPI_STATUS_INVALID_ARG = 0x04,
+  SPI_STATUS_NOT_FOUND = 0x05
 } spi_status_t;
 
 /**
@@ -1015,6 +1016,8 @@ static inline bool spi_transport_matches(const spi_transport_header_t *header,
 
 /**
  * @brief WiFi connect request payload.
+ * Send only the SSID field to reuse saved credentials (NOT_FOUND if absent).
+ * A full payload supplies a password; an empty password explicitly joins an open network.
  */
 typedef struct {
   char ssid[32];

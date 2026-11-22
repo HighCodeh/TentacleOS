@@ -57,16 +57,18 @@ typedef struct { uint32_t addr; } ip4_t;
 typedef struct { ip4_t ip, gw, netmask; } esp_netif_ip_info_t;
 typedef int esp_netif_t;
 #define WIFI_IF_AP 1
+#define WIFI_BAND_MODE_AUTO 3
 #define WIFI_AUTH_OPEN 0
 #define WIFI_AUTH_WPA2_PSK 3
 static wifi_config_t active_config;
 static esp_netif_ip_info_t active_ip;
-static int starts, stops, set_calls, fail_set, fail_start, fail_stop, fail_json;
+static int starts, stops, set_calls, fail_set, fail_start, fail_stop, fail_json, fail_band, fail_cleanup_stop;
 static bool radio_started;
 static int esp_wifi_get_config(int interface, wifi_config_t *out) { assert(interface==1); *out=active_config; return ESP_OK; }
 static int esp_wifi_set_config(int interface, const wifi_config_t *config) { ++set_calls; if(fail_set) {fail_set=0;return ESP_FAIL;} active_config=*config; return ESP_OK; }
-static int esp_wifi_stop(void) { ++stops; if(fail_stop) {fail_stop=0;return ESP_FAIL;} radio_started=false;return ESP_OK; }
+static int esp_wifi_stop(void) { ++stops; if(fail_cleanup_stop && fail_band==0)return ESP_FAIL; if(fail_stop) {fail_stop=0;return ESP_FAIL;} radio_started=false;return ESP_OK; }
 static int esp_wifi_start(void) { ++starts; if(fail_start) {fail_start=0;return ESP_FAIL;} radio_started=true;return ESP_OK; }
+static int esp_wifi_set_band_mode(int mode) { assert(radio_started && mode==WIFI_BAND_MODE_AUTO); if(fail_band) {fail_band=0;return ESP_FAIL;} return ESP_OK; }
 static esp_netif_t *esp_netif_get_handle_from_ifkey(const char *key) { assert(!strcmp(key,"WIFI_AP_DEF")); static int netif;return &netif; }
 static int esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *out) { *out=active_ip;return ESP_OK; }
 static int esp_netif_set_ip_info(esp_netif_t *netif, const esp_netif_ip_info_t *info) { active_ip=*info;return ESP_OK; }
@@ -117,8 +119,9 @@ int main(void) {
  assert(active_config.ap.max_connection==8 && active_config.ap.authmode==WIFI_AUTH_WPA2_PSK);
  assert(!strcmp((char *)active_config.ap.password,"password") && s_is_active && radio_started);
  wifi_config_t previous=active_config;esp_netif_ip_info_t previous_ip=active_ip;
- for(unsigned failure=0;failure<4;++failure) {
+ for(unsigned failure=0;failure<5;++failure) {
   if(failure==0)fail_set=1; if(failure==1)fail_start=1; if(failure==2)io_failure=2; if(failure==3)fail_stop=1;
+  if(failure==4)fail_band=1;
   assert(wifi_service_save_ap_config("changed","",1,"192.168.5.1",true)!=ESP_OK);
   assert(!memcmp(&previous,&active_config,sizeof(previous)) && active_ip.ip.addr==previous_ip.ip.addr);
   assert(s_is_active && radio_started && !lock_taken);io_failure=0;
@@ -126,6 +129,12 @@ int main(void) {
  assert(wifi_service_save_ap_config("changed","",2,"192.168.5.1",false)==ESP_OK);
  assert(!s_is_active && !radio_started && active_config.ap.authmode==WIFI_AUTH_OPEN);
  assert(active_config.ap.password[0]==0 && active_config.ap.max_connection==2);
+ // A failed start plus failed cleanup must keep the radio marked active.
+ fail_band=fail_cleanup_stop=1;int before_sets=set_calls;
+ assert(wifi_service_save_ap_config("pending","password",2,NULL,true)==ESP_FAIL);
+ assert(s_is_active && radio_started && !lock_taken && set_calls==before_sets+1);
+ fail_cleanup_stop=0;
+ assert(wifi_service_save_ap_config("off","",2,NULL,false)==ESP_OK && !s_is_active && !radio_started);
  s_promiscuous_active=true;int count=set_calls;
  assert(wifi_service_save_ap_config("AP","password",3,NULL,true)==ESP_ERR_INVALID_STATE);assert(count==set_calls);
  char path[200];snprintf(path,sizeof(path),"%s/ap.conf",mount_point);assert(!remove(path));assert(!rmdir(mount_point));

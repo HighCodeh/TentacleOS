@@ -120,6 +120,10 @@ acquire the radio when started and release it through their close hooks.
 **Settings → Connections** contains Wi-Fi and Bluetooth submenus alongside
 USB Native. Each radio submenu holds drafts until Save & apply; name/password
 editing uses the contextual keyboard. Wi-Fi also links to Connect to network.
+That screen reuses saved Wi-Fi credentials and offers password editing after a
+failed join. Its synchronized completion timer is closed before navigation, so
+a late reply cannot open the keyboard on another screen. See
+[Wi-Fi connections](../wifi/README.md#connection--management).
 The quick panel keeps its non-radio controls. Screen close hooks release the
 keyboard/timer; a Service-owned worker completes independently after BACK.
 Progress and apply/save errors appear on screen. See

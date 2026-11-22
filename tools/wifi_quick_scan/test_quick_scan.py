@@ -159,14 +159,16 @@ esp_err_t wifi_service_capture_passive(const wifi_service_capture_config_t *, wi
             print(f"{target}: passed (ASan + UBSan)")
         service_source = (ROOT / "firmware_c5/components/Service/wifi/wifi_service.c").read_text()
         # Compile the actual scoped driver helper with failure-injecting driver shims.
-        defines = service_source.split("#define HOPPER_STACK_SIZE", 1)[1].split(
+        declarations = service_source.split("#define HOPPER_STACK_SIZE", 1)[1].split(
             "static wifi_ap_record_t", 1)[0]
+        defines = "\n".join(line for line in ("#define HOPPER_STACK_SIZE" + declarations).splitlines()
+                            if line.startswith("#define ")) + "\n"
         band_function = service_source.split("static wifi_band_mode_t band_mode_from_selector", 1)[1].split(
             "esp_err_t wifi_service_set_analysis_band", 1)[0]
         capture = service_source.split("static const uint8_t HOP_CHANNELS_2G", 1)[1].split(
             "static void channel_hopper_task(void *pvParameters) {", 1)[0]
         (stub / "wifi_capture_under_test.inc").write_text(
-            "#define HOPPER_STACK_SIZE" + defines +
+            service_source.split("#include", 1)[0] + defines +
             "static wifi_band_mode_t band_mode_from_selector" + band_function +
             "static const uint8_t HOP_CHANNELS_2G" + capture)
         binary = stub / "capture"

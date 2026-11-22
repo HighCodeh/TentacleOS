@@ -160,13 +160,16 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
 
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
   spi_wifi_connect_t cfg = {0};
-  strncpy(cfg.ssid, ssid, sizeof(cfg.ssid));
-  if (password != NULL) {
-    strncpy(cfg.password, password, sizeof(cfg.password));
-  }
+  if (ssid == NULL || ssid[0] == '\0' || strnlen(ssid, sizeof(cfg.ssid) + 1) > sizeof(cfg.ssid) ||
+      (password != NULL && strnlen(password, sizeof(cfg.password) + 1) > sizeof(cfg.password)))
+    return ESP_ERR_INVALID_ARG;
+
+  memcpy(cfg.ssid, ssid, strlen(ssid));
+  if (password != NULL)
+    memcpy(cfg.password, password, strlen(password));
   return spi_bridge_send_command(SPI_ID_WIFI_CONNECT,
                                  (uint8_t *)&cfg,
-                                 sizeof(cfg),
+                                 password == NULL ? sizeof(cfg.ssid) : sizeof(cfg),
                                  NULL,
                                  NULL,
                                  0,

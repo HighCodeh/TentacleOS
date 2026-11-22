@@ -22,6 +22,7 @@ extern "C" {
 
 /** @brief Open the Wi-Fi connection screen. */
 void ui_connect_wifi_open(void);
+void ui_connect_wifi_close(void);
 
 #ifdef __cplusplus
 }

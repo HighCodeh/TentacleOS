@@ -33,6 +33,10 @@ password editor masks its input; the list only shows a mask or Open network.
 Connect to network opens the existing AP discovery/connection screen after edits
 have been applied or discarded. The Wi-Fi name/password/client limit refer to
 the Highboy's own access point, not credentials for a selected external network.
+Selecting a known secured network reuses its saved password, including after a
+radio off/on cycle. New networks open the keyboard; failed connections offer
+password editing. Credentials are retained on C5 only after a successful join
+with an IP. See [saved-network connections](../wifi/README.md#connection--management).
 
 The BLE limit applies to the generic connectable advertiser and is bounded by
 the C5 NimBLE build limit. HID keeps its existing single-peer connection and

@@ -16,6 +16,7 @@
 #include "wifi_service.h"
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -27,6 +28,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "sys_prio.h"
@@ -102,6 +104,17 @@ static const char *TAG = "WIFI_SERVICE";
 #define CAPTURE_BAND_5G                   2
 #define CAPTURE_CHANNEL_2G_MAX            14
 #define CAPTURE_US_PER_MS                 1000
+#define KNOWN_NETWORK_QUEUE_LENGTH        4
+#define KNOWN_NETWORK_STACK_SIZE          8192
+
+typedef struct {
+  char ssid[SSID_MAX_LEN + 1];
+  char password[PASSWORD_MAX_LEN + 1];
+} wifi_service_known_network_t;
+
+static StaticQueue_t s_known_network_queue_storage;
+static _Atomic(QueueHandle_t) s_known_network_queue;
+static atomic_bool s_is_known_network_starting;
 
 static wifi_ap_record_t s_stored_aps[WIFI_SCAN_LIST_SIZE];
 static uint16_t s_stored_ap_count = 0;
@@ -162,6 +175,9 @@ static void
 event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 static void channel_hopper_task(void *pvParameters);
 static void save_known_network(const char *ssid, const char *password);
+static esp_err_t init_known_network_writer(void);
+static void known_network_writer_task(void *arg);
+static void queue_known_network(void);
 static bool get_known_network_password(const char *ssid, char *out_password, size_t buffer_size);
 static void load_ap_config(
     char *out_ssid, char *out_passwd, uint8_t *out_max_conn, char *out_ip_addr, bool *out_enabled);
@@ -170,6 +186,8 @@ static void get_config_defaults(char *out_ssid,
                                 uint8_t *out_max_conn,
                                 char *out_ip_addr,
                                 bool *out_enabled);
+static esp_err_t configure_radio(void);
+static esp_err_t start_radio(void);
 
 void wifi_service_init(void) {
   esp_err_t err;
@@ -200,15 +218,16 @@ void wifi_service_init(void) {
     ESP_ERROR_CHECK(err);
   }
 
+  err = init_known_network_writer();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Known-network writer unavailable: %s", esp_err_to_name(err));
+  }
+
   esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL);
   esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL);
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-
-  esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
-  if (band_err != ESP_OK) {
-    ESP_LOGW(TAG, "Could not enable dual-band: %s", esp_err_to_name(band_err));
-  }
+  ESP_ERROR_CHECK(configure_radio());
 
   char target_ssid[SSID_MAX_LEN + 1] = "Darth Maul";
   char target_password[PASSWORD_MAX_LEN] = "MyPassword123";
@@ -253,7 +272,7 @@ void wifi_service_init(void) {
   }
 
   if (is_enabled) {
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(start_radio());
     s_is_active = true;
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
@@ -321,7 +340,9 @@ void wifi_service_stop(void) {
 }
 
 void wifi_service_start(void) {
-  esp_err_t err = esp_wifi_start();
+  if (s_is_active)
+    return;
+  esp_err_t err = start_radio();
   if (err == ESP_OK) {
     s_is_active = true;
   } else {
@@ -339,6 +360,8 @@ void wifi_service_change_to_hotspot(const char *new_ssid) {
     led_blink_red();
     return;
   }
+  s_is_active = false;
+  s_is_connected = false;
 
   wifi_config_t new_ap_config = {
       .ap =
@@ -363,46 +386,42 @@ void wifi_service_change_to_hotspot(const char *new_ssid) {
     return;
   }
 
-  err = esp_wifi_start();
+  err = start_radio();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Wi-Fi: %s", esp_err_to_name(err));
     led_blink_red();
     return;
   }
 
+  s_is_active = true;
   ESP_LOGI(TAG, "Wi-Fi AP SSID changed to: %s (open)", new_ssid);
   led_blink_green();
 }
 
 esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
-  if (ssid == NULL) {
-    ESP_LOGE(TAG, "SSID must not be NULL");
+  if (ssid == NULL || ssid[0] == '\0' || strnlen(ssid, SSID_MAX_LEN + 1) > SSID_MAX_LEN ||
+      (password != NULL && strnlen(password, PASSWORD_MAX_LEN + 1) > PASSWORD_MAX_LEN))
     return ESP_ERR_INVALID_ARG;
+
+  char effective_password[PASSWORD_MAX_LEN + 1] = {0};
+  if (password != NULL) {
+    memcpy(effective_password, password, strlen(password));
+  } else if (!get_known_network_password(ssid, effective_password, sizeof(effective_password))) {
+    return ESP_ERR_NOT_FOUND;
+  }
+
+  esp_err_t err = init_known_network_writer();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot prepare credential saving: %s", esp_err_to_name(err));
+    return err;
   }
 
   ESP_LOGI(TAG, "Configuring Wi-Fi connection to: %s", ssid);
 
-  char effective_password[PASSWORD_MAX_LEN] = {0};
-  bool has_password = false;
-
-  if (password != NULL) {
-    strncpy(effective_password, password, sizeof(effective_password) - 1);
-    save_known_network(ssid, password);
-    has_password = true;
-  } else {
-    if (get_known_network_password(ssid, effective_password, sizeof(effective_password))) {
-      ESP_LOGI(TAG, "Found known password for %s", ssid);
-      has_password = true;
-    } else {
-      ESP_LOGI(TAG, "No known password for %s, assuming open network", ssid);
-      has_password = false;
-    }
-  }
-
   wifi_config_t wifi_config = {0};
   strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
 
-  if (has_password && strlen(effective_password) > 0) {
+  if (effective_password[0] != '\0') {
     strncpy((char *)wifi_config.sta.password, effective_password, sizeof(wifi_config.sta.password));
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
   } else {
@@ -413,8 +432,9 @@ esp_err_t wifi_service_connect_to_ap(const char *ssid, const char *password) {
   wifi_config.sta.pmf_cfg.required = false;
 
   esp_wifi_disconnect();
+  s_is_connected = false;
 
-  esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+  err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to configure STA: %s", esp_err_to_name(err));
     return err;
@@ -569,6 +589,12 @@ void wifi_service_scan_ex(uint8_t band,
 }
 
 esp_err_t wifi_service_scan_step(uint8_t slot) {
+  static const uint8_t SCAN_CHANNELS[] = {
+      1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,
+      36,  40,  44,  48,  52,  56,  60,  64,  100, 104, 108, 112, 116, 120,
+      124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 169, 173, 177,
+  };
+  _Static_assert(sizeof(SCAN_CHANNELS) == SPI_WIFI_SCAN_SLOT_COUNT, "Scan slot/channel mismatch");
   if (slot >= SPI_WIFI_SCAN_SLOT_COUNT)
     return ESP_ERR_INVALID_ARG;
   if (s_mutex == NULL)
@@ -583,26 +609,27 @@ esp_err_t wifi_service_scan_step(uint8_t slot) {
     err = ESP_ERR_INVALID_STATE;
     goto cleanup;
   }
-  if (!s_is_active)
+  if (!s_is_active) {
     wifi_service_start();
+    if (!s_is_active) {
+      err = ESP_ERR_INVALID_STATE;
+      goto cleanup;
+    }
+  }
   if ((err = esp_wifi_get_band_mode(&previous_band)) != ESP_OK)
     goto cleanup;
   has_band = true;
-  if ((err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO)) != ESP_OK)
+  if (previous_band != WIFI_BAND_MODE_AUTO &&
+      (err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO)) != ESP_OK)
     goto cleanup;
-  // Bitmap scans intersect with the driver's country policy. 5 GHz is passive,
-  // including DFS channels; never expand the regulatory channel mask.
+  // A specific channel avoids AUTO bitmap bypass warnings; IDF validates the country policy.
   wifi_scan_config_t config = {
+      .channel = SCAN_CHANNELS[slot],
       .show_hidden = true,
       .scan_type = slot < SPI_WIFI_SCAN_2G_SLOTS ? WIFI_SCAN_TYPE_ACTIVE : WIFI_SCAN_TYPE_PASSIVE,
       .scan_time = {.active = {.min = SCAN_STEP_DWELL_MS, .max = SCAN_STEP_DWELL_MS},
                     .passive = SCAN_STEP_DWELL_MS},
-      .channel_bitmap = {.ghz_2_channels = 1, .ghz_5_channels = 1},
   };
-  if (slot < SPI_WIFI_SCAN_2G_SLOTS)
-    config.channel_bitmap.ghz_2_channels = (uint16_t)(1u << (slot + 1));
-  else
-    config.channel_bitmap.ghz_5_channels = 1u << (slot - SPI_WIFI_SCAN_2G_SLOTS + 1);
   err = esp_wifi_scan_start(&config, true);
   if (err == ESP_OK) {
     uint16_t count = WIFI_SCAN_LIST_SIZE;
@@ -612,11 +639,13 @@ esp_err_t wifi_service_scan_step(uint8_t slot) {
   }
   esp_wifi_clear_ap_list();
 cleanup:
-  if (has_band) {
+  if (has_band && previous_band != WIFI_BAND_MODE_AUTO) {
     esp_err_t restore_err = esp_wifi_set_band_mode(previous_band);
     if (err == ESP_OK)
       err = restore_err;
   }
+  if (err != ESP_OK)
+    s_stored_ap_count = 0;
   xSemaphoreGive(s_mutex);
   return err;
 }
@@ -720,7 +749,7 @@ esp_err_t wifi_service_save_ap_config(
       goto rollback;
   }
   if (enabled) {
-    error = esp_wifi_start();
+    error = start_radio();
     if (error != ESP_OK)
       goto rollback;
     s_is_active = true;
@@ -732,8 +761,13 @@ esp_err_t wifi_service_save_ap_config(
   }
 rollback:
   if (has_changed) {
-    if (s_is_active)
-      (void)esp_wifi_stop();
+    if (s_is_active) {
+      esp_err_t stop_error = esp_wifi_stop();
+      if (stop_error != ESP_OK) {
+        ESP_LOGE(TAG, "AP rollback could not stop Wi-Fi: %s", esp_err_to_name(stop_error));
+        goto cleanup;
+      }
+    }
     s_is_active = false;
     esp_err_t restore_error = esp_wifi_set_config(WIFI_IF_AP, &previous_config);
     if (requested_ip.ip.addr != previous_ip.ip.addr) {
@@ -744,8 +778,9 @@ rollback:
         restore_error = ip_error;
     }
     if (was_active && restore_error == ESP_OK) {
-      restore_error = esp_wifi_start();
-      s_is_active = restore_error == ESP_OK;
+      restore_error = start_radio();
+      if (restore_error == ESP_OK)
+        s_is_active = true;
     }
     if (restore_error != ESP_OK)
       ESP_LOGE(TAG, "AP settings rollback failed: %s", esp_err_to_name(restore_error));
@@ -1342,6 +1377,7 @@ event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *ev
   } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
     ESP_LOGI(TAG, "Got IP address, Wi-Fi connected");
     s_is_connected = true;
+    queue_known_network();
   }
 }
 
@@ -1551,66 +1587,161 @@ static void channel_hopper_task(void *pvParameters) {
   }
 }
 
-static void save_known_network(const char *ssid, const char *password) {
-  if (ssid == NULL) {
-    return;
+static esp_err_t init_known_network_writer(void) {
+  if (atomic_load(&s_known_network_queue) != NULL)
+    return ESP_OK;
+  bool is_expected = false;
+  if (!atomic_compare_exchange_strong(&s_is_known_network_starting, &is_expected, true))
+    return ESP_ERR_INVALID_STATE;
+  if (atomic_load(&s_known_network_queue) != NULL) {
+    atomic_store(&s_is_known_network_starting, false);
+    return ESP_OK;
   }
 
-  if (!storage_assets_is_mounted()) {
-    storage_assets_init();
+  esp_err_t err = ESP_ERR_NO_MEM;
+  QueueHandle_t queue = NULL;
+  uint8_t *items = heap_caps_calloc(KNOWN_NETWORK_QUEUE_LENGTH,
+                                    sizeof(wifi_service_known_network_t),
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (items == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate known-network queue in PSRAM");
+    goto cleanup;
+  }
+  queue = xQueueCreateStatic(KNOWN_NETWORK_QUEUE_LENGTH,
+                             sizeof(wifi_service_known_network_t),
+                             items,
+                             &s_known_network_queue_storage);
+  if (queue == NULL) {
+    ESP_LOGE(TAG, "Failed to create known-network queue");
+    goto cleanup;
+  }
+  // Flash writes require an internal stack; the idle writer blocks on its queue.
+  if (xTaskCreatePinnedToCore(known_network_writer_task,
+                              "wifi_save",
+                              KNOWN_NETWORK_STACK_SIZE,
+                              queue,
+                              SYS_PRIO_BACKGROUND,
+                              NULL,
+                              SYS_CORE_MAIN) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create known-network writer");
+    goto cleanup;
+  }
+  // Retain the writer for this boot so radio stop/deinit can finish queued saves.
+  atomic_store(&s_known_network_queue, queue);
+  atomic_store(&s_is_known_network_starting, false);
+  return ESP_OK;
+
+cleanup:
+  if (queue != NULL)
+    vQueueDelete(queue);
+  free(items);
+  atomic_store(&s_is_known_network_starting, false);
+  return err;
+}
+
+static void known_network_writer_task(void *arg) {
+  QueueHandle_t queue = (QueueHandle_t)arg;
+  wifi_service_known_network_t network;
+  while (true) {
+    if (xQueueReceive(queue, &network, portMAX_DELAY) == pdTRUE) {
+      save_known_network(network.ssid, network.password);
+      memset(&network, 0, sizeof(network));
+    }
+  }
+}
+
+static void queue_known_network(void) {
+  QueueHandle_t queue = atomic_load(&s_known_network_queue);
+  if (queue == NULL) {
+    ESP_LOGE(TAG, "Connected, but credential writer is unavailable");
+    return;
+  }
+  wifi_config_t config;
+  esp_err_t err = esp_wifi_get_config(WIFI_IF_STA, &config);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot snapshot connected credentials: %s", esp_err_to_name(err));
+    return;
+  }
+  wifi_service_known_network_t network = {0};
+  memcpy(network.ssid, config.sta.ssid, sizeof(config.sta.ssid));
+  memcpy(network.password, config.sta.password, sizeof(config.sta.password));
+  if (xQueueSend(queue, &network, 0) != pdTRUE) {
+    ESP_LOGE(TAG, "Connected, but credential save queue is full");
+  }
+}
+
+static void save_known_network(const char *ssid, const char *password) {
+  if (ssid == NULL || ssid[0] == '\0' || password == NULL)
+    return;
+  if (!storage_assets_is_mounted() && storage_assets_init() != ESP_OK) {
+    ESP_LOGE(TAG, "Known-network storage unavailable");
+    return;
   }
 
   size_t size = 0;
   char *buffer = (char *)storage_assets_load_file(WIFI_KNOWN_NETWORKS_FILE, &size);
-  cJSON *root = NULL;
-
-  if (buffer != NULL) {
-    root = cJSON_Parse(buffer);
-    free(buffer);
+  if (buffer == NULL) {
+    esp_err_t err = storage_assets_get_file_size(WIFI_KNOWN_NETWORKS_FILE, &size);
+    if (err != ESP_ERR_NOT_FOUND && (err != ESP_OK || size > 0)) {
+      ESP_LOGE(TAG, "Cannot load existing known networks");
+      return;
+    }
+  }
+  cJSON *root = buffer != NULL && size > 0 ? cJSON_Parse(buffer) : cJSON_CreateArray();
+  free(buffer);
+  cJSON *new_item = NULL;
+  char *json_string = NULL;
+  if (root == NULL || !cJSON_IsArray(root)) {
+    ESP_LOGE(TAG, "Cannot read known networks");
+    goto cleanup;
   }
 
-  if (root == NULL) {
-    root = cJSON_CreateArray();
-  } else if (!cJSON_IsArray(root)) {
-    cJSON_Delete(root);
-    root = cJSON_CreateArray();
-  }
-
-  bool is_found = false;
   cJSON *item = NULL;
   cJSON_ArrayForEach(item, root) {
-    cJSON *j_ssid = cJSON_GetObjectItem(item, "ssid");
-    if (cJSON_IsString(j_ssid) && strcmp(j_ssid->valuestring, ssid) == 0) {
-      cJSON_ReplaceItemInObject(
-          item, "password", cJSON_CreateString((password != NULL) ? password : ""));
-      is_found = true;
-      break;
+    cJSON *j_ssid = cJSON_GetObjectItemCaseSensitive(item, "ssid");
+    if (!cJSON_IsString(j_ssid) || strcmp(j_ssid->valuestring, ssid) != 0)
+      continue;
+    cJSON *j_password = cJSON_GetObjectItemCaseSensitive(item, "password");
+    if (cJSON_IsString(j_password) && strcmp(j_password->valuestring, password) == 0)
+      goto cleanup;
+    break;
+  }
+
+  new_item = cJSON_CreateObject();
+  if (new_item == NULL || cJSON_AddStringToObject(new_item, "ssid", ssid) == NULL ||
+      cJSON_AddStringToObject(new_item, "password", password) == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate known network");
+    goto cleanup;
+  }
+  if (item != NULL) {
+    if (!cJSON_ReplaceItemViaPointer(root, item, new_item)) {
+      ESP_LOGE(TAG, "Failed to replace known network");
+      goto cleanup;
     }
+  } else if (!cJSON_AddItemToArray(root, new_item)) {
+    ESP_LOGE(TAG, "Failed to append known network");
+    goto cleanup;
   }
-
-  if (!is_found) {
-    cJSON *new_item = cJSON_CreateObject();
-    cJSON_AddStringToObject(new_item, "ssid", ssid);
-    cJSON_AddStringToObject(new_item, "password", (password != NULL) ? password : "");
-    cJSON_AddItemToArray(root, new_item);
+  new_item = NULL;
+  json_string = cJSON_PrintUnformatted(root);
+  if (json_string == NULL) {
+    ESP_LOGE(TAG, "Failed to serialize known networks");
+    goto cleanup;
   }
+  esp_err_t err = storage_assets_write_file(WIFI_KNOWN_NETWORKS_FILE, json_string);
+  if (err == ESP_OK)
+    ESP_LOGI(TAG, "Known network saved: %s", ssid);
+  else
+    ESP_LOGE(TAG, "Failed to save known network: %s", esp_err_to_name(err));
 
-  char *json_string = cJSON_PrintUnformatted(root);
-  if (json_string != NULL) {
-    esp_err_t err = storage_assets_write_file(WIFI_KNOWN_NETWORKS_FILE, json_string);
-    if (err == ESP_OK) {
-      ESP_LOGI(TAG, "Known network saved: %s", ssid);
-    } else {
-      ESP_LOGE(TAG, "Failed to save known network: %s", esp_err_to_name(err));
-    }
-    free(json_string);
-  }
-
+cleanup:
+  free(json_string);
+  cJSON_Delete(new_item);
   cJSON_Delete(root);
 }
 
 static bool get_known_network_password(const char *ssid, char *out_password, size_t buffer_size) {
-  if (ssid == NULL || out_password == NULL) {
+  if (ssid == NULL || out_password == NULL || buffer_size == 0) {
     return false;
   }
 
@@ -1640,7 +1771,7 @@ static bool get_known_network_password(const char *ssid, char *out_password, siz
     cJSON *j_ssid = cJSON_GetObjectItem(item, "ssid");
     if (cJSON_IsString(j_ssid) && strcmp(j_ssid->valuestring, ssid) == 0) {
       cJSON *j_pass = cJSON_GetObjectItem(item, "password");
-      if (cJSON_IsString(j_pass)) {
+      if (cJSON_IsString(j_pass) && strlen(j_pass->valuestring) < buffer_size) {
         strncpy(out_password, j_pass->valuestring, buffer_size - 1);
         out_password[buffer_size - 1] = '\0';
         is_found = true;
@@ -1770,5 +1901,43 @@ cleanup:
   if (err != ESP_OK)
     *out_count = 0;
   xSemaphoreGive(s_mutex);
+  return err;
+}
+
+static esp_err_t configure_radio(void) {
+  wifi_bandwidths_t bandwidths = {.ghz_2g = WIFI_BW20, .ghz_5g = WIFI_BW20};
+  wifi_protocols_t protocols = {
+      .ghz_2g = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX,
+      .ghz_5g = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC | WIFI_PROTOCOL_11AX,
+  };
+  const wifi_interface_t interfaces[] = {WIFI_IF_STA, WIFI_IF_AP};
+  for (size_t i = 0; i < sizeof(interfaces) / sizeof(interfaces[0]); ++i) {
+    // Set 20 MHz first so a retained HT40 setting cannot downgrade the AX protocols at start.
+    esp_err_t err = esp_wifi_set_bandwidths(interfaces[i], &bandwidths);
+    if (err == ESP_OK)
+      err = esp_wifi_set_protocols(interfaces[i], &protocols);
+    if (err != ESP_OK) {
+      ESP_LOGE(
+          TAG, "Wi-Fi interface %d configuration failed: %s", interfaces[i], esp_err_to_name(err));
+      return err;
+    }
+  }
+  return ESP_OK;
+}
+
+static esp_err_t start_radio(void) {
+  esp_err_t err = esp_wifi_start();
+  if (err != ESP_OK)
+    return err;
+  err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Dual-band configuration failed: %s", esp_err_to_name(err));
+    esp_err_t stop_err = esp_wifi_stop();
+    s_is_active = stop_err != ESP_OK;
+    if (stop_err == ESP_OK)
+      s_is_connected = false;
+    else
+      ESP_LOGE(TAG, "Wi-Fi startup cleanup failed: %s", esp_err_to_name(stop_err));
+  }
   return err;
 }

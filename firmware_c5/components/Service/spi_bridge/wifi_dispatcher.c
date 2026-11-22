@@ -530,14 +530,19 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_CONNECT: {
-      if (len < WIFI_SSID_MAX_LEN)
-        return SPI_STATUS_ERROR;
+      if (len != WIFI_SSID_MAX_LEN && len != sizeof(spi_wifi_connect_t))
+        return SPI_STATUS_INVALID_ARG;
       char ssid[WIFI_SSID_BUF_LEN] = {0};
       char pass[WIFI_PASS_BUF_LEN] = {0};
       memcpy(ssid, payload, WIFI_SSID_MAX_LEN);
       if (len > WIFI_SSID_MAX_LEN)
         memcpy(pass, payload + WIFI_SSID_MAX_LEN, len - WIFI_SSID_MAX_LEN);
-      return (wifi_service_connect_to_ap(ssid, pass) == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+      esp_err_t err = wifi_service_connect_to_ap(ssid, len == WIFI_SSID_MAX_LEN ? NULL : pass);
+      if (err == ESP_ERR_NOT_FOUND)
+        return SPI_STATUS_NOT_FOUND;
+      if (err == ESP_ERR_INVALID_ARG)
+        return SPI_STATUS_INVALID_ARG;
+      return err == ESP_OK ? SPI_STATUS_OK : SPI_STATUS_ERROR;
     }
 
     case SPI_ID_WIFI_DISCONNECT:
