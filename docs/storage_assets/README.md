@@ -1002,6 +1002,21 @@ Loads an entire file into dynamically allocated memory. **Caller must free() the
 - Pointer to allocated buffer containing file data.
 - `NULL` on error (allocation failure, file not found, etc.).
 
+**C5 buffer contract:**
+- Uses explicit PSRAM allocation, with no fallback to internal RAM.
+- Allocates one extra byte and always appends `\0`, including for binary files.
+  `out_size` reports only file bytes; the terminator is not part of the payload.
+- An empty file succeeds with a caller-owned one-byte NUL buffer and size zero;
+  it does not attempt `malloc(0)` or a zero-length `storage_assets_read_file()`.
+- Missing/unmounted files, allocation failure, size overflow and incomplete reads
+  return `NULL` and leave `out_size` at zero. Temporary allocations are released.
+
+The known-network JSON reader uses this contract for the initial zero-byte
+placeholder and subsequent credential files. `test_storage_assets_load.py`
+executes the production C5 loader and file readers against real host files with
+ASan/UBSan, covering empty, binary and JSON data, malformed JSON, missing files,
+PSRAM failure, short reads and overflow. These tests do not access device flash.
+
 **Example:**
 ```c
 size_t image_size;

@@ -71,9 +71,11 @@ esp_err_t storage_assets_get_file_size(const char *filename, size_t *out_size);
  * @brief Allocate memory and load complete file from assets partition
  *
  * @note Caller must free() the returned pointer after use
+ * @note Buffer is allocated in PSRAM with a trailing NUL outside out_size.
+ *       An empty file returns a valid one-byte NUL buffer with out_size == 0.
  *
  * @param filename File name
- * @param out_size Pointer to store file size (can be NULL)
+ * @param out_size Pointer to store file size, reset to zero on failure (can be NULL)
  * @return Pointer to allocated data, or NULL on error
  */
 uint8_t *storage_assets_load_file(const char *filename, size_t *out_size);

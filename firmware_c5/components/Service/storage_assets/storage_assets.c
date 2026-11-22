@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 
 #include "esp_littlefs.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 #define ASSETS_WRITE_PATH_SIZE 160
@@ -224,6 +225,8 @@ storage_assets_read_file(const char *filename, uint8_t *buffer, size_t size, siz
 }
 
 uint8_t *storage_assets_load_file(const char *filename, size_t *out_size) {
+  if (out_size != NULL)
+    *out_size = 0;
   if (!s_is_initialized) {
     ESP_LOGE(TAG, "Assets not initialized");
     return NULL;
@@ -234,27 +237,37 @@ uint8_t *storage_assets_load_file(const char *filename, size_t *out_size) {
   if (ret != ESP_OK) {
     return NULL;
   }
+  if (file_size == SIZE_MAX) {
+    ESP_LOGE(TAG, "File too large to load: %s", filename);
+    return NULL;
+  }
 
-  uint8_t *buffer = (uint8_t *)malloc(file_size);
+  uint8_t *buffer = heap_caps_malloc(file_size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buffer == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate %d bytes for %s", file_size, filename);
-    return NULL;
+    ESP_LOGE(TAG, "Failed to allocate %zu bytes in PSRAM for %s", file_size + 1, filename);
+    goto cleanup;
   }
 
-  size_t bytes_read;
-  ret = storage_assets_read_file(filename, buffer, file_size, &bytes_read);
-  if (ret != ESP_OK || bytes_read != file_size) {
-    ESP_LOGE(TAG, "Failed to read complete file");
-    free(buffer);
-    return NULL;
+  if (file_size > 0) {
+    size_t bytes_read = 0;
+    ret = storage_assets_read_file(filename, buffer, file_size, &bytes_read);
+    if (ret != ESP_OK || bytes_read != file_size) {
+      ESP_LOGE(TAG, "Failed to read complete file");
+      goto cleanup;
+    }
   }
+  buffer[file_size] = '\0';
 
   if (out_size != NULL) {
     *out_size = file_size;
   }
 
-  ESP_LOGI(TAG, "Loaded %s (%d bytes)", filename, file_size);
+  ESP_LOGI(TAG, "Loaded %s (%zu bytes)", filename, file_size);
   return buffer;
+
+cleanup:
+  free(buffer);
+  return NULL;
 }
 
 const char *storage_assets_get_mount_point(void) {
