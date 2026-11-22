@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 
 #include "spi_bridge.h"
+#include "power_manager.h"
 #include "sys_prio.h"
 
 #define BOARD_POLL_MS    500
@@ -264,11 +265,31 @@ esp_err_t board_service_reconcile(void) {
   return status.is_compatible ? ESP_OK : status.link_result;
 }
 
+static void request_idle(void) {
+  board_control_status_t view;
+  (void)get_status(&view);
+  uint8_t state = power_manager_companion_state();
+  if (state == SPI_POWER_ACTIVE || !view.is_compatible ||
+      !(view.capabilities & SPI_BOARD_CAP_SLEEP) || !spi_bridge_recovery_permitted())
+    return;
+  for (uint8_t control = BOARD_CONTROL_AMP; control <= BOARD_CONTROL_HAPTIC; control++) {
+    if (!view.outputs[control].is_known || view.outputs[control].confirmed ||
+        view.outputs[control].is_pending)
+      return;
+  }
+  const uint8_t request[SPI_POWER_REQUEST_SIZE] = {state, SPI_POWER_REVISION};
+  spi_header_t header;
+  // BUSY is normal: only the C5 can authoritatively check its active peripherals.
+  (void)spi_bridge_send_command(
+      SPI_ID_SYSTEM_POWER_STATE, request, sizeof(request), &header, NULL, 0, BOARD_RPC_MS);
+}
+
 static void worker(void *arg) {
   (void)arg;
   for (;;) {
     if (!atomic_flag_test_and_set(&s_poll_busy)) {
       poll_once();
+      request_idle();
       atomic_flag_clear(&s_poll_busy);
     }
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(BOARD_POLL_MS));

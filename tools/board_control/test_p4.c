@@ -44,10 +44,19 @@ esp_err_t board_pins_set_usb_enable(bool v) { return gpio_apply(SPI_BOARD_USB, v
 bool board_pins_haptic_int_high(void) { return input_high; }
 bool board_pins_haptic_irq_pending(void) { return true; }
 
+bool board_service_can_sleep(void);
+
 esp_err_t spi_bridge_send_command(spi_id_t id, const void *data, uint16_t len,
 spi_header_t *header, void *out, size_t capacity, uint32_t timeout) {
   assert(!critical && timeout == BOARD_RPC_MS);
   rpc_calls++;
+  if (id == SPI_ID_SYSTEM_POWER_STATE) {
+    const uint8_t *request=data;
+    assert(len==SPI_POWER_REQUEST_SIZE && request[1]==SPI_POWER_REVISION);
+    assert(request[0]==test_power_state && !out && capacity==0);
+    header->length=0;
+    return board_service_can_sleep()?ESP_OK:ESP_ERR_INVALID_STATE;
+  }
   if (id == SPI_ID_BOARD_SET) {
     set_calls++;
     if (fault == 2) { fault = 0; return ESP_ERR_TIMEOUT; }
@@ -83,6 +92,8 @@ static board_control_status_t snapshot(void) {
 }
 static void reconnect(void) { invalidate(ESP_ERR_TIMEOUT); fault = 0; poll_once(); assert(snapshot().is_compatible); }
 
+bool board_service_can_sleep(void);
+
 int main(void) {
   _Static_assert(sizeof(spi_board_query_t) == 8, "query wire");
   assert(request_amplifier(true) == ESP_ERR_INVALID_STATE);
@@ -94,6 +105,16 @@ int main(void) {
   assert(test_c5_init() == ESP_OK);
   poll_once();
   assert(snapshot().is_compatible && physical == SPI_BOARD_SAFE_VALUES);
+  assert(board_service_can_sleep());
+  unsigned idle_calls=rpc_calls;
+  test_power_state=SPI_POWER_IDLE;request_idle();assert(rpc_calls==++idle_calls);
+  test_power_state=SPI_POWER_SLEEP;request_idle();assert(rpc_calls==++idle_calls);
+  test_power_state=SPI_POWER_ACTIVE;request_idle();assert(rpc_calls==idle_calls);
+  test_power_state=SPI_POWER_SLEEP;
+  s_status.capabilities &= ~SPI_BOARD_CAP_SLEEP;request_idle();assert(rpc_calls==idle_calls);
+  s_status.capabilities |= SPI_BOARD_CAP_SLEEP;
+  test_recovery_permitted=false;request_idle();assert(rpc_calls==idle_calls);
+  test_recovery_permitted=true;test_power_state=SPI_POWER_ACTIVE;
   assert(!snapshot().outputs[BOARD_CONTROL_USB].has_request);
   unsigned before = rpc_calls;
   assert(request_amplifier(true) == ESP_OK);
@@ -102,6 +123,10 @@ int main(void) {
   assert(request_haptic(true) == ESP_OK);
   poll_once();
   assert(physical == SPI_BOARD_OUTPUT_MASK);
+  assert(!board_service_can_sleep());
+  test_power_state=SPI_POWER_SLEEP;idle_calls=rpc_calls;request_idle();
+  assert(snapshot().is_compatible && rpc_calls==idle_calls);
+  test_power_state=SPI_POWER_ACTIVE;
   assert(snapshot().outputs[0].confirmed && !snapshot().outputs[0].is_pending);
   before = writes;
   assert(request_amplifier(true) == ESP_OK);

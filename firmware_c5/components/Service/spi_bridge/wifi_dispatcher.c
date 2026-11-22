@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -49,8 +50,25 @@ static const char *TAG = "WIFI_DISPATCHER";
 
 // Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
 // from the raw scan once, then served through the generic data pipe.
-static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
-static spi_wifi_scan_record_ex_t s_app_scan_records_ex[WIFI_SCAN_LIST_SIZE];
+typedef struct {
+  spi_wifi_scan_record_t records[WIFI_SCAN_LIST_SIZE];
+  spi_wifi_scan_record_ex_t details[WIFI_SCAN_LIST_SIZE];
+  spi_wifi_scan_record_t steps[WIFI_SCAN_LIST_SIZE];
+} wifi_dispatcher_scan_storage_t;
+
+static wifi_dispatcher_scan_storage_t *s_scan_storage;
+
+static bool ensure_scan_storage(void) {
+  if (s_scan_storage != NULL)
+    return true;
+  s_scan_storage =
+      heap_caps_calloc(1, sizeof(*s_scan_storage), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (s_scan_storage == NULL) {
+    ESP_LOGE(TAG, "Scan results PSRAM allocation failed");
+    return false;
+  }
+  return true;
+}
 static spi_wifi_scan_config_t s_scan_cfg = {
     .band = SPI_WIFI_BAND_DUAL,
     .passive = 0,
@@ -61,7 +79,6 @@ static spi_wifi_scan_config_t s_scan_cfg = {
 static atomic_bool s_step_busy;
 static uint8_t s_step_slot;
 static spi_wifi_scan_step_status_t s_step_status;
-static spi_wifi_scan_record_t s_step_records[WIFI_SCAN_LIST_SIZE];
 
 static void scan_step_worker(void) {
   esp_err_t err = wifi_service_scan_step(s_step_slot);
@@ -70,7 +87,7 @@ static void scan_step_worker(void) {
     count = WIFI_SCAN_LIST_SIZE;
   for (uint16_t i = 0; i < count; i++) {
     const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
-    spi_wifi_scan_record_t *record = &s_step_records[i];
+    spi_wifi_scan_record_t *record = &s_scan_storage->steps[i];
     memset(record, 0, sizeof(*record));
     memcpy(record->ssid, ap->ssid, sizeof(record->ssid) - 1);
     memcpy(record->bssid, ap->bssid, sizeof(record->bssid));
@@ -205,7 +222,7 @@ static void scan_fn_app_ap(void) {
   if (count > WIFI_SCAN_LIST_SIZE)
     count = WIFI_SCAN_LIST_SIZE;
   for (uint16_t i = 0; i < count; i++) {
-    spi_wifi_scan_record_t *rec = &s_app_scan_records[i];
+    spi_wifi_scan_record_t *rec = &s_scan_storage->records[i];
     memset(rec, 0, sizeof(*rec));
     const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
     if (ap == NULL)
@@ -221,7 +238,7 @@ static void scan_fn_app_ap(void) {
     }
     rec->ssid[j] = '\0';
   }
-  spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
+  spi_bridge_provide_results(s_scan_storage->records, count, sizeof(spi_wifi_scan_record_t));
 }
 
 static void scan_fn_app_ap_detail(void) {
@@ -230,7 +247,7 @@ static void scan_fn_app_ap_detail(void) {
   if (count > WIFI_SCAN_LIST_SIZE)
     count = WIFI_SCAN_LIST_SIZE;
   for (uint16_t i = 0; i < count; i++) {
-    spi_wifi_scan_record_ex_t *rec = &s_app_scan_records_ex[i];
+    spi_wifi_scan_record_ex_t *rec = &s_scan_storage->details[i];
     memset(rec, 0, sizeof(*rec));
     const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
     if (ap == NULL)
@@ -253,7 +270,7 @@ static void scan_fn_app_ap_detail(void) {
     }
     rec->ssid[j] = '\0';
   }
-  spi_bridge_provide_results(s_app_scan_records_ex, count, sizeof(spi_wifi_scan_record_ex_t));
+  spi_bridge_provide_results(s_scan_storage->details, count, sizeof(spi_wifi_scan_record_ex_t));
 }
 
 static void scan_fn_app_client(void) {
@@ -400,6 +417,8 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
         return SPI_STATUS_INVALID_ARG;
       if (spi_bridge_async_scan_busy() || session_manager_is_active() || atomic_load(&s_step_busy))
         return SPI_STATUS_BUSY;
+      if (!ensure_scan_storage())
+        return SPI_STATUS_ERROR;
       s_step_slot = payload[0];
       atomic_store(&s_step_busy, true);
       if (!spi_bridge_async_scan_start(scan_step_worker)) {
@@ -424,8 +443,8 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
         return SPI_STATUS_BUSY;
       if (index >= s_step_status.count)
         return SPI_STATUS_INVALID_ARG;
-      memcpy(out_resp_payload, &s_step_records[index], sizeof(s_step_records[index]));
-      *out_resp_len = sizeof(s_step_records[index]);
+      memcpy(out_resp_payload, &s_scan_storage->steps[index], sizeof(s_scan_storage->steps[index]));
+      *out_resp_len = sizeof(s_scan_storage->steps[index]);
       return SPI_STATUS_OK;
     }
     case SPI_ID_WIFI_QUICK_START: {
@@ -621,9 +640,13 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       return SPI_STATUS_OK;
 
     case SPI_ID_WIFI_APP_SCAN_AP:
+      if (!ensure_scan_storage())
+        return SPI_STATUS_ERROR;
       return spi_bridge_async_scan_start(scan_fn_app_ap) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_SCAN_AP_DETAIL:
+      if (!ensure_scan_storage())
+        return SPI_STATUS_ERROR;
       return spi_bridge_async_scan_start(scan_fn_app_ap_detail) ? SPI_STATUS_OK : SPI_STATUS_BUSY;
 
     case SPI_ID_WIFI_APP_SCAN_CLIENT:

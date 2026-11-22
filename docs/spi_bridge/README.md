@@ -450,19 +450,36 @@ cleared. The status ids are `SPI_ID_WIFI_SCAN_STATUS` (`0x0150`) and
 
 ---
 
-## Power management
+## C5 bridge memory
 
-The P4 tells the C5 its power state so the co-processor can drop its radio when
-the P4 is idle or asleep instead of running full RX all the time. It sends
-`SPI_ID_SYSTEM_POWER_STATE` (op `0x4A`) with a one-byte `spi_power_state_t`:
+The task-context stream queue and compact AP scan snapshots live in PSRAM with
+checked allocation before their workers start. They remain allocated until
+reboot while the persistent bridge/result pipe can reference them. ISR stream
+pushes are rejected. DMA buffers/descriptors and synchronization stay internal;
+there is no bulk-allocation fallback to internal RAM. This preserves the C5 CI
+RAM reserve after enabling the companion PM code.
 
-| State | Value | Meaning |
-|-------|-------|---------|
-| `SPI_POWER_ACTIVE` | 0 | Normal operation: full radio. |
-| `SPI_POWER_IDLE` | 1 | Screen dimmed: deeper modem sleep (MAX_MODEM). |
-| `SPI_POWER_SLEEP` | 2 | Device asleep: drop the radio (unless a capture is running). |
+## Companion power state
 
----
+`SPI_ID_SYSTEM_POWER_STATE` (`0x004A`) accepts exactly two bytes:
+`{state, SPI_POWER_REVISION}`. The P4 sends idle requests only after board
+capability negotiation advertises `SPI_BOARD_CAP_SLEEP` (bit 4). The protocol
+version remains v2; the existing transport and board revisions remain unchanged.
+
+| State | Value | Behavior |
+| --- | --- | --- |
+| `SPI_POWER_ACTIVE` | 0 | Acknowledge; never start a radio. |
+| `SPI_POWER_IDLE` | 1 | Park for up to 100 ms if all activity guards permit. |
+| `SPI_POWER_SLEEP` | 2 | Display off: park for up to 1000 ms with the same guards. |
+
+Busy operations return BUSY. Invalid sizes/revisions/states return INVALID_ARG;
+unavailable sleep support returns UNSUPPORTED. Successful replies acknowledge a
+permitted attempt, not a measured duration in sleep. Before suspending SPI, the
+C5 completes its reply without publishing the next RX and rechecks its owners.
+After a potentially successful request, the P4 uses retryable HELLO clocks on CS
+to wake and confirm the peer before dispatching another application command.
+Cached FETCH responses never repeat the sleep side effect. See
+[power management](../power_manager/README.md) for wake sources and validation.
 
 ## 8. Firmware versioning & flashing
 

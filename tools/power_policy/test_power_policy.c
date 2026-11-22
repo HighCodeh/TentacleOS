@@ -66,6 +66,15 @@ static void *usb(void *unused) {
 }
 #endif
 int main(void) {
+  assert(power_manager_companion_state()==SPI_POWER_IDLE);
+  power_manager_set_display_asleep(true);
+  assert(power_manager_companion_state()==SPI_POWER_SLEEP);
+  power_manager_set_saver(false);
+  assert(power_manager_companion_state()==SPI_POWER_ACTIVE);
+  power_manager_set_display_asleep(false);
+  assert(power_manager_companion_state()==SPI_POWER_ACTIVE);
+  power_manager_set_saver(true);
+  assert(power_manager_companion_state()==SPI_POWER_IDLE);
 #if CONFIG_PM_ENABLE
   reset();assert(power_manager_no_sleep_acquire()==ESP_ERR_INVALID_STATE);
   power_manager_set_external_power(true);power_manager_init();

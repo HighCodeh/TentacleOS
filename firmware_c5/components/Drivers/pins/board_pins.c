@@ -50,6 +50,8 @@ esp_err_t board_pins_init(void) {
           .intr_type = GPIO_INTR_DISABLE,
       };
       ret = gpio_config(&config);
+      if (ret == ESP_OK)
+        ret = gpio_sleep_sel_dis(SAFE_OUTPUTS[i]);
     }
     if (ret != ESP_OK) {
       ESP_LOGE(TAG, "Safe GPIO %d failed: %s", SAFE_OUTPUTS[i], esp_err_to_name(ret));
@@ -65,6 +67,9 @@ esp_err_t board_pins_init(void) {
       .intr_type = GPIO_INTR_DISABLE,
   };
   esp_err_t ret = gpio_config(&input);
+  if (ret != ESP_OK)
+    return ret;
+  ret = gpio_sleep_sel_dis(GPIO_HAPTIC_INT_PIN);
   if (ret != ESP_OK)
     return ret;
   ret = gpio_install_isr_service(0);

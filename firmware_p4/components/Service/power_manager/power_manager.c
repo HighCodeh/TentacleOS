@@ -16,6 +16,8 @@
 #include "power_manager.h"
 
 #include <stdint.h>
+#include <stdatomic.h>
+#include "spi_protocol.h"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -28,6 +30,8 @@
 
 static const char *TAG = "POWER_MGR";
 static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_bool s_saver_enabled = true;
+static atomic_bool s_display_asleep;
 static bool s_external_power;
 static bool s_usb_suspended;
 #if CONFIG_PM_ENABLE
@@ -97,6 +101,20 @@ static esp_err_t cleanup_pending(void) {
   return error;
 }
 #endif
+
+void power_manager_set_saver(bool enabled) {
+  atomic_store(&s_saver_enabled, enabled);
+}
+
+void power_manager_set_display_asleep(bool asleep) {
+  atomic_store(&s_display_asleep, asleep);
+}
+
+uint8_t power_manager_companion_state(void) {
+  if (!atomic_load(&s_saver_enabled))
+    return SPI_POWER_ACTIVE;
+  return atomic_load(&s_display_asleep) ? SPI_POWER_SLEEP : SPI_POWER_IDLE;
+}
 
 void power_manager_init(void) {
 #if CONFIG_PM_ENABLE

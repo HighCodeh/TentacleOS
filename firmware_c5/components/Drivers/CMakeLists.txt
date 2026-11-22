@@ -29,6 +29,7 @@ idf_component_register(SRCS
   "buttons_gpio/include"
 
   REQUIRES 
+  esp_pm
   driver
   Service
   esp_lcd

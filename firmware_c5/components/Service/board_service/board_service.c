@@ -24,6 +24,7 @@
 #include "freertos/semphr.h"
 
 #include "board_pins.h"
+#include "spi_slave_driver.h"
 
 #define BOARD_LOCK_MS     20
 #define BOARD_WATCHDOG_US 100000
@@ -111,6 +112,15 @@ static void reply_state(board_service_reply_t *out_reply) {
   out_reply->length = sizeof(state);
 }
 
+bool board_service_can_sleep(void) {
+  if (!s_ready || xSemaphoreTake(s_mutex, 0) != pdTRUE)
+    return false;
+  bool can_sleep = s_valid == SPI_BOARD_OUTPUT_MASK &&
+                   (s_values & (SPI_BOARD_CAP_AMP | SPI_BOARD_CAP_HAPTIC)) == 0;
+  xSemaphoreGive(s_mutex);
+  return can_sleep;
+}
+
 esp_err_t board_service_init(void) {
   if (s_ready)
     return ESP_OK;
@@ -172,7 +182,7 @@ spi_status_t board_service_dispatch(spi_id_t id,
         .protocol = SPI_PROTOCOL_VERSION,
         .revision = SPI_BOARD_REVISION,
         .model = SPI_BOARD_MODEL_V203,
-        .capabilities = SPI_BOARD_CAPS,
+        .capabilities = SPI_BOARD_CAPS | (spi_slave_driver_sleep_ready() ? SPI_BOARD_CAP_SLEEP : 0),
         .lease_ms = SPI_BOARD_LEASE_MS,
         .epoch = s_epoch,
     };

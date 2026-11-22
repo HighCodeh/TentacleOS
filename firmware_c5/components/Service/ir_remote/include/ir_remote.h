@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 esp_err_t ir_remote_init(void);
+bool ir_remote_can_sleep(void);
 void ir_remote_disconnect(void);
 spi_status_t
 ir_remote_dispatch(const uint8_t *data, uint8_t length, uint8_t *out_data, uint8_t *out_length);

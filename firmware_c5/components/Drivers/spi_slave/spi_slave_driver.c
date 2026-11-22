@@ -16,6 +16,7 @@
 #include "spi_slave_driver.h"
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -29,6 +30,10 @@
 #include "freertos/task.h"
 #include "hal/gpio_ll.h"
 #include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#include "esp_sleep.h"
+#endif
 #include "soc/soc_caps.h"
 
 #include "pin_def.h"
@@ -52,12 +57,102 @@ static DRAM_ATTR spi_slave_setup_diag_t s_setup_diag;
 #define SPI_RECOVERY_POLL_MS 10
 static spi_slave_transaction_t *s_pending[SPI_PENDING_COUNT];
 static bool s_has_unknown_owner;
+#if CONFIG_PM_ENABLE
+#define SPI_SLEEP_MIN_MHZ 80
+#define SPI_SLEEP_MAX_MS  1000
+static esp_pm_lock_handle_t s_wake_lock;
+static _Atomic(TaskHandle_t) s_sleep_task;
+static bool s_sleep_ready;
+static bool s_wake_held;
+
+static void cs_wakeup(void *arg) {
+  (void)arg;
+  gpio_intr_disable(GPIO_BRIDGE_CS_PIN);
+  TaskHandle_t task = atomic_load(&s_sleep_task);
+  if (task != NULL) {
+    BaseType_t awakened = pdFALSE;
+    vTaskNotifyGiveFromISR(task, &awakened);
+    if (awakened)
+      portYIELD_FROM_ISR();
+  }
+}
+
+static esp_err_t init_sleep(void) {
+  esp_err_t result = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "bridge_awake", &s_wake_lock);
+  if (result != ESP_OK)
+    return result;
+  result = esp_pm_lock_acquire(s_wake_lock);
+  if (result != ESP_OK)
+    return result;
+  s_wake_held = true;
+  result = gpio_isr_handler_add(GPIO_BRIDGE_CS_PIN, cs_wakeup, NULL);
+  if (result != ESP_OK)
+    return result;
+  result = gpio_wakeup_enable(GPIO_BRIDGE_CS_PIN, GPIO_INTR_LOW_LEVEL);
+  if (result != ESP_OK)
+    return result;
+  result = gpio_intr_disable(GPIO_BRIDGE_CS_PIN);
+  if (result != ESP_OK)
+    return result;
+  result = esp_sleep_enable_gpio_wakeup();
+  if (result != ESP_OK)
+    return result;
+  const esp_pm_config_t config = {.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+                                  .min_freq_mhz = SPI_SLEEP_MIN_MHZ,
+                                  .light_sleep_enable = true};
+  result = esp_pm_configure(&config);
+  s_sleep_ready = result == ESP_OK;
+  return result;
+}
+#endif
+
+bool spi_slave_driver_sleep_ready(void) {
+#if CONFIG_PM_ENABLE
+  return s_sleep_ready;
+#else
+  return false;
+#endif
+}
 
 static bool has_pending(void) {
   for (size_t i = 0; i < SPI_PENDING_COUNT; ++i)
     if (s_pending[i])
       return true;
   return false;
+}
+
+esp_err_t spi_slave_driver_sleep(uint32_t timeout_ms) {
+#if CONFIG_PM_ENABLE
+  if (!s_sleep_ready || !s_wake_held || has_pending() || s_has_unknown_owner)
+    return ESP_ERR_INVALID_STATE;
+  if (timeout_ms == 0 || timeout_ms > SPI_SLEEP_MAX_MS)
+    return ESP_ERR_INVALID_ARG;
+  esp_err_t result = spi_slave_disable(SPI2_HOST);
+  if (result != ESP_OK)
+    return result;
+  (void)ulTaskNotifyTake(pdTRUE, 0);
+  atomic_store(&s_sleep_task, xTaskGetCurrentTaskHandle());
+  result = gpio_intr_enable(GPIO_BRIDGE_CS_PIN);
+  if (result == ESP_OK && gpio_get_level(GPIO_BRIDGE_CS_PIN) != 0) {
+    result = esp_pm_lock_release(s_wake_lock);
+    if (result == ESP_OK) {
+      s_wake_held = false;
+      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms));
+      result = esp_pm_lock_acquire(s_wake_lock);
+      s_wake_held = result == ESP_OK;
+    }
+  }
+  gpio_intr_disable(GPIO_BRIDGE_CS_PIN);
+  atomic_store(&s_sleep_task, NULL);
+  esp_err_t resumed = spi_slave_enable(SPI2_HOST);
+  // Re-enabling SPI also restores its APB lock, even if our guard failed.
+  if (result != ESP_OK)
+    return result;
+  return resumed;
+#else
+  (void)timeout_ms;
+  return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 static bool release_pending(spi_slave_transaction_t *trans) {
@@ -182,6 +277,11 @@ esp_err_t spi_slave_driver_init(void) {
   s_setup_diag = (spi_slave_setup_diag_t){0};
   portEXIT_CRITICAL(&s_setup_diag_lock);
 
+#if CONFIG_PM_ENABLE
+  esp_err_t sleep_result = init_sleep();
+  if (sleep_result != ESP_OK)
+    ESP_LOGW(TAG, "Sleep unavailable; bridge stays awake: %s", esp_err_to_name(sleep_result));
+#endif
   ESP_LOGI(TAG, "SPI slave driver initialized");
   return ESP_OK;
 }

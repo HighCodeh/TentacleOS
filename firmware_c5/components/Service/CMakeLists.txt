@@ -34,6 +34,7 @@ file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 idf_component_register(SRCS
   "board_service/board_service.c"
+  "power_manager/power_manager.c"
   "ir_remote/ir_remote.c"
   "mqtt_bridge/mqtt_bridge.c"
   "wifi/wifi_service.c"
@@ -64,6 +65,7 @@ idf_component_register(SRCS
   ${HOST_LINK_SRCS}
   INCLUDE_DIRS
   "board_service/include"
+  "power_manager/include"
   "ir_remote/include"
   "mqtt_bridge/include"
   "wifi/include"

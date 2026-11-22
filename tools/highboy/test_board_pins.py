@@ -51,6 +51,7 @@ esp_err_t gpio_isr_handler_add(int pin, void (*fn)(void *), void *arg);
 esp_err_t gpio_isr_handler_remove(int pin);
 esp_err_t gpio_set_intr_type(int pin, int type);
 esp_err_t gpio_intr_enable(int pin);
+esp_err_t gpio_sleep_sel_dis(int pin);
 int gpio_get_level(gpio_num_t pin);
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level);
 esp_err_t gpio_config(const gpio_config_t *config);
@@ -68,12 +69,19 @@ esp_err_t gpio_config(const gpio_config_t *config);
                 harness += '#if defined(GPIO_IR_TX_PIN) || defined(GPIO_AUDIO_EN_PIN)\n#error P4 must not own IR or amplifier control\n#endif\n'
             else:
                 harness += '_Static_assert(GPIO_IR_RX_PIN == 10 && GPIO_HAPTIC_INT_PIN == 1, "C5 inputs");\n'
+                harness += '#define EXPECT_RETAINED_PINS 0x73U\n'
                 harness += '#ifdef GPIO_BRIDGE_IRQ_PIN\n#error V2.03 has no IRQ trace\n#endif\n'
             harness += "static const int expected[] = {" + ",".join(map(str, pins)) + "};\n"
             harness += '''
 static int calls, fail_at, is_control, control_pin, control_level;
 static int reset_test, reset_calls, reset_fail, reset_delay;
 static int download_test, download_calls, download_fail, boot_level, reset_level;
+static uint32_t retained_pins;
+esp_err_t gpio_sleep_sel_dis(int pin) {
+  assert(pin==0 || pin==1 || pin==4 || pin==5 || pin==6);
+  retained_pins |= 1U << pin;
+  return ESP_OK;
+}
 void vTaskDelay(int ticks) { reset_delay += ticks; }
 int gpio_get_level(gpio_num_t pin) { (void)pin; return 1; }
 static esp_err_t step(void) { return calls++ == fail_at ? ESP_FAIL : ESP_OK; }
@@ -132,6 +140,9 @@ int main(void) {
 #endif
   fail_at = -1;
   assert(board_pins_init() == ESP_OK);
+#ifdef EXPECT_RETAINED_PINS
+  assert(retained_pins == EXPECT_RETAINED_PINS);
+#endif
   assert(calls == total);
   for (int i = 0; i < total; i++) {
     calls = 0; fail_at = i;

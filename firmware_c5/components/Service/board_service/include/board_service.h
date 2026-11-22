@@ -29,6 +29,7 @@ typedef struct {
 } board_service_reply_t;
 
 esp_err_t board_service_init(void);
+bool board_service_can_sleep(void);
 spi_status_t board_service_dispatch(spi_id_t id,
                                     const uint8_t *data,
                                     uint8_t length,

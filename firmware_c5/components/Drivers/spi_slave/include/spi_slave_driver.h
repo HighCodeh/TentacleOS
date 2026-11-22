@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "freertos/FreeRTOS.h"
@@ -33,6 +34,9 @@ extern "C" {
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t spi_slave_driver_init(void);
+bool spi_slave_driver_sleep_ready(void);
+// Sole bridge task, after all TX/RX descriptors have returned. Wakes on CS/timer.
+esp_err_t spi_slave_driver_sleep(uint32_t timeout_ms);
 
 /**
  * Cumulative, saturating setup observations, cleared after successful init.

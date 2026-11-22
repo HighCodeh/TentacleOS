@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "esp_attr.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_rom_sys.h"
@@ -35,6 +36,7 @@
 
 #include "mqtt_bridge.h"
 #include "board_service.h"
+#include "power_manager.h"
 #include "ir_remote.h"
 #include "bt_dispatcher.h"
 #include "config_cache.h"
@@ -71,7 +73,7 @@ static uint16_t s_item_count = 0;
 static const uint16_t *s_item_count_ptr = NULL;
 static uint8_t s_item_size = 0;
 
-static spi_stream_item_t s_stream_queue[SPI_STREAM_QUEUE_LEN];
+static spi_stream_item_t *s_stream_queue;
 static uint8_t s_stream_head = 0;
 static uint8_t s_stream_tail = 0;
 static uint8_t s_stream_count = 0;
@@ -188,7 +190,7 @@ void spi_bridge_stream_enable(spi_id_t id, bool enable) {
 }
 
 bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len) {
-  if (!spi_bridge_stream_is_enabled(id))
+  if (xPortInIsrContext() || s_stream_queue == NULL || !spi_bridge_stream_is_enabled(id))
     return false;
   if (data == NULL || len == 0)
     return false;
@@ -250,6 +252,14 @@ esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
     return ESP_ERR_NOT_SUPPORTED;
   }
   s_use_irq = false;
+  if (s_stream_queue == NULL) {
+    s_stream_queue = heap_caps_calloc(
+        SPI_STREAM_QUEUE_LEN, sizeof(*s_stream_queue), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_stream_queue == NULL) {
+      ESP_LOGE(TAG, "Stream queue PSRAM allocation failed");
+      return ESP_ERR_NO_MEM;
+    }
+  }
   esp_err_t ret = spi_slave_driver_init();
   if (ret != ESP_OK)
     return ret;
@@ -258,13 +268,16 @@ esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
   if (wifi_quick_scan_init() != ESP_OK) {
     ESP_LOGW(TAG, "Quick scan unavailable: initialization failed");
   }
-  xTaskCreatePinnedToCore(bridge_task,
-                          "spi_bridge_task",
-                          SPI_BRIDGE_TASK_STACK,
-                          NULL,
-                          SYS_PRIO_REALTIME,
-                          NULL,
-                          SYS_CORE_MAIN);
+  if (xTaskCreatePinnedToCore(bridge_task,
+                              "spi_bridge_task",
+                              SPI_BRIDGE_TASK_STACK,
+                              NULL,
+                              SYS_PRIO_REALTIME,
+                              NULL,
+                              SYS_CORE_MAIN) != pdPASS) {
+    ESP_LOGE(TAG, "Bridge task allocation failed");
+    return ESP_ERR_NO_MEM;
+  }
   return ESP_OK;
 }
 
@@ -432,6 +445,7 @@ static void bridge_task(void *pvParameters) {
   ESP_LOGI(TAG, "transport=session-cache-v1; paired protocol v2; no command replay");
 
   while (1) {
+    uint32_t sleep_ms = 0;
     transfer = spi_slave_driver_wait_for(&rx_trans);
     if (transfer == ESP_ERR_INVALID_SIZE) {
       // No command was executed. Discard a short/overlong receive safely,
@@ -589,30 +603,18 @@ static void bridge_task(void *pvParameters) {
             resp_len = sizeof(proto);
             status = SPI_STATUS_OK;
           } else if (cmd == SPI_ID_SYSTEM_POWER_STATE) {
-            // P4 tells us the device power state so we can drop the radio when it
-            // is idle/asleep. A running capture (promiscuous) is never interrupted.
-            if (header->length >= 1) {
-              switch (cmd_payload[0]) {
-                case SPI_POWER_ACTIVE:
-                  if (!wifi_service_is_active()) {
-                    wifi_service_start();
-                  }
-                  wifi_service_set_power_save(false);
-                  break;
-                case SPI_POWER_IDLE:
-                  wifi_service_set_power_save(true);
-                  break;
-                case SPI_POWER_SLEEP:
-                  if (!wifi_service_is_busy() && wifi_service_is_active()) {
-                    wifi_service_stop();
-                  }
-                  break;
-                default:
-                  break;
-              }
-              status = SPI_STATUS_OK;
-            } else {
+            if (header->length != SPI_POWER_REQUEST_SIZE || cmd_payload[1] != SPI_POWER_REVISION ||
+                cmd_payload[0] > SPI_POWER_SLEEP) {
               status = SPI_STATUS_INVALID_ARG;
+            } else if (cmd_payload[0] == SPI_POWER_ACTIVE) {
+              status = SPI_STATUS_OK;
+            } else if (!spi_slave_driver_sleep_ready()) {
+              status = SPI_STATUS_UNSUPPORTED;
+            } else if (!power_manager_can_sleep()) {
+              status = SPI_STATUS_BUSY;
+            } else {
+              sleep_ms = cmd_payload[0] == SPI_POWER_SLEEP ? SPI_POWER_SLEEP_MS : SPI_POWER_IDLE_MS;
+              status = SPI_STATUS_OK;
             }
           } else if (cmd == SPI_ID_SYSTEM_OTA_DATA) {
             // One firmware chunk. Buffered (fast) and acked at once; the writer
@@ -836,12 +838,18 @@ queue_response:
     // No task-preemption gap between response TX and next-command RX queueing.
     // tx_size is SPI_STREAM_FRAME_SIZE for a batched stream frame, else SPI_FRAME_SIZE.
     memset(rx_wire, 0, sizeof(rx_wire));
-    transfer = spi_slave_driver_queue_response_and_receive(&tx_trans,
-                                                           tx_wire,
-                                                           tx_size + SPI_TRANSPORT_HEADER_SIZE,
-                                                           &rx_trans,
-                                                           rx_wire,
-                                                           SPI_TRANSPORT_FRAME_SIZE);
+    if (sleep_ms != 0) {
+      // No next RX may remain owned by DMA when SPI is disabled for sleep.
+      transfer =
+          spi_slave_driver_queue(&tx_trans, tx_wire, NULL, tx_size + SPI_TRANSPORT_HEADER_SIZE);
+    } else {
+      transfer = spi_slave_driver_queue_response_and_receive(&tx_trans,
+                                                             tx_wire,
+                                                             tx_size + SPI_TRANSPORT_HEADER_SIZE,
+                                                             &rx_trans,
+                                                             rx_wire,
+                                                             SPI_TRANSPORT_FRAME_SIZE);
+    }
     if (transfer != ESP_OK) {
       fault_stage = "queue_pair";
       goto recover_transport;
@@ -849,6 +857,23 @@ queue_response:
     spi_bridge_notify_master();
 
     transfer = spi_slave_driver_wait_for_ticks(&tx_trans, pdMS_TO_TICKS(SPI_RECOVERY_TIMEOUT_MS));
+    if (sleep_ms != 0 && (transfer == ESP_OK || transfer == ESP_ERR_INVALID_SIZE)) {
+      if (transfer == ESP_OK && power_manager_can_sleep()) {
+        esp_err_t slept = spi_slave_driver_sleep(sleep_ms);
+        if (slept != ESP_OK) {
+          transfer = slept;
+          fault_stage = "sleep_resume";
+          goto recover_transport;
+        }
+      }
+      esp_err_t rearmed =
+          spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
+      if (rearmed != ESP_OK) {
+        transfer = rearmed;
+        fault_stage = "wake_rearm";
+        goto recover_transport;
+      }
+    }
     if (transfer == ESP_ERR_INVALID_SIZE) {
       // Ownership returned; next RX is already queued. Keep the cached response,
       // never replay the operation and let HELLO recover framing after timeout.

@@ -43,6 +43,7 @@ static int64_t clock_us;
 static uint64_t random_value=100, peer_boot=200, peer_master;
 static uint32_t peer_seq;
 static unsigned executions, commands_sent, syncs;
+static unsigned wake_clocks;
 static size_t peer_cached_size;
 static uint8_t peer_cache[SPI_TRANSPORT_FRAME_SIZE], peer_response[SPI_TRANSPORT_STREAM_SIZE];
 static bool pending, drop_request, corrupt_reply, stale_reply, suppress_peer, recover_reply;
@@ -72,6 +73,7 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
   clock_us+=100;
   if(rx)memset(rx,0,n);
   if(suppress_peer)return ESP_OK;
+  if(wake_clocks){wake_clocks--;return ESP_OK;}
   if(pending) {
     if(blank_reads){blank_reads--;return ESP_OK;}
     if(n<SPI_TRANSPORT_HEADER_SIZE+peer_cached_size)short_stream_reads++;
@@ -242,6 +244,25 @@ int main(void) {
   // A sync can drain a pending response, including a truncated stream frame.
   peer_cached_size=SPI_STREAM_FRAME_SIZE;pending=true;s_transport_ready=false;
   assert(transport_send(frame,clock_us+100000)==ESP_OK);transport_read(reply,sizeof(reply));
+  // A sleeping peer can ignore clocks until its ISR and task restore SPI.
+  // The next mutating command must wait for a HELLO response, exactly once.
+  uint8_t power[SPI_FRAME_SIZE]={0};
+  spi_header_t *power_header=(spi_header_t *)power;
+  *power_header=(spi_header_t){.sync=SPI_SYNC_BYTE,.type=SPI_TYPE_CMD,
+      .category=SPI_CMD_CAT(SPI_ID_SYSTEM_POWER_STATE),.op=SPI_CMD_OP(SPI_ID_SYSTEM_POWER_STATE),
+      .length=SPI_POWER_REQUEST_SIZE};
+  power[sizeof(*power_header)]=SPI_POWER_SLEEP;
+  power[sizeof(*power_header)+1]=SPI_POWER_REVISION;
+  spi_frame_seal(power_header,SPI_POWER_REQUEST_SIZE);
+  assert(transport_send(power,clock_us+100000)==ESP_OK);
+  transport_read(reply,sizeof(reply));assert(s_peer_may_sleep);
+  unsigned awake_commands=commands_sent, awake_syncs=syncs;
+  wake_clocks=7;
+  assert(transport_send(frame,clock_us+100000)==ESP_OK);
+  assert(commands_sent==awake_commands+1 && syncs>awake_syncs && !s_peer_may_sleep);
+  transport_read(reply,sizeof(reply));
+  assert(transport_send(power,clock_us+100000)==ESP_OK);
+  transport_read(reply,sizeof(reply));assert(s_peer_may_sleep);
   suppress_peer=true;s_transport_ready=false;unsigned before=commands_sent;
   int64_t deadline=clock_us+10000;
   assert(transport_send(frame,deadline)==ESP_ERR_TIMEOUT);

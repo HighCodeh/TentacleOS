@@ -93,8 +93,12 @@ esp_err_t board_pins_set_usb_enable(bool v);
 bool board_pins_haptic_int_high(void);
 bool board_pins_haptic_irq_pending(void);
 """,
+"power_manager.h": "static uint8_t test_power_state;\nstatic inline uint8_t power_manager_companion_state(void) { return test_power_state; }\n",
+"spi_slave_driver.h": "static inline bool spi_slave_driver_sleep_ready(void) { return true; }\n",
 "spi_bridge.h": """#include "esp_err.h"
 #include "spi_protocol.h"
+static bool test_recovery_permitted=true;
+static inline bool spi_bridge_recovery_permitted(void) { return test_recovery_permitted; }
 esp_err_t spi_bridge_send_command(spi_id_t id, const void *data, uint16_t len,
 spi_header_t *header, void *out, size_t capacity, uint32_t timeout);
 """,

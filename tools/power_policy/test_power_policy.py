@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise actual power-manager policy with explicit PM/RTOS fakes, PM on and off."""
 import os
 from pathlib import Path
@@ -19,7 +34,7 @@ def main():
             path.write_text('#include "test_platform.h"\n')
         command = [*shlex.split(os.environ.get('CC', 'cc')), '-std=c11', '-Wall', '-Wextra',
                    '-Werror', '-pthread', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                   '-I', str(work), '-I', str(HERE), '-I', str(MODULE), '-I', str(MODULE / 'include')]
+                   '-I', str(work), '-I', str(ROOT / 'tools/mqtt/fixtures'), '-I', str(ROOT / 'firmware_p4/components/Service/spi_bridge/include'), '-I', str(HERE), '-I', str(MODULE), '-I', str(MODULE / 'include')]
         for enabled in (0, 1):
             binary = work / 'test'
             subprocess.run([*command, f'-DCONFIG_PM_ENABLE={enabled}', str(HERE / 'test_power_policy.c'),

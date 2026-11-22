@@ -27,6 +27,7 @@
 #include "nvs_flash.h"
 
 #include "board_service.h"
+#include "power_manager.h"
 #include "ir_remote.h"
 #include "c5_log.h"
 #include "ota_service.h"
@@ -82,6 +83,7 @@ void kernel_init(void) {
   wifi_service_init();
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
+  power_manager_set_ready();
 }
 
 // Safeguards

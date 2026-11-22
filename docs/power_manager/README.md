@@ -15,13 +15,89 @@ You should have received a copy of the GNU General Public License
 along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# Power Manager - P4 (esp_pm DFS / light-sleep)
+# Power management
 
-System power manager for `firmware_p4`. It owns `esp_pm` and drives automatic light sleep gated by a shared `NO_LIGHT_SLEEP` lock, so the CPU only powers off when the device is genuinely idle (screen off, no active resource, not plugged in).
+The P4 service owns the companion idle-sleep policy and the display state
+forwarded to the C5. Idle saving defaults to enabled; callers can change it
+through `power_manager_set_saver()`.
 
-The integrated High Boy profile currently keeps `CONFIG_PM_ENABLE` disabled
-because UART/USB wake-up is not validated. The enabled branch below is host-tested
-policy support, not permission to enable sleep or a claim of device acceptance.
+## C5 idle sleep
+
+`Service/power_manager` checks boot readiness, Wi-Fi (including capture), BLE
+resources (including failed cleanup), an active app session, Grok, ESP-NOW,
+remote IR, queued asynchronous scans, OTA and the board outputs. Any active or uncertain owner vetoes sleep.
+IR must be closed with hardware released; the amplifier must be disabled and
+haptic reset asserted with known GPIO state. Radio enable preferences and active
+connections are never changed to obtain sleep. The P4 skips idle requests while
+amp/haptic outputs are active, unknown or pending; a confirmed BUSY reply also
+avoids unnecessary wake handshakes during active radio work.
+
+After the existing P4 board worker refreshes controls, it may send the revisioned
+`SPI_ID_SYSTEM_POWER_STATE` request if the peer advertises `SPI_BOARD_CAP_SLEEP`.
+`IDLE` permits a 100 ms parked interval; a fully off display selects `SLEEP`, up
+to 1000 ms. Dimming alone does not select the longer interval. Disabling the
+preference stops these requests; the next normal board poll wakes the peer.
+Older C5 firmware receives no sleep requests.
+
+The C5 sends the reply without queuing the usual next RX. Only after the TX
+completion has returned DMA ownership does `Drivers/spi_slave` disable SPI,
+release its wake guard and block the bridge task. Tickless idle/ESP-IDF decides
+when all tasks and PM locks permit actual light sleep. Pending or unknown DMA
+ownership, incomplete replies and failed PM initialization prohibit suspension.
+The activity checks run again after the reply. Cached reply fetches do not repeat
+the sleep operation.
+
+GPIO23 (bridge CS, active low) wakes the C5. Its interrupt disables itself and
+notifies the bridge task; timeout also resumes it. The task reacquires its wake
+guard and enables SPI before arming RX. The P4 marks a potentially sleeping peer
+before sending the idle request, including uncertain outcomes, and requires a
+successful retryable transport HELLO before its next application command. A
+wake-up clock can therefore be discarded without replaying a mutating command.
+Transport sessions, response caching, RAM and board epochs survive light sleep.
+The board heartbeat and supervisor continue with their existing budgets.
+
+C5 defaults enable PM and tickless idle. Maximum CPU frequency remains the
+configured 240 MHz; idle DFS can use 80 MHz. A permanent bridge wake guard is
+released only inside the negotiated parked interval. Peripheral power-down is
+disabled, preserving the digital GPIO wake path. Board output pins opt out of
+GPIO sleep isolation so amp/reset/USB/IR levels remain stable; INTN retains its pull-up. A partial PM initialization
+keeps the bridge awake and omits its sleep capability. Direct C5 UART OTA is
+covered by the OTA guard; ordinary P4 console use remains available.
+
+This is light sleep, not deep sleep or zero current. Timers and housekeeping
+still wake the C5, and the P4 remains running for input, charging, LED feedback
+and its applications. P4 CPU sleep remains disabled because its UART/USB wake
+path has not been validated. Deep sleep would reboot the C5 and invalidate its
+sessions, so it is not used for this mode.
+
+## C5 memory placement
+
+Enabling the SDK PM code increases linked internal RAM use. To retain the
+existing CI floor and C5 radio-memory configuration, the bridge stream queue
+and wire-format AP scan snapshots use checked PSRAM allocations. The queue is
+allocated before bridge workers start; snapshots are allocated before accepting
+their first scan. Allocation failure rejects the dependent operation, with no
+internal-RAM fallback. Both allocations live until reboot because persistent
+workers and the generic result pipe retain references. Stream producers are
+task-only (including Wi-Fi task callbacks); ISR calls are rejected. SPI DMA
+buffers/descriptors, PM locks, counters and synchronization remain internal.
+
+## Validation
+
+Host tests execute the production idle guards, PM/DMA transition and P4 transport
+helpers with fake clocks/SDK calls: pending DMA, an asserted CS, delayed wake,
+PM failures and every activity veto. These are not electrical wake-up or current
+measurements. Both app
+images are required for this feature; app-only updates do not install assets.
+Validate on hardware with Wi-Fi/BLE disabled, screen on/off and rapid wake plus
+audio/haptic commands; then repeat with each active operation and confirm it
+continues. Compare current draw and check that no false link resets occur.
+
+## P4 CPU power-manager support
+
+The existing P4 `esp_pm` branch below is host-tested support and remains disabled
+in the integrated profile. Companion policy/state APIs work independently of
+that compile-time gate.
 
 ## Overview
 
@@ -29,7 +105,7 @@ policy support, not permission to enable sleep or a claim of device acceptance.
 - **Header:** `include/power_manager.h`
 - **Sources:** `power_manager.c` (esp_pm setup + lock), `power_manager_usb.c` (TinyUSB bus callbacks)
 - **Dependencies:** `esp_pm`, `esp_log`, `esp_err`, `tusb` (for the USB callbacks)
-- **Gated by:** `CONFIG_PM_ENABLE`. When PM is off, all entry points are inert no-ops (USB state is still tracked); the CPU stays at a fixed frequency and never sleeps.
+- **Gated by:** `CONFIG_PM_ENABLE`. When P4 PM is off, its CPU lock/configuration operations are no-ops (USB state and companion policy are still tracked); the P4 stays at a fixed frequency.
 - **Why Service (not Core):** `power_policy` lives in Applications, which cannot depend on Core (Core already REQUIRES Applications, so that edge would be a cycle). Both Core (transitively) and Applications reach Service.
 
 ## Power model
@@ -97,7 +173,7 @@ True while external power (VBUS) is present. Always valid regardless of `CONFIG_
 | Symbol | Location | Value | Meaning |
 |--------|----------|-------|---------|
 | `PM_FREQ_MHZ` | `power_manager.c` | `360` | Pinned CPU frequency (min == max, no DFS). |
-| `CONFIG_PM_ENABLE` | sdkconfig | - | Master gate. Off: all calls are inert no-ops. |
+| `CONFIG_PM_ENABLE` | P4 sdkconfig | - | P4 CPU PM gate; companion policy is independent. |
 
 
 ## Hold accounting and failure behavior

@@ -42,6 +42,12 @@ CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=2
 # health is the boot health criterion.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
+# Automatic light sleep is permitted only while the bridge has drained DMA,
+# disabled SPI and released its wake guard. CS wakes the task before HELLO.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP is not set
+
 # CPU 240MHz (C5 default is 160MHz)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 

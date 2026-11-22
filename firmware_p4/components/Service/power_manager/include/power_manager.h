@@ -17,6 +17,7 @@
 #define POWER_MANAGER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -42,6 +43,10 @@ extern "C" {
  * for a later init retry. Active resource owners acquire their own balanced holds.
  */
 void power_manager_init(void);
+
+void power_manager_set_saver(bool enabled);
+void power_manager_set_display_asleep(bool asleep);
+uint8_t power_manager_companion_state(void);
 
 /**
  * @brief Hold the CPU out of light sleep. Ref-counted: every acquire needs a

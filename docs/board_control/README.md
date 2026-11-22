@@ -35,7 +35,10 @@ Transport availability alone does not imply compatible board controls.
 Boot configures output latches before output mode, and GPIO1 as an input with an internal pull-up and falling-edge interrupt. The ISR
 only latches an atomic event flag. The P4 retains USB selection on GPIO19, low at boot
 (CP2105). Haptic status here is the raw `INTN` level, not decoded AW8623 status.
-There is no arbitrary GPIO command and no legacy pin fallback.
+C5 output pins and the haptic input opt out of automatic GPIO isolation during
+light sleep: amplifier disable, asserted haptic reset, USB `/OE` and IR idle
+levels, plus the INTN pull-up, remain driven/configured. There is no arbitrary
+GPIO command and no legacy pin fallback.
 
 ## Wire contract
 
@@ -50,7 +53,8 @@ are little-endian and structures are packed. Reserved fields must be zero.
 
 Capabilities: protocol/revision/model/reserved (four u16), capabilities u32,
 lease duration in milliseconds u32, epoch u64. Bits 0/1/2 indicate amp/haptic/USB;
-bit 3 indicates haptic input. The lease duration is 5000 ms.
+bit 3 indicates haptic input; bit 4 advertises the revisioned idle-sleep extension
+only after C5 PM/wake initialization succeeds. The lease duration is 5000 ms.
 
 State: epoch u64, logical output values u8, known output mask u8, inputs u8,
 reserved u8. Output bits 0/1/2 match capabilities; input bit 0 is raw INTN high and bit 1 is a pending falling edge since
@@ -74,7 +78,9 @@ lost acknowledgement can be reconciled through STATE. A C5 restart or expired
 lease invalidates old epochs. Commands from the preceding session cannot enable
 outputs in the new session.
 
-The P4 polls every 500 ms with a 250 ms RPC budget. Snapshots expire after 1500 ms.
+The P4 polls every 500 ms with a 250 ms RPC budget. After reconciliation, the
+worker can request guarded companion sleep through [power management](../power_manager/README.md);
+polling and control requests wake the C5 through transport HELLO before dispatch. Snapshots expire after 1500 ms.
 The C5 renews its lease only after a successful board command. A 100 ms software
 timer checks expiry; it requests safe outputs, retires the client and changes the
 epoch after 5000 ms without renewal. This depends on scheduler execution and is

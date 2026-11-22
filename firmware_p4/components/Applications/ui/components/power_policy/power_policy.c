@@ -114,6 +114,7 @@ static uint8_t configured_brightness(void) {
 }
 
 static void display_wake(void) {
+  power_manager_set_display_asleep(false);
   if (s_display_asleep)
     lcd_display_sleep(false);
   lcd_apply_brightness(configured_brightness());
@@ -137,6 +138,7 @@ static void display_sleep(uint32_t activity_ms) {
   lcd_apply_brightness(0);
   lcd_display_sleep(true);
   s_display_asleep = true;
+  power_manager_set_display_asleep(true);
   s_display_dimmed = false;
   s_state_activity_ms = activity_ms;
   ESP_LOGI(TAG, "display asleep");

@@ -61,6 +61,7 @@ static uint64_t s_master_session;
 static uint64_t s_slave_session;
 static uint32_t s_transaction;
 static bool s_transport_ready;
+static bool s_peer_may_sleep;
 static int64_t s_recovery_quiet_until;
 static EXT_RAM_BSS_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
 static EXT_RAM_BSS_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
@@ -131,6 +132,11 @@ static esp_err_t transport_sync(int64_t deadline) {
 }
 
 static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
+  if (s_peer_may_sleep) {
+    // HELLO is retryable and wakes CS. No application command is sent until acknowledged.
+    s_transport_ready = false;
+    s_peer_may_sleep = false;
+  }
   esp_err_t ret = transport_sync(deadline);
   if (ret != ESP_OK)
     return ret;
@@ -148,6 +154,10 @@ static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
                      s_master_session,
                      s_slave_session,
                      s_transaction);
+  const spi_header_t *header = (const spi_header_t *)frame;
+  if (spi_header_cmd(header) == SPI_ID_SYSTEM_POWER_STATE &&
+      header->length == SPI_POWER_REQUEST_SIZE && frame[sizeof(*header)] != SPI_POWER_ACTIVE)
+    s_peer_may_sleep = true;
   ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
   if (ret != ESP_OK)
     s_transport_ready = false;
@@ -901,6 +911,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     memcpy(out_payload, rx_buf + sizeof(spi_header_t) + SPI_RESP_STATUS_SIZE, data_len);
   }
 
+  if (id == SPI_ID_SYSTEM_POWER_STATE && resp->length >= SPI_RESP_STATUS_SIZE &&
+      status != SPI_STATUS_OK)
+    s_peer_may_sleep = false;
   esp_err_t out = status_to_err(status);
   s_is_command_in_flight = false;
   xSemaphoreGive(s_spi_mutex);

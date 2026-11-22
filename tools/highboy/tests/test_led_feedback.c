@@ -81,6 +81,8 @@ static bool input_is_down(input_button_t button) {
 }
 static const lv_obj_t *lv_screen_active(void) { return NULL; }
 static void lcd_display_sleep(bool is_asleep) { s_is_panel_asleep = is_asleep; }
+static bool companion_asleep;
+static void power_manager_set_display_asleep(bool asleep) {companion_asleep=asleep;}
 #include "display_policy.h"
 
 static void test_display_sleep_feedback(void) {
@@ -110,7 +112,7 @@ static void test_display_sleep_feedback(void) {
   for (; now <= sleep_started_us + TEST_CHARGE_PERIODS * LED_CHARGE_PERIOD_US;
        now += POWER_POLL_MS * TEST_US_PER_MS) {
    check_display_inactivity();
-   assert(s_display_asleep && s_is_panel_asleep && !s_display_dimmed);
+   assert(s_display_asleep && s_is_panel_asleep && !s_display_dimmed && companion_asleep);
    assert(backlight_duty == 0 && !s_display_active);
    bool is_charge_pulse = (now - sleep_started_us) % LED_CHARGE_PERIOD_US < LED_CHARGE_ON_US;
    assert(desired_color(now) ==
@@ -119,7 +121,7 @@ static void test_display_sleep_feedback(void) {
   s_is_button_down = true;
   s_input_activity_ms = (uint32_t)(now / TEST_US_PER_MS);
   check_display_inactivity();
-  assert(!s_display_asleep && !s_display_dimmed && !s_is_panel_asleep && s_wake_guard);
+  assert(!s_display_asleep && !s_display_dimmed && !s_is_panel_asleep && s_wake_guard && !companion_asleep);
   assert(backlight_duty == BL_MAX_DUTY * TEST_DISPLAY_BRIGHTNESS_PCT / MAX_BRIGHTNESS);
   assert(s_display_active && desired_color(now) == 0);
   check_display_inactivity();

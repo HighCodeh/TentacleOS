@@ -221,8 +221,7 @@ typedef enum {
   SPI_ID_SYSTEM_CONSOLE_EXEC = SPI_CMD(SPI_CAT_SYSTEM, 0x47),
   SPI_ID_SYSTEM_GET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x48),
   SPI_ID_SYSTEM_SET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x49),
-  // P4→C5: device power state (payload = spi_power_state_t). Lets the C5 drop its
-  // radio when the P4 is idle/asleep instead of running full RX all the time.
+  // P4→C5: {state, revision}; idle sleep never changes radio preferences.
   SPI_ID_SYSTEM_POWER_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x4A),
   // Config cache: the P4 (master) pushes config files to the C5, hash-gated so an
   // unchanged file is never re-sent. Config ids are spi_cfg_id_t.
@@ -517,10 +516,15 @@ typedef struct __attribute__((packed)) {
  * @brief Device power state, sent P4→C5 as the SPI_ID_SYSTEM_POWER_STATE payload.
  */
 typedef enum {
-  SPI_POWER_ACTIVE = 0, ///< Normal operation: full radio.
-  SPI_POWER_IDLE = 1,   ///< Screen dimmed: deeper modem sleep (MAX_MODEM).
-  SPI_POWER_SLEEP = 2,  ///< Device asleep: drop the radio (unless a capture is running).
+  SPI_POWER_ACTIVE = 0, ///< Keep the bridge awake.
+  SPI_POWER_IDLE = 1,   ///< Short idle window; active operations veto sleep.
+  SPI_POWER_SLEEP = 2,  ///< Screen off: longer idle window, same activity guards.
 } spi_power_state_t;
+
+#define SPI_POWER_REVISION     1
+#define SPI_POWER_REQUEST_SIZE 2
+#define SPI_POWER_IDLE_MS      100
+#define SPI_POWER_SLEEP_MS     1000
 
 /**
  * @brief Companion settings section id (payload byte 0 of SPI_ID_SYSTEM_CONFIG_*).
@@ -702,6 +706,7 @@ typedef struct __attribute__((packed)) {
 #define SPI_BOARD_CAP_USB           (1U << 2)
 #define SPI_BOARD_CAP_HAPTIC_INPUT  (1U << 3)
 #define SPI_BOARD_OUTPUT_MASK       (SPI_BOARD_CAP_AMP | SPI_BOARD_CAP_HAPTIC | SPI_BOARD_CAP_USB)
+#define SPI_BOARD_CAP_SLEEP         (1U << 4)
 #define SPI_BOARD_CAPS              (SPI_BOARD_OUTPUT_MASK | SPI_BOARD_CAP_HAPTIC_INPUT)
 #define SPI_BOARD_SAFE_VALUES       SPI_BOARD_CAP_USB
 #define SPI_BOARD_AMP               0

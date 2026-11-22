@@ -279,6 +279,14 @@ static void worker(void *arg) {
   }
 }
 
+bool ir_remote_can_sleep(void) {
+  if (s_mutex == NULL || xSemaphoreTake(s_mutex, 0) != pdTRUE)
+    return false;
+  bool can_sleep = s_state == SPI_IR_CLOSED && s_channel == NULL;
+  xSemaphoreGive(s_mutex);
+  return can_sleep;
+}
+
 esp_err_t ir_remote_init(void) {
   if (s_mutex != NULL)
     return ESP_OK;
