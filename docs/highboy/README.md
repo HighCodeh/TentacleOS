@@ -174,7 +174,19 @@ Build products live in `firmware_{p4,c5}/build_highboy`, not the previous build
 directories.
 
 P4 loads only `firmware_p4/sdkconfig.defaults`, including its installed partition
-offset and development-security settings. The former `sdkconfig.muse` overlay
+offset and development-security settings. Its flash profile is 8 MiB, DIO,
+80 MHz. The V2.03 schematic identifies U8 as P25D64SH; its
+[datasheet, table 5-3-2](https://datasheet.lcsc.com/datasheet/pdf/75d44ed55186df32a74d391edcf2f238.pdf)
+allows 104 MHz for 2READ/DIO with four dummy cycles and requires eight for
+120 MHz. IDF v6.1 uses four DIO dummy cycles and has no P25D64SH-specific
+high-performance adjustment, so the experimental 120 MHz option is not enabled.
+80 MHz is the highest selectable clock within that timing configuration; board
+stability still requires hardware validation. This clock controls flash access
+during execution, not the serial upload baud rate. Existing local `sdkconfig`
+files retain prior selections: use `idf.py menuconfig` to select 80 MHz before
+rebuilding. The bootloader must also be rebuilt and updated for its boot-time
+clock to change; the guarded app-only updater preserves the installed bootloader.
+The former `sdkconfig.muse` overlay
 has been merged into that file. C5 also loads only `sdkconfig.defaults`, including its memory and scheduling
 policy; the former baseline overlay has been merged into that file. Factory-security review
 profiles remain separate from these normal development defaults.
