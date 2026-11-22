@@ -271,8 +271,30 @@ int main(void){
  assert(!strcmp(s_dumps[0].card.name,"Office access"));assert(strstr(s_dumps[0].path,"office.nfc"));
  s_requested_card.uid[6]=9;assert(scan_real_dumps()==0);
  ui_nfc_emulate_select_card(NULL,SCREEN_NFC_MENU);assert(scan_real_dumps()==3);
+ bool named=false,other_uid=false,other_protocol=false;
+ for(int i=0;i<3;i++){
+  if(strstr(s_dumps[i].path,"office.nfc")){assert(!strcmp(s_dumps[i].card.name,"Office access"));named=true;}
+  if(strstr(s_dumps[i].path,"different.nfc")){assert(!strcmp(s_dumps[i].card.name,"different"));other_uid=true;}
+  if(strstr(s_dumps[i].path,"plus.nfc")){assert(!strcmp(s_dumps[i].card.name,"plus"));other_protocol=true;}
+ }
+ assert(named && other_uid && other_protocol);
+ s_cards[1]=s_cards[0];strcpy(s_cards[1].name,"Second alias");s_count=2;
+ assert(scan_real_dumps()==4);int aliases=0;
+ for(int i=0;i<4;i++)if(strstr(s_dumps[i].path,"office.nfc")){
+  assert(!strcmp(s_dumps[i].card.name,"Office access") || !strcmp(s_dumps[i].card.name,"Second alias"));aliases++;
+ }
+ assert(aliases==2);
+ strcpy(s_cards[0].name,"Office renamed");assert(scan_real_dumps()==4);named=false;
+ for(int i=0;i<4;i++)if(!strcmp(s_dumps[i].card.name,"Office renamed"))named=true;
+ assert(named);
+ ui_nfc_emulate_select_card(&s_cards[1],SCREEN_NFC_SAVED);assert(scan_real_dumps()==1);
+ assert(!strcmp(s_dumps[0].card.name,"Second alias"));
+ ui_nfc_emulate_select_card(NULL,SCREEN_NFC_MENU);
+ for(int i=2;i<NFC_SIM_MAX_SAVED;i++){s_cards[i]=s_cards[0];snprintf(s_cards[i].name,sizeof(s_cards[i].name),"Alias %d",i);}
+ s_count=NFC_SIM_MAX_SAVED;assert(scan_real_dumps()==MAX_CARDS);
+ s_count=1;assert(scan_real_dumps()==3);
  for(int i=0;i<3;i++)assert(unlink(s_dumps[i].path)==0);assert(rmdir(directory)==0);
- puts("PASS: NFC alias, full UID/protocol matching, ambiguity fallback, copied selection and no unrelated dump fallback");
+ puts("PASS: NFC menu emulation names, multiple aliases, rename refresh, full UID/protocol isolation, copied selection, unnamed fallback and bounded picker");
 }
 """, [UI / "screens/nfc/include"])
 

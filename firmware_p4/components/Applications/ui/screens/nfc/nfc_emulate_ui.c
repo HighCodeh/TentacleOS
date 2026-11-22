@@ -252,7 +252,7 @@ static int scan_real_dumps(void) {
     return 0;
   }
 
-  (void)nfc_sim_saved_count();
+  const int saved_count = nfc_sim_saved_count();
   int count = 0;
   struct dirent *ent;
   while ((ent = readdir(dir)) != NULL && count < MAX_CARDS) {
@@ -262,36 +262,38 @@ static int scan_real_dumps(void) {
          (strncmp(ent->d_name, "mf_", 3) != 0 || strcmp(ent->d_name + len - 4, ".bin") != 0)))
       continue;
 
-    memset(&s_dumps[count], 0, sizeof(s_dumps[count]));
-    int n =
-        snprintf(s_dumps[count].path, sizeof(s_dumps[count].path), MFC_DUMP_DIR "/%s", ent->d_name);
-    if (n < 0 || (size_t)n >= sizeof(s_dumps[count].path))
+    nfc_emu_dump_entry_t dump = {0};
+    int n = snprintf(dump.path, sizeof(dump.path), MFC_DUMP_DIR "/%s", ent->d_name);
+    if (n < 0 || (size_t)n >= sizeof(dump.path))
       continue;
-    if (!inspect_mfc1k_dump(s_dumps[count].path, &s_dumps[count].card) &&
-        !inspect_plus_dump(&s_dumps[count]) && !inspect_t2t_dump(&s_dumps[count]) &&
-        !inspect_v_dump(&s_dumps[count]))
+    if (!inspect_mfc1k_dump(dump.path, &dump.card) && !inspect_plus_dump(&dump) &&
+        !inspect_t2t_dump(&dump) && !inspect_v_dump(&dump))
       continue;
 
-    if (s_has_selection && !nfc_sim_same_card(&s_requested_card, &s_dumps[count].card))
+    if (s_has_selection && !nfc_sim_same_card(&s_requested_card, &dump.card))
       continue;
-    snprintf(s_dumps[count].card.name,
-             sizeof(s_dumps[count].card.name),
+    snprintf(dump.card.name,
+             sizeof(dump.card.name),
              "%.*s",
-             (int)LV_MIN(len - 4, sizeof(s_dumps[count].card.name) - 1),
+             (int)LV_MIN(len - 4, sizeof(dump.card.name) - 1),
              ent->d_name);
-    if (s_has_selection && s_requested_card.name[0] != '\0')
-      strlcpy(s_dumps[count].card.name, s_requested_card.name, sizeof(s_dumps[count].card.name));
-    else
-      (void)nfc_sim_resolve_name(&s_dumps[count].card);
+    if (s_has_selection && s_requested_card.name[0] != '\0') {
+      strlcpy(dump.card.name, s_requested_card.name, sizeof(dump.card.name));
+      s_dumps[count++] = dump;
+      continue;
+    }
 
-    ESP_LOGI(TAG,
-             "Found real dump %s UID=%02X%02X%02X%02X",
-             s_dumps[count].path,
-             s_dumps[count].card.uid[0],
-             s_dumps[count].card.uid[1],
-             s_dumps[count].card.uid[2],
-             s_dumps[count].card.uid[3]);
-    count++;
+    const int first = count;
+    for (int i = 0; i < saved_count && count < MAX_CARDS; i++) {
+      const nfc_sim_card_t *saved = nfc_sim_saved_get(i);
+      if (saved == NULL || saved->name[0] == '\0' || !nfc_sim_same_card(saved, &dump.card))
+        continue;
+      s_dumps[count] = dump;
+      strlcpy(s_dumps[count].card.name, saved->name, sizeof(s_dumps[count].card.name));
+      count++;
+    }
+    if (count == first)
+      s_dumps[count++] = dump;
   }
   closedir(dir);
   return count;

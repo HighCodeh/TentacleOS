@@ -892,6 +892,11 @@ manual-entry saves also request a name; this library still lasts only until rebo
 NFC identification uses the contextual name editor. Successful NFC/IR saves update
 the result card's title to the chosen name. Saved NFC cards open explicit actions
 without a timed transition; the emulation picker retains their identity and name.
+Opening Emulate directly from the NFC menu also uses the refreshed library names.
+Multiple saved aliases for one card remain named, selectable entries; the file
+name stays underneath, while the card title and active emulation overlay retain
+the selected saved name. Matching still requires the complete UID and protocol
+family; an unlinked dump falls back to its file stem.
 Deleting a saved NFC card also deletes its associated dumps and Classic companions
 on SD, with confirmation, worker progress and checked completion. NFC Files uses
 the same action-panel appearance for Open details / Rename / Save a copy / Delete
