@@ -45,6 +45,7 @@ typedef enum {
   NFC_CARD_ACTION_SAVE,
   NFC_CARD_ACTION_RESCAN,
   NFC_CARD_ACTION_READER_KEYS,
+  NFC_CARD_ACTION_VIEW_BLOCKS,
 } nfc_card_action_id_t;
 
 typedef struct {

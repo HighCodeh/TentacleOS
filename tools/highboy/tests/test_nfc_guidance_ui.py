@@ -44,7 +44,7 @@ def fn(signature):
  return s[start:end]
 # Compile the exact discovery/success/info branches, without the unrelated recovery worker.
 start=s.index('  if (s_state == ST_SCAN) {',s.index('static void refresh_cb'))
-end=s.index('  } else if (s_state == ST_BLOCK_READING)',start)
+end=s.index('  } else if (s_state == ST_BLOCK_READING',start)
 flow='static void poll(void) {\n'+s[start:end]+'  }\n}\n'
 alpha_table='static const uint64_t expected_alpha[]={'+','.join(str(v)+'ULL' for v in alpha_hashes)+'};\n'
 code='''#include <assert.h>

@@ -544,6 +544,7 @@ esp_err_t nfc_mfc_dump_save(const nfc_iso14443a_data_t *card, nfc_mfc_dump_resul
         close(fd);
         remove(dump->bin_path);
       }
+      remove(dump->nfc_path);
       return ESP_FAIL;
     }
     size_t written = fwrite(dump->blocks, NFC_MFC_BLOCK_SIZE, dump->total_blocks, file);
@@ -552,6 +553,7 @@ esp_err_t nfc_mfc_dump_save(const nfc_iso14443a_data_t *card, nfc_mfc_dump_resul
       failed = true;
     if (failed) {
       remove(dump->bin_path);
+      remove(dump->nfc_path);
       return ESP_FAIL;
     }
   } else {

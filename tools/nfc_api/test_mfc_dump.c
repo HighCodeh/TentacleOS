@@ -91,7 +91,14 @@ static hb_nfc_err_t mf_classic_read_block(uint8_t block,uint8_t *data) {
 static int mf_classic_get_type(uint8_t sak) {return sak==9?MF_CLASSIC_MINI:sak==0x18?MF_CLASSIC_4K:MF_CLASSIC_1K;}
 static int mf_classic_get_sector_count(int type) {return type==MF_CLASSIC_MINI?5:type==MF_CLASSIC_4K?40:16;}
 static esp_err_t storage_mkdir_recursive(const char *path) {mkdir(path,0700);return ESP_OK;}
+static bool fail_bin_open;
+static int mock_open(const char *path, int flags, mode_t mode) {
+ if (fail_bin_open && strstr(path, ".bin")) return -1;
+ return open(path, flags, mode);
+}
+#define open mock_open
 /* PRODUCTION */
+#undef open
 static bool cancel(void *context) {(void)context;return (cancelled_after>=0 && reads>=cancelled_after) || (cancel_next_sector && selected_sector>0);}
 static void reset(nfc_iso14443a_data_t *card) {
  memcpy(expected_cuid,card->uid+card->uid_len-4,4);
@@ -115,6 +122,10 @@ int main(void) {
   assert(dump.total_blocks==blocks[i] && dump.blocks_read==blocks[i]);
   assert(dump.sector_count==sectors[i] && dump.sectors_complete==sectors[i]);
   assert(dump.keys_a_found==sectors[i] && dump.keys_b_found==sectors[i] && dump.emulation_ready);
+  fail_bin_open=true;
+  assert(nfc_mfc_dump_save(&card,&dump)==ESP_FAIL && !dump.saved);
+  assert(access(dump.nfc_path,F_OK)!=0 && access(dump.bin_path,F_OK)!=0);
+  fail_bin_open=false;
   assert(nfc_mfc_dump_save(&card,&dump)==ESP_OK && dump.saved);
   struct stat info;assert(stat(dump.bin_path,&info)==0 && info.st_size==blocks[i]*16);
   char *profile=load(dump.nfc_path);assert(!strstr(profile,"??"));free(profile);

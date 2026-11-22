@@ -45,7 +45,7 @@ typedef enum {
   CAP_ACT_MAX,         ///< action count sentinel
 } capture_action_t;
 
-#define CAP_RESULT_MAX_ACTIONS 8
+#define CAP_RESULT_MAX_ACTIONS 9
 
 /** One row in a protocol-specific post-capture action list. */
 typedef struct {

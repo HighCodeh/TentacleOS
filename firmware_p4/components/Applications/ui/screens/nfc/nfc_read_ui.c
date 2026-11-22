@@ -30,6 +30,7 @@
 #include "keyboard_ui.h"
 #include "msgbox_ui.h"
 #include "notify_ui.h"
+#include "led_control.h"
 #include "nfc_capabilities.h"
 #include "ui_feedback.h"
 #include "nfc_card_info.h"
@@ -69,6 +70,7 @@ enum {
   ST_OPTIONS,
   ST_ERROR,
   ST_BLOCK_READING,
+  ST_BLOCK_SAVING,
   ST_BLOCK_DONE,
   ST_BLOCK_ERROR,
   ST_READER_KEYS,
@@ -111,7 +113,8 @@ static bool s_key_result_ready;
 static nfc_mfc_dump_progress_t s_block_progress;
 static bool s_block_result_ready = false;
 static bool s_block_cancel = false;
-static bool s_exit_after_block = false;
+static bool s_options_after_block = false;
+static esp_err_t s_save_error;
 static bool s_show_ndef_after_read = false;
 static char s_ndef_text[NFC_MFC_NDEF_TEXT_MAX + 1U];
 static int s_block_selected = 0;
@@ -129,6 +132,11 @@ static void show_rings(bool show);
 static void start_block_read(void);
 static void show_block_result(const block_read_result_t *result);
 static void run_context_action(nfc_card_action_id_t action);
+static void show_options(void);
+
+static bool has_block_data(const block_read_result_t *result) {
+  return result->blocks_read > 0 || result->keys_a_found > 0 || result->keys_b_found > 0;
+}
 
 static void stop_scan(void) {
   nfc_guide_close();
@@ -171,9 +179,8 @@ static bool block_cancel_requested(void) {
   return cancel;
 }
 
-static void publish_block_result(const block_read_result_t *result) {
+static void publish_block_result(void) {
   portENTER_CRITICAL(&s_card_mux);
-  s_block_result = *result;
   s_block_result_ready = true;
   portEXIT_CRITICAL(&s_card_mux);
   atomic_store(&s_block_running, false);
@@ -198,20 +205,14 @@ static void block_read_task(void *arg) {
   nfc_iso14443a_data_t card = s_hw_card.iso14443a;
   const nfc_mfc_dump_callbacks_t callbacks = {block_cancel_cb, block_progress_cb, NULL};
   result->err = nfc_mfc_dump_read(&card, &callbacks, result);
-  if (result->blocks_read > 0 || result->keys_a_found + result->keys_b_found > 0) {
-    const nfc_mfc_dump_progress_t saving = {
-        .phase = NFC_MFC_DUMP_PHASE_SAVE,
-        .sector = result->sector_count - 1,
-        .blocks_read = result->blocks_read,
-        .keys_found = result->keys_a_found + result->keys_b_found,
-        .sector_count = result->sector_count,
-        .total_blocks = result->total_blocks,
-    };
-    block_progress_cb(&saving, NULL);
-    if (nfc_mfc_dump_save(&card, result) != ESP_OK)
-      ESP_LOGW(TAG, "Classic profile could not be saved");
-  }
-  publish_block_result(result);
+  publish_block_result();
+  vTaskDelete(NULL);
+}
+
+static void block_save_task(void *arg) {
+  (void)arg;
+  s_save_error = nfc_mfc_dump_save(&s_hw_card.iso14443a, &s_work_result);
+  publish_block_result();
   vTaskDelete(NULL);
 }
 
@@ -233,9 +234,9 @@ static void clear_result_objects(void) {
 static void show_block_error(const char *message) {
   show_rings(false);
   lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_style_text_color(s_status, lv_color_hex(0xFFB300), 0);
+  lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_WARNING), 0);
   lv_label_set_text(s_status, message);
-  ui_chrome_footer_set_text(s_hint, "OK Retry dump   BACK Exit");
+  ui_chrome_footer_set_text(s_hint, "OK Retry   BACK Options");
   s_state = ST_BLOCK_ERROR;
 }
 
@@ -283,7 +284,6 @@ static void update_block_view(void) {
 
 static void show_block_result(const block_read_result_t *result) {
   s_block_result = *result;
-  s_block_selected = 0;
   show_rings(false);
   clear_result_objects();
 
@@ -294,7 +294,7 @@ static void show_block_result(const block_read_result_t *result) {
 
   lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(s_status,
-                              result->blocks_read == result->total_blocks && result->saved
+                              result->blocks_read == result->total_blocks
                                   ? lv_color_hex(UI_COL_SUCCESS)
                                   : lv_color_hex(UI_COL_WARNING),
                               0);
@@ -335,8 +335,7 @@ static void show_block_result(const block_read_result_t *result) {
   lv_obj_set_style_text_color(s_block_key, current_theme.text_secondary, 0);
 
   update_block_view();
-  ui_chrome_footer_set_text(s_hint, "UP/DOWN Block   OK Redump   BACK");
-  nfc_ui_play_sound(NFC_SND_FOUND);
+  ui_chrome_footer_set_text(s_hint, "UP/DOWN Block   OK Save   BACK");
   s_state = ST_BLOCK_DONE;
 
   size_t text_len = 0;
@@ -345,7 +344,7 @@ static void show_block_result(const block_read_result_t *result) {
           ? HB_NFC_ERR_NOT_FOUND
           : nfc_mfc_ndef_extract_text(
                 result->blocks, result->block_read, s_ndef_text, sizeof(s_ndef_text), &text_len);
-  if (ndef_err == HB_NFC_OK && text_len > 0U) {
+  if (s_show_ndef_after_read && ndef_err == HB_NFC_OK && text_len > 0U) {
     msgbox_open_info("/assets/icons/description.bin",
                      "MIFARE NDEF TEXT",
                      s_ndef_text,
@@ -376,7 +375,7 @@ static void start_block_read(void) {
   s_block_cancel = false;
   memset(&s_block_progress, 0, sizeof(s_block_progress));
   portEXIT_CRITICAL(&s_card_mux);
-  s_exit_after_block = false;
+  s_options_after_block = false;
   s_state = ST_BLOCK_READING;
   s_scan_start = lv_tick_get();
   show_rings(false);
@@ -439,7 +438,7 @@ static void start_reader_keys(void) {
   s_finish_capture = false;
   s_key_result_ready = false;
   portEXIT_CRITICAL(&s_card_mux);
-  s_exit_after_block = false;
+  s_options_after_block = false;
   s_state = ST_READER_KEYS;
   lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(s_status, "Remove card. Present High Boy to reader");
@@ -519,6 +518,9 @@ static void show_rings(bool show) {
 }
 
 static void begin_scan(void) {
+  memset(&s_block_result, 0, sizeof(s_block_result));
+  s_block_selected = 0;
+  s_show_ndef_after_read = false;
   stop_scan();
 
   s_state = ST_SCAN;
@@ -651,6 +653,8 @@ static void show_no_tag(void) {
 
 static const char *action_symbol(nfc_card_action_id_t action) {
   switch (action) {
+    case NFC_CARD_ACTION_VIEW_BLOCKS:
+      return LV_SYMBOL_LIST;
     case NFC_CARD_ACTION_READER_KEYS:
       return LV_SYMBOL_SETTINGS;
     case NFC_CARD_ACTION_MFC_DUMP:
@@ -682,14 +686,7 @@ static const char *action_symbol(nfc_card_action_id_t action) {
 }
 
 static void show_options(void) {
-  if (s_card_panel) {
-    lv_obj_del(s_card_panel);
-    s_card_panel = NULL;
-  }
-  if (s_dump) {
-    lv_obj_del(s_dump);
-    s_dump = NULL;
-  }
+  clear_result_objects();
   if (s_status)
     lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
 
@@ -706,19 +703,59 @@ static void show_options(void) {
       .card_value = uidbuf,
   };
 
-  capture_result_action_cfg_t actions[NFC_CAPABILITY_MAX_ACTIONS] = {0};
-  for (uint8_t i = 0; i < s_capabilities.action_count; i++) {
-    actions[i].id = s_capabilities.actions[i].id;
-    actions[i].symbol = action_symbol(s_capabilities.actions[i].id);
-    actions[i].label = s_capabilities.actions[i].label;
+  capture_result_action_cfg_t actions[NFC_CAPABILITY_MAX_ACTIONS + 1] = {0};
+  uint8_t count = 0;
+  if (s_block_result.blocks_read > 0) {
+    actions[count++] = (capture_result_action_cfg_t){
+        .id = NFC_CARD_ACTION_VIEW_BLOCKS, .symbol = LV_SYMBOL_LIST, .label = "View read blocks"};
   }
-  s_cr = capture_result_create_custom(s_screen, &cfg, actions, s_capabilities.action_count);
+  for (uint8_t i = 0; i < s_capabilities.action_count; i++) {
+    const nfc_card_action_t *action = &s_capabilities.actions[i];
+    const char *label = action->label;
+    if (has_block_data(&s_block_result)) {
+      if (action->id == NFC_CARD_ACTION_SAVE)
+        label = s_block_result.saved ? "Card and dump saved" : "Save card and dump";
+      else if (action->id == NFC_CARD_ACTION_MFC_DUMP)
+        label = "Read blocks again";
+    }
+    actions[count++] = (capture_result_action_cfg_t){
+        .id = action->id, .symbol = action_symbol(action->id), .label = label};
+  }
+  s_cr = capture_result_create_custom(s_screen, &cfg, actions, count);
   s_state = ST_OPTIONS;
   ui_chrome_footer_set_text(s_hint, "UP/DOWN options   OK open   BACK");
 }
 
+static void start_block_save(void) {
+  s_work_result = s_block_result;
+  s_block_result_ready = false;
+  clear_result_objects();
+  s_state = ST_BLOCK_SAVING;
+  lv_obj_remove_flag(s_status, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
+  lv_label_set_text(s_status, "Saving Classic dump...");
+  ui_chrome_footer_set_text(s_hint, "Finishing save before returning");
+  atomic_store(&s_block_running, true);
+  if (xTaskCreatePinnedToCore(block_save_task,
+                              "nfc_save",
+                              BLOCK_WORK_STACK,
+                              NULL,
+                              SYS_PRIO_SERVICE_LO,
+                              &s_block_task,
+                              SYS_CORE_RADIO) != pdPASS) {
+    atomic_store(&s_block_running, false);
+    s_block_task = NULL;
+    show_options();
+    ESP_LOGE(TAG, "Cannot create dump save worker");
+    led_signal_error();
+    notify(NOTIFY_WARNING, "Name saved; dump worker unavailable");
+  }
+}
+
 static void on_name_submit(const char *text, void *ud) {
   (void)ud;
+  if (atomic_load(&s_block_running))
+    return;
   const char *name = (text && text[0]) ? text : s_card.type;
   if (strlen(name) >= sizeof(s_card.name)) {
     notify(NOTIFY_WARNING, "Name too long; use fewer characters");
@@ -739,11 +776,25 @@ static void on_name_submit(const char *text, void *ud) {
   }
   if (is_saved || nfc_device_save_generic(name, &s_hw_card) == HB_NFC_OK) {
     strlcpy(s_card.name, name, sizeof(s_card.name));
-    capture_result_set_title(&s_cr, s_card.name);
+    if (has_block_data(&s_block_result) && !s_block_result.saved) {
+      start_block_save();
+      return;
+    }
+    show_options();
+    ESP_LOGI(TAG, "Card save confirmed");
+    led_signal_info();
     nfc_ui_play_sound(NFC_SND_SAVE);
-    capture_result_mark_action_done(&s_cr, NFC_CARD_ACTION_SAVE, "Identification saved");
-    notify(NOTIFY_SAVED, is_saved ? "Card already in library" : "Card name saved to library");
+    capture_result_mark_action_done(&s_cr,
+                                    NFC_CARD_ACTION_SAVE,
+                                    s_block_result.saved ? "Card and dump saved"
+                                                         : "Identification saved");
+    notify(NOTIFY_SAVED,
+           s_block_result.saved ? "Card and dump already saved"
+           : is_saved           ? "Card already in library"
+                                : "Card name saved to library");
   } else {
+    ESP_LOGE(TAG, "Card identification save failed");
+    led_signal_error();
     notify(NOTIFY_WARNING, "Save failed; check library storage");
   }
 }
@@ -755,11 +806,17 @@ static void nfc_read_input(const input_event_t *ev, void *ctx) {
 
   if (ev->button == INPUT_BTN_BACK) {
     if (press) {
+      if (s_state == ST_BLOCK_SAVING)
+        return;
+      if (s_state == ST_BLOCK_DONE || s_state == ST_BLOCK_ERROR || s_state == ST_READER_DONE) {
+        show_options();
+        return;
+      }
       if (s_state == ST_BLOCK_READING || s_state == ST_READER_KEYS) {
         portENTER_CRITICAL(&s_card_mux);
         s_block_cancel = true;
         portEXIT_CRITICAL(&s_card_mux);
-        s_exit_after_block = true;
+        s_options_after_block = true;
         show_rings(false);
         lv_label_set_text(s_status, "Stopping reader...");
         ui_chrome_footer_set_text(s_hint, "Stopping safely");
@@ -810,7 +867,7 @@ static void nfc_read_input(const input_event_t *ev, void *ctx) {
       update_block_view();
       ui_feedback(UI_FB_NAV);
     } else if (press && ev->button == INPUT_BTN_OK) {
-      start_block_read();
+      run_context_action(NFC_CARD_ACTION_SAVE);
     }
     return;
   }
@@ -860,8 +917,9 @@ static void refresh_cb(lv_timer_t *t) {
     portEXIT_CRITICAL(&s_card_mux);
     char text[128];
     if (ready) {
-      if (s_exit_after_block) {
-        ui_switch_screen(SCREEN_NFC_MENU);
+      if (s_options_after_block) {
+        s_options_after_block = false;
+        show_options();
         return;
       }
       s_state = ST_READER_DONE;
@@ -938,7 +996,7 @@ static void refresh_cb(lv_timer_t *t) {
   } else if (s_state == ST_FOUND) {
     if (lv_tick_get() - s_found_at >= REVEAL_MS)
       show_options();
-  } else if (s_state == ST_BLOCK_READING) {
+  } else if (s_state == ST_BLOCK_READING || s_state == ST_BLOCK_SAVING) {
     /* Display DMA shares SPI with NFC. No animation during card transactions. */
     const uint32_t now = lv_tick_get();
     nfc_mfc_dump_progress_t progress;
@@ -960,7 +1018,8 @@ static void refresh_cb(lv_timer_t *t) {
                progress.keys_found,
                progress.sector_count * 2);
     }
-    if (now - s_block_refresh_at >= BLOCK_REFRESH_MS &&
+    if (s_state == ST_BLOCK_READING && !s_options_after_block &&
+        now - s_block_refresh_at >= BLOCK_REFRESH_MS &&
         strcmp(lv_label_get_text(s_status), buf) != 0) {
       lv_label_set_text(s_status, buf);
       s_block_refresh_at = now;
@@ -968,18 +1027,40 @@ static void refresh_cb(lv_timer_t *t) {
 
     bool ready;
     portENTER_CRITICAL(&s_card_mux);
-    ready = s_block_result_ready;
+    ready = s_block_result_ready && !atomic_load(&s_block_running);
     if (ready)
       s_block_result_ready = false;
     portEXIT_CRITICAL(&s_card_mux);
 
     if (ready) {
-      if (s_exit_after_block) {
-        s_exit_after_block = false;
-        ui_switch_screen(SCREEN_NFC_MENU);
-      } else if (s_block_result.cancelled) {
-        show_block_error("Block read cancelled");
+      if (s_state == ST_BLOCK_SAVING) {
+        s_block_result = s_work_result;
+        show_options();
+        if (s_save_error == ESP_OK) {
+          ESP_LOGI(TAG, "Card and dump saved");
+          led_signal_info();
+          nfc_ui_play_sound(NFC_SND_SAVE);
+          notify(NOTIFY_SAVED, "Card and dump saved");
+        } else {
+          ESP_LOGE(TAG, "Dump save failed: %s", esp_err_to_name(s_save_error));
+          led_signal_error();
+          notify(NOTIFY_WARNING, "Dump failed; data kept. Retry Save");
+        }
+        return;
+      }
+      if (has_block_data(&s_work_result)) {
+        s_block_result = s_work_result;
+        s_block_selected = 0;
+      }
+      if (s_options_after_block) {
+        s_options_after_block = false;
+        s_show_ndef_after_read = false;
+        show_options();
+      } else if (s_work_result.blocks_read == 0) {
+        show_block_error(s_work_result.cancelled ? "Block read cancelled"
+                                                 : "No blocks could be read");
       } else {
+        nfc_ui_play_sound(NFC_SND_FOUND);
         show_block_result(&s_block_result);
       }
     }
@@ -988,6 +1069,10 @@ static void refresh_cb(lv_timer_t *t) {
 
 static void run_context_action(nfc_card_action_id_t action) {
   switch (action) {
+    case NFC_CARD_ACTION_VIEW_BLOCKS:
+      s_show_ndef_after_read = false;
+      show_block_result(&s_block_result);
+      break;
     case NFC_CARD_ACTION_READER_KEYS:
       start_reader_keys();
       break;
@@ -1084,7 +1169,7 @@ void ui_nfc_read_open(void) {
   s_scan_active = false;
   s_show_ndef_after_read = false;
   s_ndef_text[0] = '\0';
-  s_exit_after_block = false;
+  s_options_after_block = false;
 
   s_screen = lv_obj_create(NULL);
   lv_obj_add_event_cb(s_screen, screen_deleted, LV_EVENT_DELETE, NULL);

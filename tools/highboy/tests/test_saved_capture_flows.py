@@ -209,6 +209,7 @@ static nfc_emu_dump_entry_t s_dumps[MAX_CARDS];
 static bool nfc_listener_is_active(void){return false;}
 int nfc_sim_saved_count(void){return s_count;}
 const nfc_sim_card_t *nfc_sim_saved_get(int i){return i>=0 && i<s_count ? &s_cards[i] : NULL;}
+#include <stdatomic.h>
 #define HB_NFC_OK 0
 #define NFC_CARD_ACTION_SAVE 1
 #define NFC_SND_SAVE 1
@@ -217,6 +218,13 @@ const nfc_sim_card_t *nfc_sim_saved_get(int i){return i>=0 && i<s_count ? &s_car
 static nfc_sim_card_t s_card;
 static int s_hw_card,s_cr,writes,save_failure,last_notification;
 static char result_title[32];
+static atomic_bool s_block_running;
+static struct { bool saved; } s_block_result;
+static bool has_block_data(const void *result) { return false; }
+static void start_block_save(void) { assert(false); }
+static void led_signal_info(void) {}
+static void led_signal_error(void) {}
+static void show_options(void) { strlcpy(result_title,s_card.name,sizeof(result_title)); }
 static int nfc_device_save_generic(const char *name,void *card){writes++;return save_failure;}
 static void capture_result_set_title(void *cr,const char *name){strlcpy(result_title,name,sizeof(result_title));}
 static void capture_result_mark_action_done(void *cr,int action,const char *name){(void)cr;}

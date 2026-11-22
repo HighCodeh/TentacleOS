@@ -1647,7 +1647,20 @@ for seven-byte cards. Key B exposed by valid trailer access conditions is
 preserved even when that key cannot authenticate. Keys from the cache are always
 verified against the physical card before being marked known.
 
-Partial and cancelled reads save a Flipper v4 `.nfc` profile under
+Block reads retain their result in RAM without creating dump files. BACK from
+results/errors returns to the identified card's options; BACK during a read
+requests cancellation, waits for RF cleanup, then returns to those options with
+any verified partial data. **View read blocks** reopens the retained result at
+the last selected block without RF activity. **Read blocks again** explicitly
+starts a new read; a failed attempt with no data leaves the previous result
+available. A new scan or leaving the Read Tag session discards unsaved data.
+
+**Save card and dump** (also OK in the block viewer) opens the name editor and
+saves identification plus the current result. Without block/key data the action
+remains **Save identification**. Dump storage runs in a worker; navigation waits
+for completion. A failed dump save reports the failure and keeps the RAM result
+for retry; the saved identification remains in the library. Repeating Save on an already saved result does not
+create another dump. Complete and partial results save a Flipper v4 `.nfc` under
 `/nfc/dumps`. Unknown bytes and unknown trailer keys are `??`; incomplete data is
 never exported as a complete binary. Complete blocks plus both keys also produce
 an image of 320, 1024 or 4096 bytes. Names are selected without replacing older

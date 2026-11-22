@@ -796,10 +796,25 @@ still required; host tests cover persistence and worker cancellation.
 
 Read Tag offers all blocks for Mini, 1K and 4K. Block navigation uses the actual
 card geometry, including large 4K sectors. Progress reports actual sector,
-block and key totals. Partial reads and cancellation retain known data in a
-Flipper profile on SD; unread bytes remain unknown. Bulk result buffers are
-static PSRAM, not the worker stack. The existing screen stop hook requests
-cancellation and waits for worker cleanup before navigation.
+block and key totals. Complete, partial and cancelled reads stay in RAM until an
+explicit **Save card and dump**; this is also available through OK in the block
+viewer. The name editor cancels without writing a dump. BACK from the viewer or
+read error returns to the current card's options. BACK during reading cancels
+safely before showing those options, retaining partial data. **View read blocks**
+reopens the same result and block position; **Read blocks again** performs RF
+acquisition. A new scan or leaving the session discards unsaved data.
+
+Saving runs in a worker and reports failure without losing the RAM result;
+repeated Save does not duplicate an already saved dump. Unread bytes remain
+unknown in an explicitly saved Flipper profile. Bulk result buffers are static
+PSRAM, not the worker stack. The screen stop hook requests cancellation and
+waits for worker cleanup, including any pending storage write, before navigation.
+
+Host coverage in `tools/highboy/tests/test_nfc_read_flow_ui.py` executes the
+production state transitions and rendering with real LVGL, deferred worker
+fixtures and mocked RF/storage. It checks explicit saves, cancellation, retry,
+worker teardown and both display orientations; physical NFC/SD behavior still
+requires device validation.
 
 After identifying a Classic card, **Extract reader keys** displays capture and
 pair counts. Remove the physical card and present High Boy to the reader more
