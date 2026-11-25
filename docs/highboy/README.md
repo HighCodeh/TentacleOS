@@ -200,6 +200,48 @@ Build only produces applications. It does not access serial ports, flash, SD,
 microphone, token storage or any live Muse API. It does not regenerate runtime
 assets, embed a different C5 recovery image or migrate security eFuses.
 
+### 16 MB P4 build profile
+
+The waterfall feature exceeds the previous 8 MB board's application slot. The
+prototype received a 16 MB replacement flash on 25 November 2026. Active
+`sdkconfig.defaults`, `partitions.csv`, the normal paired build and guarded
+app-only flashing still target the 8 MB layout; they are not silently migrated
+or relaxed. Use the separate profile below for the upgraded prototype.
+
+A separate profile is provided by `firmware_p4/sdkconfig.16mb.defaults`
+and `firmware_p4/partitions_16mb.csv`: two 6 MiB OTA slots, the existing NVS/OTA/PHY
+prefix, 64 KiB coredump and the remaining 0x3D0000 bytes for assets. It must not be
+used on an 8 MB chip. With ESP-IDF v6.1 activated (EIM shell or export.sh), run from
+the **firmware_p4 directory** so all paths resolve consistently:
+
+```sh
+cd firmware_p4
+IDF_COMPONENT_MANAGER=1 idf.py -B build_highboy_16mb \
+  -D SDKCONFIG="$PWD/build_highboy_16mb/sdkconfig" \
+  -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.16mb.defaults' \
+  -D HIGH_BOY_USB_VOICE=OFF reconfigure
+cmake --build build_highboy_16mb --parallel 2
+```
+
+Use a fresh build/configuration directory when selecting this profile: an existing
+sdkconfig takes precedence over defaults. The ordinary 8 MB build's size check is
+expected to reject this expanded application; no size check or CI budget is bypassed.
+The current flash/recovery scripts require reviewed 8 MiB backups and are **not**
+a 16 MB migration workflow. Do not use the current app-only flash helper on the
+upgraded prototype. A full installation requires confirmed chip identity/capacity,
+a complete backup and matching bootloader, partitions, OTA data, application and
+assets from this build directory.
+
+Physical installation on 25 November 2026 identified P4 revision 3.2 and JEDEC
+`0x182085` (16 MB). A complete 16 MiB backup confirmed the replacement was blank.
+Bootloader `0x2000`, partitions `0x8000`, OTA data `0xF000`, application `0x20000`
+and assets `0xC30000` were programmed with esptool 5.6.0 and verified by digest.
+Watchdog reset started the application; the serial console and `c5 info` responded.
+C5 and microSD were not flashed. Blank NVS starts the onboarding flow again.
+These checks validate installation and basic boot/bridge operation, not RF
+performance or long-term stability. Local backup and candidate hashes remain in
+the ignored `integration/device_backups/` directory.
+
 ### ESP-IDF v6.1 compatibility
 
 The normal builds and packaging checks now select v6.1 for both chips. Existing
