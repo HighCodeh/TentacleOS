@@ -104,7 +104,7 @@ static void flush_wait_cb(lv_display_t *disp) {
 }
 
 static void capture_flush_start_cb(lv_event_t *e) {
-  atomic_store(&s_flush_took_bus, spi_bus_lock_take(SPI3_FLUSH_TIMEOUT_MS));
+  atomic_store(&s_flush_took_bus, spi_bus_lock_take_display(SPI3_FLUSH_TIMEOUT_MS));
   atomic_store(&s_flush_pending, true);
 
   lvgl_glue_strip_cb_t cb = s_capture_cb;

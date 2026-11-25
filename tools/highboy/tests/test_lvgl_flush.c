@@ -113,7 +113,7 @@ static int xSemaphoreGiveFromISR(semaphore_t *s,int *woken) {
   if(atomic_load(&s->waiting))*woken=pdTRUE;
   pthread_cond_broadcast(&s->condition);pthread_mutex_unlock(&s->mutex);return pdTRUE;
 }
-static bool spi_bus_lock_take(uint32_t timeout) {assert(timeout>0);return bus_available;}
+static bool spi_bus_lock_take_display(uint32_t timeout) {assert(timeout>0);return bus_available;}
 static void spi_bus_lock_give_from_isr(int *hp) {(void)hp;atomic_fetch_add(&bus_releases,1);}
 static int lvgl_port_init(const lvgl_port_cfg_t *cfg) {
   assert(cfg->task_affinity==SYS_CORE_UI);if(fail_port)return ESP_FAIL;port_starts++;return ESP_OK;

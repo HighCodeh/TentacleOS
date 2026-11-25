@@ -218,3 +218,10 @@ landscape the up/down/left/right are remapped to match the rotated screen.
 `keypad_read` is polled periodically by the LVGL task. It reads the hardware
 buttons and updates `data->state`/`data->key`, remembering the last pressed key
 until all keys are released.
+
+### Shared SPI admission
+
+The flush-start hook uses `spi_bus_lock_take_display()` so a pending peripheral
+request gets a chance to acquire SPI before the higher-priority render task
+starts another strip. The completion ISR and blocking flush-wait callback retain
+their DMA ownership and buffer-lifetime contract. See [SPI](../spi/README.md#shared-displayperipheral-admission).

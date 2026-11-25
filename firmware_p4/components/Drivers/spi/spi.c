@@ -15,10 +15,12 @@
 
 #include "spi.h"
 
+#include <stdatomic.h>
 #include <string.h>
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "freertos/task.h"
 
 #include "pin_def.h"
 
@@ -30,6 +32,7 @@ static spi_device_handle_t s_device_handles[SPI_DEVICE_MAX] = {NULL};
 static bool s_bus_active[SOC_SPI_PERIPH_NUM] = {false};
 
 static SemaphoreHandle_t s_spi3_lock = NULL;
+static atomic_uint s_spi3_waiters;
 
 esp_err_t spi_bus_init(spi_host_device_t host, int mosi, int miso, int sclk) {
   if (host >= SOC_SPI_PERIPH_NUM) {
@@ -69,7 +72,25 @@ bool spi_bus_lock_take(uint32_t timeout_ms) {
   if (s_spi3_lock == NULL) {
     return true;
   }
-  return xSemaphoreTake(s_spi3_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+  atomic_fetch_add(&s_spi3_waiters, 1);
+  bool has_lock = xSemaphoreTake(s_spi3_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+  atomic_fetch_sub(&s_spi3_waiters, 1);
+  return has_lock;
+}
+
+bool spi_bus_lock_take_display(uint32_t timeout_ms) {
+  if (s_spi3_lock == NULL)
+    return true;
+  TickType_t started = xTaskGetTickCount();
+  TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
+  // Let an awakened peripheral run before the higher-priority renderer retakes SPI.
+  while (atomic_load(&s_spi3_waiters) != 0) {
+    if (xTaskGetTickCount() - started >= timeout)
+      return false;
+    vTaskDelay(1);
+  }
+  TickType_t elapsed = xTaskGetTickCount() - started;
+  return xSemaphoreTake(s_spi3_lock, elapsed < timeout ? timeout - elapsed : 0) == pdTRUE;
 }
 
 void spi_bus_lock_give(void) {

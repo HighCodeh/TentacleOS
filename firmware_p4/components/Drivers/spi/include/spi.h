@@ -144,6 +144,9 @@ esp_err_t spi_bus_deinit(spi_host_device_t host);
  */
 bool spi_bus_lock_take(uint32_t timeout_ms);
 
+/** @brief Take the display reservation after pending peripheral requests. */
+bool spi_bus_lock_take_display(uint32_t timeout_ms);
+
 /**
  * @brief Release the shared SPI3 bus lock from task context.
  */

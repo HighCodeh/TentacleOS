@@ -111,3 +111,17 @@ Performs a simple polling/blocking transmission to the specified device.
 esp_err_t spi_deinit(void);
 ```
 Removes all devices and frees the SPI bus resources.
+
+## Shared display/peripheral admission
+
+Peripheral calls to `spi_bus_lock_take()` register a pending request until the
+semaphore is acquired or the timeout expires. The display uses
+`spi_bus_lock_take_display()` and yields while a peripheral request is pending,
+so its higher-priority render task cannot repeatedly retake the semaphore before
+the awakened radio worker runs. DMA completion still releases the semaphore from
+the ISR; no task-owned mutex is released from interrupt context. Display waiting
+remains bounded and peripheral timeouts remain errors.
+
+`python3 tools/highboy/tests/test_spi_fairness.py` exercises the production
+admission functions with pending requests, success/failure, timeout and tick wrap.
+`test_lvgl_flush.py` covers completion ownership and DMA buffer lifetime.
