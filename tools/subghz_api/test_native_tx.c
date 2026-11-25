@@ -153,6 +153,11 @@ esp_err_t cc1101_strobe(uint8_t command) { assert(s_grant_live);
 esp_err_t cc1101_enter_tx_mode(void) { assert(s_grant_live);
   return radio_result();
 }
+static atomic_bool s_led_active;
+void led_set_activity(uint32_t source, bool active) {
+  assert(source == LED_ACTIVITY_SUBGHZ);
+  s_led_active = active;
+}
 void led_signal_error(void) {}
 esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config,rmt_channel_handle_t *out) {
   assert(s_grant_live);s_start_entered=true;while(s_hold_start)pause_tick();if(s_fault==4)return ESP_FAIL;s_channel_live=true;*out=(void *)3;return ESP_OK;
@@ -174,7 +179,7 @@ esp_err_t rmt_del_encoder(rmt_encoder_handle_t encoder) {
   assert(!s_channel_live);if(s_encoder_delete_fail){--s_encoder_delete_fail;return ESP_FAIL;}s_encoder_live=false;return ESP_OK;
 }
 esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t encoder,const void *data,size_t size,const rmt_transmit_config_t *config) {
-  assert(s_enabled && s_grant_live);s_dma_pointer=(uintptr_t)data;s_dma_pending=true;s_tx_entered=true;
+  assert(s_enabled && s_grant_live && s_led_active);s_dma_pointer=(uintptr_t)data;s_dma_pending=true;s_tx_entered=true;
   const rmt_symbol_word_t *symbols=data;assert(size==2*sizeof(*symbols));
   assert(symbols[0].duration0==32767 && !symbols[0].level0);
   assert(symbols[0].duration1==17233 && !symbols[0].level1);
@@ -189,7 +194,7 @@ esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
   }
   s_dma_pending=false;return ESP_OK;
 }
-static void join_worker(void) { if(s_thread_created){assert(pthread_join(s_thread,NULL)==0);s_thread_created=false;}assert(s_state==SUBGHZ_TX_IDLE && !s_grant_live); }
+static void join_worker(void) { if(s_thread_created){assert(pthread_join(s_thread,NULL)==0);s_thread_created=false;}assert(s_state==SUBGHZ_TX_IDLE && !s_grant_live && !s_led_active); }
 static void *initialize_tx(void *unused) { s_start_error=subghz_tx_init();return NULL; }
 int main(void) {
   for(s_fault=1;s_fault<=6;++s_fault) { assert(subghz_tx_init()!=ESP_OK);join_worker(); }

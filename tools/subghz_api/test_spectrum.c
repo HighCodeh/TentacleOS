@@ -55,6 +55,14 @@ esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t freq) {
   }
   return radio_result();
 }
+static cc1101_radio_config_t s_expected_radio;
+static bool s_expect_radio;
+esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *radio, uint32_t freq) {
+  assert(s_has_grant && s_expect_radio && freq == 314000000);
+  assert(memcmp(radio, &s_expected_radio, sizeof(*radio)) == 0);
+  s_expect_radio = false;
+  return radio_result();
+}
 esp_err_t cc1101_enter_rx_mode(void) { assert(s_has_grant); return radio_result(); }
 void led_signal_error(void) {}
 esp_err_t cc1101_strobe(uint8_t command) { assert(s_has_grant);++s_strobes;
@@ -87,6 +95,15 @@ static void run(bool cancelled,bool partial) {
   if(cancelled)assert(s_samples==0);
 }
 int main(void) {
+  assert(cc1101_config_from_preset(CC1101_PRESET_OOK_650KHZ, &s_expected_radio) == ESP_OK);
+  assert(cc1101_config_step(&s_expected_radio, CC1101_CONFIG_LNA_GAIN, 1) == ESP_OK);
+  s_expect_radio = true;
+  assert(subghz_spectrum_start_configured(315000000, 2000000, &s_expected_radio) == ESP_OK);
+  s_worker(NULL);
+  assert(!s_expect_radio && !s_has_grant);
+  s_worker = NULL;
+  s_spectrum_mutex = NULL;
+
   subghz_spectrum_stop();assert(s_state==SUBGHZ_SPECTRUM_IDLE);
   s_is_busy=true;subghz_spectrum_start(433920000,1000000);assert(!s_has_grant && s_worker==NULL);s_is_busy=false;
   s_fail_mutex=true;subghz_spectrum_start(433920000,1000000);assert(!s_has_grant && s_worker==NULL);s_fail_mutex=false;

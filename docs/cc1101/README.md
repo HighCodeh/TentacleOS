@@ -83,7 +83,19 @@ are rejected before touching the GPIOs or radio.
 Changes to either switch pin require a confirmed IDLE state, followed by the
 switch's 5 us maximum settling interval before tuning.
 
+The upper-band PA tables now align their entries with the driver's nominal
+-30/-20/-15/-10/0/5/7/10 dBm selector (adapted from lab/rf `9c84ed6e`).
+For example, the 868/915 MHz 0 dBm entries are 0x50/0x8E and the 10 dBm entries
+are 0xC5/0xC3. These are register selections, not measured antenna output power.
+The RF1/RF2 mapping and user-selected power remain unchanged.
+
 ## Modulation Presets (`cc1101_preset_t`)
+
+BSCFG is explicitly set per profile: 0x6C for the four standard AM/FM presets,
+0x1C for the existing High Boy extensions/legacy FSK. Profile application no
+longer overwrites standard bit synchronization with a shared legacy constant.
+The custom bandwidth/rate/deviation/gain controls remain available.
+
 
 | UI name | Preset | Mode | RX bandwidth | Nominal modem rate | FSK deviation |
 | --- | --- | --- | --- | --- | --- |
@@ -386,3 +398,14 @@ and injected SPI/GPIO/allocation/timeouts. The existing ownership, RX/TX and spe
 remain part of that suite. These are host checks, not RF measurements; physical
 RX sensitivity, TX output, antenna matching and repeated band changes must still
 be verified on the assembled board.
+
+## Carrier-discovery sampling
+
+`cc1101_scan_rssi()` validates the RF range, tunes/calibrates, enters RX, waits
+2 ms and reads RSSI. It holds one shared SPI reservation per point and uses polling
+transactions only in the owning task, avoiding display DMA interleaving at every
+register. All error paths release the reservation and retain the first lease error;
+the output is written only on success. Other radio operations keep their existing
+transaction path. Calibration/RX state waits remain bounded; physical display
+responsiveness and sweep latency require testing on the board. See the
+[frequency analyzer](../frequency_analyzer/README.md).

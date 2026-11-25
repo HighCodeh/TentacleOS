@@ -404,6 +404,7 @@ ready:
     error = cc1101_enter_tx_mode();
     if (error != ESP_OK)
       break;
+    led_set_activity(LED_ACTIVITY_SUBGHZ, true);
     const rmt_transmit_config_t transmit = {0};
     error =
         rmt_transmit(s_tx_channel, s_copy_encoder, symbols, words * sizeof(*symbols), &transmit);
@@ -429,16 +430,20 @@ ready:
     error = cc1101_set_preset(CC1101_PRESET_IDLE, 0);
     if (error != ESP_OK)
       break;
+    led_set_activity(LED_ACTIVITY_SUBGHZ, false);
     free(symbols);
     symbols = NULL;
     free(item.timings);
     item.timings = NULL;
     atomic_fetch_sub(&s_pending, 1);
   }
+  bool is_cancelled = s_state == SUBGHZ_TX_STOPPING;
+  if (is_cancelled && error == ESP_ERR_INVALID_STATE)
+    error = ESP_OK;
   s_state = SUBGHZ_TX_STOPPING;
   while (has_senders())
     vTaskDelay(pdMS_TO_TICKS(TX_POLL_MS));
-  if (error == ESP_OK && atomic_load(&s_pending) != 0)
+  if (!is_cancelled && error == ESP_OK && atomic_load(&s_pending) != 0)
     error = ESP_ERR_INVALID_STATE;
   record_failure(error);
   while ((error = release_channel(&is_enabled)) != ESP_OK) {
@@ -451,6 +456,7 @@ ready:
     record_failure(error);
     vTaskDelay(pdMS_TO_TICKS(TX_CLEANUP_RETRY_MS));
   }
+  led_set_activity(LED_ACTIVITY_SUBGHZ, false);
   free(symbols);
   if (item.timings != NULL) {
     free(item.timings);

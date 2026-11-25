@@ -16,6 +16,9 @@
 #ifndef UI_SUBGHZ_SEND_H
 #define UI_SUBGHZ_SEND_H
 
+#include <stdint.h>
+#include "esp_err.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +27,9 @@ extern "C" {
  * @brief Open the Sub-GHz "Send" screen: pick a saved capture from the SD library
  *        and replay it over the CC1101 transmitter.
  */
+/* Select a file before navigating to SCREEN_SUBGHZ_SEND; does not transmit. */
+esp_err_t ui_subghz_send_capture(uint32_t sequence);
+void ui_subghz_send_select(const char *name);
 void ui_subghz_send_open(void);
 void ui_subghz_send_stop(void);
 

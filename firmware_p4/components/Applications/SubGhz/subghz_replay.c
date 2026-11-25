@@ -38,10 +38,29 @@ static const char *TAG = "SUBGHZ_REPLAY";
 #define REPLAY_MAX_PULSES  8192
 #define REPLAY_RX_DRAIN_MS 150
 
-esp_err_t subghz_replay_file(const char *name) {
-  if (name == NULL)
+static void copy_field(const char *content, const char *field, char *out, size_t size) {
+  size_t length = strlen(field);
+  for (const char *line = content; line != NULL && *line;) {
+    if (strncmp(line, field, length) == 0) {
+      line += length;
+      size_t count = strcspn(line, "\r\n");
+      if (count >= size)
+        count = size - 1;
+      memcpy(out, line, count);
+      out[count] = '\0';
+      return;
+    }
+    line = strchr(line, '\n');
+    if (line != NULL)
+      ++line;
+  }
+}
+
+esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out_replay) {
+  if (name == NULL || out_replay == NULL)
     return ESP_ERR_INVALID_ARG;
 
+  *out_replay = (subghz_replay_t){0};
   char *content = heap_caps_malloc(REPLAY_FILE_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (content == NULL) {
     ESP_LOGE(TAG, "Cannot allocate replay text");
@@ -58,6 +77,15 @@ esp_err_t subghz_replay_file(const char *name) {
     free(content);
     return ESP_ERR_INVALID_SIZE;
   }
+  esp_err_t error = subghz_replay_prepare(content, out_replay);
+  free(content);
+  return error;
+}
+
+esp_err_t subghz_replay_prepare(const char *content, subghz_replay_t *out_replay) {
+  if (content == NULL || out_replay == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_replay = (subghz_replay_t){0};
   int32_t *pulses =
       heap_caps_malloc(REPLAY_MAX_PULSES * sizeof(*pulses), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   esp_err_t err = ESP_ERR_NO_MEM;
@@ -72,21 +100,59 @@ esp_err_t subghz_replay_file(const char *name) {
       content, pulses, REPLAY_MAX_PULSES, &count, &frequency, &preset);
   if (err != ESP_OK)
     goto cleanup;
+  uint32_t repeats = 0;
+  err = subghz_protocol_parse_repeat(content, &repeats);
+  if (err != ESP_OK)
+    goto cleanup;
+  if (count > REPLAY_MAX_PULSES / repeats) {
+    err = ESP_ERR_INVALID_SIZE;
+    goto cleanup;
+  }
+  // Keep frame repeats contiguous within one PTT transmission.
+  for (uint32_t repeat = 1; repeat < repeats; ++repeat)
+    memcpy(pulses + repeat * count, pulses, count * sizeof(*pulses));
+  count *= repeats;
   subghz_tx_config_t config = {
       .frequency_hz = frequency, .preset = (cc1101_preset_t)preset, .has_radio_config = true};
   err = subghz_protocol_parse_radio(content, config.preset, &config.radio);
   if (err != ESP_OK)
     goto cleanup;
+  out_replay->pulses = pulses;
+  out_replay->count = count;
+  out_replay->config = config;
+  copy_field(content, "Protocol: ", out_replay->protocol, sizeof(out_replay->protocol));
+  copy_field(content, "Key: ", out_replay->key, sizeof(out_replay->key));
+  pulses = NULL;
+cleanup:
+  free(pulses);
+  return err;
+}
+
+void subghz_replay_free(subghz_replay_t *replay) {
+  if (replay == NULL)
+    return;
+  free(replay->pulses);
+  *replay = (subghz_replay_t){0};
+}
+
+esp_err_t subghz_replay_send(const subghz_replay_t *replay) {
+  if (replay == NULL || replay->pulses == NULL || replay->count == 0)
+    return ESP_ERR_INVALID_ARG;
   if (subghz_receiver_is_running()) {
     subghz_receiver_stop();
     vTaskDelay(pdMS_TO_TICKS(REPLAY_RX_DRAIN_MS));
   }
-  err = subghz_tx_init();
-  if (err != ESP_OK)
-    goto cleanup;
-  err = subghz_tx_send_configured(pulses, count, &config);
-cleanup:
-  free(pulses);
-  free(content);
-  return err;
+  esp_err_t error = subghz_tx_init();
+  if (error != ESP_OK)
+    return error;
+  return subghz_tx_send_configured(replay->pulses, replay->count, &replay->config);
+}
+
+esp_err_t subghz_replay_file(const char *name) {
+  subghz_replay_t replay = {0};
+  esp_err_t error = subghz_replay_load(name, &replay);
+  if (error == ESP_OK)
+    error = subghz_replay_send(&replay);
+  subghz_replay_free(&replay);
+  return error;
 }

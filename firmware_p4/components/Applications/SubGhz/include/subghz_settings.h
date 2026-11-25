@@ -17,12 +17,16 @@
 #define SUBGHZ_SETTINGS_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "cc1101.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** Immutable ascending carriers followed by zero for the existing hopping mode. */
+const uint32_t *subghz_settings_get_frequencies(size_t *out_count);
 
 /**
  * @brief Shared Sub-GHz radio settings chosen in the Radio Config screen and

@@ -71,6 +71,11 @@ only that source bit. The activity owns its entire cadence, including the dark
 gaps, so background battery colors cannot appear between application pulses.
 Notifications and manual previews take precedence. `led status` reads the actual PWM registers,
 configured brightness, power state and activity mask (not optical brightness).
+Native Sub-GHz transmission uses the independent `LED_ACTIVITY_SUBGHZ` bit. Its
+10 ms / 100 ms pulse phase starts at TX activity, and a short frame retains the
+initial pulse window after release so it cannot disappear between worker ticks.
+The 100 ms indication window does not extend radio transmission. Notifications,
+manual preview and configured brightness/mute retain the same priority.
 The 10/100 ms cadence follows the fast blink preset in the official
 [Flipper notification definitions](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/services/notification/notification_messages.c).
 The P4 worker is software scheduled, so this is not an optical timing guarantee.

@@ -59,6 +59,11 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "frequency_analyzer/frequency_waterfall.c"
+  "frequency_analyzer/frequency_waterfall_plan.c"
+  "frequency_analyzer/frequency_waterfall_color.c"
+  "frequency_analyzer/frequency_analyzer.c"
+  "frequency_analyzer/frequency_analyzer_plan.c"
   "wardrive/wardrive.c"
   "wardrive/wardrive_gps.c"
   "imu/imu_motion.c"
@@ -123,6 +128,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "frequency_analyzer/include"
   "wardrive/include"
   "imu/include"
   "board_service/include"

@@ -31,7 +31,21 @@ bandwidth, rate, FSK deviation or either gain limit independently; the preset
 name gains `*` when values differ from its defaults. Modulation follows the
 preset, and deviation is unavailable for OOK. `Reset preset` restores the base
 values without changing frequency. Selecting another preset discards overrides.
-No Apply action is required.
+No Apply action is required for modem fields.
+
+Radio Config starts with an inline frequency dial: a large carrier value above a
+ruler of ticks and a center marker. Its gradient spans the full card height in
+both orientations, rather than repeating the shorter menu-row tile. The remaining preset/modem/gain rows retain
+their previous layout underneath. UP/DOWN selects the dial or a settings row;
+LEFT/RIGHT (including held repeat) immediately steps through 52 ascending fixed
+carriers followed by Hop bands, wrapping at either end. OK does not change the
+dial. No separate list or confirmation screen opens. The number omits trailing
+zeroes but retains exact Hz precision (433.657070 MHz displays as 433.65707).
+Changing frequency preserves preset and custom modem/gain settings. The settings
+catalog stays inside the driver's 300–348, 387–464 and 779–928 MHz bands. This
+list does not expand the existing hopping sequence or change RF1/RF2 policy.
+The ruler indicates discrete selection steps, not a measured spectrum or a
+linear frequency scale. Settings remain in RAM across navigation.
 
 Read copies the configuration into the native receiver, which applies the full
 profile and overrides through `cc1101_set_radio_config()` before starting RMT.
@@ -83,23 +97,75 @@ for gain semantics and configuration validation.
 
 ### Receiver (`subghz_receiver`)
 
-Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX peripheral. Runs as a FreeRTOS task pinned to Core 1.
+Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX peripheral. Runs as a FreeRTOS task pinned to `SYS_CORE_RADIO` (core 0).
 
 **Operating Modes:**
 
 | Mode | Behavior |
 |------|----------|
-| `SUBGHZ_MODE_SCAN` | Decodes signals via protocol registry. Unknown signals are analyzed and saved as RAW. |
-| `SUBGHZ_MODE_RAW` | Captures and saves all raw pulse data without decoding. |
+| `SUBGHZ_MODE_SCAN` | Collects a bounded burst before decoding. Unknown or conflicting captures remain RAW in memory until explicitly saved. |
+| `SUBGHZ_MODE_RAW` | Captures one RAW block without decoding; retains it in memory for Save or Send. |
 
-**Frequency Hopping:** When `freq == 0` is passed to `subghz_receiver_start`, the receiver cycles through 12 predefined frequencies (433.92, 868.35, 315, 300, 390, 418, 915 MHz, etc.) every 5 seconds.
+**Frequency Hopping:** When `freq == 0` is passed to `subghz_receiver_start`, the receiver cycles through 12 predefined frequencies (433.92, 868.35, 315, 300, 390, 418, 915 MHz, etc.) with a nominal 100 ms dwell per quiet frequency (about 1.2 seconds per 12-frequency
+cycle, plus tuning and task overhead). RSSI above -90 dBm holds the channel for
+up to one second to receive a frame. Once a qualifying pulse block arrives, the
+existing bounded burst collector keeps that frequency until completion. Strong
+unmodulated interference without a frame cannot hold the search indefinitely.
+Pending RMT events are consumed before a hop; switching drains old-channel events
+and rearms DMA. These timings do not guarantee reception of short bursts between
+visits. This follows the RSSI-pause approach in
+[Flipper's hopper](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/main/subghz/helpers/subghz_txrx.c)
+without copying its implementation.
 
 **Signal Processing Pipeline:**
-1. RMT hardware captures pulse timings (min 1 us, idle timeout 10 ms)
+1. RMT hardware captures pulse timings (min 1 us, idle timeout 30 ms)
 2. Software filter removes pulses < 15 us
 3. Pulses converted to signed int32 buffer (positive = HIGH, negative = LOW)
-4. **SCAN mode:** Protocol registry tries all decoders -> Analyzer for unknowns
-5. **RAW mode:** Direct save to storage
+4. **SCAN / Read:** After at least eight filtered pulses, freeze channel hopping and
+   append RMT blocks in PSRAM. No decoder or file write runs while collecting.
+   Poll RSSI every 50 ms and publish a synchronized 64-sample chronological history
+   plus pulse/block counts, frequency and elapsed time for the UI.
+5. Finalize after 350 ms without qualifying activity. New pulse blocks reset that
+   interval; RSSI more than 8 dB above the pre-capture noise estimate also postpones
+   it. This is a silence heuristic, not proof that every transmitter has stopped.
+   The waiting noise estimate uses a 1/8 exponential update and resets on hopping.
+6. Disable RMT before analysis. Decode each collected block, group matches by
+   protocol/key/bit count/serial/button, and choose the uniquely most frequent
+   candidate. Ties remain unknown; if no block decodes, try the aggregate buffer
+   to recover a frame crossing a block boundary. Single matches are reported as
+   such, not as verified repeat consensus. The timing analyzer sees all pulses.
+7. Serialize the decoded result or RAW waveform in PSRAM while the capture's radio
+   configuration is still active, publish one result, then release the radio.
+   There is no SD access during capture or analysis. The bounded 64 KiB pending
+   snapshot retains frequency/preset/custom modem fields even after radio cleanup.
+8. **RAW mode:** Retain the first nonempty copied block as a pending snapshot and
+   release RX. It does not continuously create files.
+
+The result's Save action asks for a name and writes that exact snapshot to SD.
+Success requires checked write and close; existing filenames are never overwritten.
+Failure leaves the pending capture available for retry. Send prepares replay directly
+from memory without a temporary file. Back, Discard, Capture again and the screen
+close hook release the pending snapshot; a new accepted receiver start clears it
+as well. Cancellation prevents a late worker publication after the view has closed.
+Sequence IDs reject stale save/copy requests. The console RX command reports unsaved
+results and discards its pending snapshot when the command ends.
+
+Read is bounded to 8192 pulses, 128 RMT blocks or 10 seconds after the first
+qualifying block. Reaching a bound is explicit (`is_limited` / “Capture limit
+reached”), not an assertion that the RF transmission ended. The collector and
+candidate table share one checked PSRAM allocation; the DMA buffer stays internal.
+The RAW serializer uses a checked 64 KiB PSRAM buffer to fit collected bursts and
+rejects serialization overflow. RMT still has a 30 ms hardware idle boundary and
+must be rearmed between blocks; this does not promise lossless continuous capture
+or greater decoding accuracy for every protocol. Repeats improve available
+evidence, but simultaneous transmitters/noise may remain ambiguous.
+
+`subghz_receiver_get_progress()` returns a snapshot; the UI never reads CC1101
+registers. Back cancels collection and does not analyze a partial cancelled burst.
+Worker errors, teardown retries and resource ownership follow the same lifecycle
+as before. The host lifecycle tests exercise quiet completion, deferred decoding,
+majority evidence, frame/time bounds, live RSSI and cancellation; RF timing and
+reception quality still require board tests.
 
 **LED feedback:** The RX pipeline drives the status LED as it processes signals: `led_signal_info()` fires when a known protocol is decoded, and `led_signal_warning()` fires when RF is captured but no registered protocol matches.
 
@@ -109,6 +175,10 @@ Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX periphera
 esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint32_t freq);
 esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
                                          const cc1101_radio_config_t *config, uint32_t freq);
+bool subghz_receiver_get_progress(subghz_rx_progress_t *out_progress);
+esp_err_t subghz_receiver_save(uint32_t sequence, const char *name);
+esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out_text);
+void subghz_receiver_discard(void);
 void subghz_receiver_stop(void);
 bool subghz_receiver_is_running(void);
 esp_err_t subghz_receiver_get_error(void);
@@ -172,9 +242,37 @@ esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
 - Read/Read RAW now default to fixed 433.92 MHz / OOK270. Config can enable hopping.
 - Task stack: 4096 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
 
+The native Send, Saved and Read-result actions open the same transmit detail screen.
+Opening it prepares the capture once without transmitting. The filename, frequency,
+protocol and decoded key (or RAW pulse count) remain visible. Pressing OK starts
+PTT immediately; while physically held, the next burst starts after completion
+without waiting for LONG_PRESS. Decoded files default
+to 10 contiguous Princeton frames or 5 frames for other encodable protocols; a
+checked `Repeat: 1..100` overrides that count. RAW waveforms play once per burst.
+Releasing OK cancels the active burst and all repeats, including short taps. BACK and
+screen close stop owned TX and free the prepared PSRAM pulses. There is at most one
+UI burst outstanding. Repeats reuse the encoded waveform, including its original
+key/counter; they do not advance rolling-code state. Unsupported encoders remain
+visible as errors with BACK available. Worker completion, not animation time,
+updates the sent counter. Intentional cancellation does not emit an error alert.
+Native TX owns `LED_ACTIVITY_SUBGHZ` from TX entry through confirmed radio IDLE;
+its nonblocking info-color pulses use the user's brightness and notification priority.
+
+`subghz_replay_load()` prepares a zero-initialized `subghz_replay_t` (free a previous
+capture before loading); `subghz_replay_send()` queues a copy; `subghz_replay_free()`
+releases the prepared buffer. `subghz_replay_file()` remains a one-shot wrapper.
+
 ### Spectrum Analyzer (`subghz_spectrum`)
 
 Sweeps across a frequency span by stepping the CC1101 through discrete frequencies and reading RSSI values. Produces 80-sample spectral lines.
+
+The menu's Frequency Analyzer now uses the dedicated
+[frequency_analyzer service](../frequency_analyzer/README.md): Auto/common channels,
+band selection, wide/fine RSSI refinement, threshold, history and Read RAW handoff.
+Its discovery bandwidth/AGC is independent of Radio Config; the RAW handoff retains
+that configured demodulation profile and changes only frequency. The spectrum API
+below remains available to console/apps. Its configured variant accepts a copied
+radio profile; the legacy two-argument API retains its OOK800 profile.
 
 **Sweep Process:**
 1. Divides the span into 80 frequency steps
@@ -198,6 +296,8 @@ typedef struct {
 
 ```c
 esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
+esp_err_t subghz_spectrum_start_configured(uint32_t center_freq, uint32_t span_hz,
+                                        const cc1101_radio_config_t *radio);
 void subghz_spectrum_stop(void);
 esp_err_t subghz_spectrum_get_error(void);
 bool subghz_spectrum_get_line(subghz_spectrum_line_t *out_line);
@@ -284,9 +384,35 @@ esp_err_t subghz_protocol_parse_radio(const char *content, cc1101_preset_t prese
                                     cc1101_radio_config_t *out_config);
 ```
 
+
+#### Selected lab/rf integration
+
+Reviewed `origin/lab/rf` at `edc3182a`, with protocol/replay corrections from
+`37709da5`, driver corrections from `9c84ed6e` and RX improvements from `5be71db9`.
+Princeton requires a complete 24-bit frame and stop, retaining measured TE and
+guard time. Nice Flo rejects longer PWM prefixes; RCSwitch requires a closing
+sync and retains measured TE. Flipper standard preset names and multiple
+`RAW_Data:` lines are accepted; malformed metadata and oversized expanded bursts
+are rejected before TX. The local `Radio:` overrides remain supported.
+
+The local deferred burst analysis, RSSI history and PTT UI remain. The lab
+receiver's fixed 315 MHz default and immediate per-block decoding are not imported.
+The dedicated frequency-discovery service/UI from `ed490290` replaces the old
+menu spectrum view, with checked per-point SPI batching and a 2 ms RSSI settle.
+Lab-only bench/chamber code and build/config reductions remain excluded.
+This integration does not claim faster physical scans or measured range.
+
+Host tests cover independent pulse vectors, truncated-frame rejection, measured
+replay timing, contiguous repeats, named presets, multiline RAW and existing
+custom-radio/PTT/lifecycle behavior. Physical RX/TX acceptance remains pending.
+
 ### Storage (`subghz_storage`)
 
-Saves captured signals to persistent storage using the serializer. Currently operates in placeholder mode (outputs to log).
+Writes `.sub` captures to SD using checked write/close operations. Exclusive file
+creation prevents overwriting a previous capture; explicit saves do not replace existing
+files across reboots. Listing scans the directory and retains the newest entries
+within the caller's capacity, ordered by modification time and filename on ties.
+The RAW text buffer is 64 KiB in PSRAM to accommodate the bounded Read collector.
 
 #### API
 
@@ -583,7 +709,7 @@ registry. Complete metadata is validated before stopping the native receiver or
 starting TX; malformed fields and over-capacity pulses fail. Legacy fixed-code
 files may omit Serial/Btn/Preset (key-derived serial, button zero, OOK 800 kHz).
 Decoded keys with nonzero upper four bytes are rejected instead of truncated.
-Native storage replay rejects a full 8191-byte read because that API cannot prove
+Native storage replay rejects a full 65535-byte read because that API cannot prove
 the file was complete; embedded NUL is rejected too. App replay independently
 checks the complete file up to 8192 bytes and bounds the resulting transmission.
 See the [ABI contract](../app_sdk/README.md#sub-ghz-file-replay-abi-119) for path,

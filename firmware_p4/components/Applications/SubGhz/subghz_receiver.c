@@ -36,6 +36,7 @@
 #include "subghz_protocol_registry.h"
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
+#include "subghz_protocol_serializer.h"
 #include "subghz_transmitter.h"
 #include "resource_mgr.h"
 
@@ -44,26 +45,57 @@ static const char *TAG = "SUBGHZ_RX";
 // Only the worker releases this grant, after RMT and DMA have stopped.
 static res_handle_t s_rx_res = RES_HANDLE_NONE;
 
-#define RMT_RESOLUTION_HZ     1000000
-#define RX_BUFFER_SIZE        1024
-#define DECODE_BUFFER_FACTOR  2
-#define MIN_PULSE_NS          1000
-#define SOFTWARE_FILTER_US    15
-#define MAX_PULSE_NS          10000000
-#define RMT_MEM_BLOCK_SYMBOLS 256
-#define RMT_DMA_ALIGNMENT     64
-#define RX_QUEUE_DEPTH        1
-#define RX_QUEUE_TIMEOUT_MS   100
-#define HOP_INTERVAL_MS       5000
-#define RX_TASK_STACK_SIZE    8192
-#define RX_TASK_PRIORITY      SYS_PRIO_SERVICE_HI
-#define RX_TASK_CORE          SYS_CORE_RADIO
-#define FILENAME_BUF_SIZE     32
-#define HEX_BUF_SIZE          65
-#define MAX_HEX_BYTES         32
-#define RAW_PREVIEW_COUNT     20
-#define DEFAULT_FREQ          433920000
-#define CLEANUP_RETRY_MS      100
+#define RMT_RESOLUTION_HZ      1000000
+#define RX_BUFFER_SIZE         1024
+#define DECODE_BUFFER_FACTOR   2
+#define MIN_PULSE_NS           1000
+#define SOFTWARE_FILTER_US     15
+#define MAX_PULSE_NS           30000000
+#define RMT_MEM_BLOCK_SYMBOLS  256
+#define RMT_DMA_ALIGNMENT      64
+#define RX_QUEUE_DEPTH         1
+#define RX_QUEUE_TIMEOUT_MS    25
+#define HOP_INTERVAL_MS        100
+#define HOP_SIGNAL_HOLD_MS     1000
+#define HOP_RSSI_THRESHOLD_DBM (-90)
+#define CAPTURE_TEXT_SIZE      65536
+#define RX_TASK_STACK_SIZE     8192
+#define RX_TASK_PRIORITY       SYS_PRIO_SERVICE_HI
+#define RX_TASK_CORE           SYS_CORE_RADIO
+#define FILENAME_BUF_SIZE      32
+#define HEX_BUF_SIZE           65
+#define MAX_HEX_BYTES          32
+#define RAW_PREVIEW_COUNT      20
+#define DEFAULT_FREQ           433920000
+#define CLEANUP_RETRY_MS       100
+#define BURST_MAX_PULSES       8192
+#define BURST_MAX_FRAMES       128
+#define BURST_MAX_CANDIDATES   32
+#define BURST_MIN_PULSES       8
+#define BURST_QUIET_MS         350
+#define BURST_MAX_MS           10000
+#define RSSI_POLL_MS           50
+#define RSSI_NOISE_MARGIN_DB   8
+#define RSSI_NOISE_WEIGHT      8
+#define RSSI_FLOOR_DBM         (-130)
+#define CC1101_STATUS_READ     0x40U
+
+typedef struct {
+  subghz_data_t data;
+  char name[32];
+  uint32_t matches;
+} subghz_rx_candidate_t;
+
+typedef struct {
+  int32_t pulses[BURST_MAX_PULSES];
+  size_t ends[BURST_MAX_FRAMES];
+  size_t count;
+  size_t frames;
+  TickType_t started;
+  TickType_t last_activity;
+  bool is_limited;
+  subghz_rx_candidate_t candidates[BURST_MAX_CANDIDATES];
+} subghz_rx_burst_t;
 
 static const uint32_t HOP_FREQUENCIES[] = {433920000,
                                            868350000,
@@ -93,7 +125,9 @@ static cc1101_radio_config_t s_rx_radio;
 static uint32_t s_rx_freq = DEFAULT_FREQ;
 static bool s_is_hopping_active = false;
 static int s_hop_idx = 0;
-static uint32_t s_capture_count = 0;
+static char *s_capture_text;
+static size_t s_capture_length;
+static bool s_discard_capture;
 
 static rmt_channel_handle_t s_rx_channel = NULL;
 static QueueHandle_t s_rx_queue = NULL;
@@ -102,22 +136,70 @@ static QueueHandle_t s_rx_queue = NULL;
 static _Atomic(SemaphoreHandle_t) s_result_mutex;
 static subghz_rx_result_t s_latest;
 static uint32_t s_result_seq = 0;
+static subghz_rx_progress_t s_progress;
+
+static void update_progress(const subghz_rx_burst_t *burst,
+                            subghz_rx_phase_t phase,
+                            TickType_t now,
+                            bool has_rssi,
+                            int16_t rssi) {
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
+    return;
+  s_progress.phase = phase;
+  s_progress.frequency_hz = s_rx_freq;
+  s_progress.elapsed_ms = burst->count ? (now - burst->started) * portTICK_PERIOD_MS : 0;
+  s_progress.pulse_count = burst->count;
+  s_progress.frame_count = burst->frames;
+  s_progress.is_limited = burst->is_limited;
+  if (has_rssi) {
+    if (s_progress.rssi_count == SUBGHZ_RX_RSSI_SAMPLES) {
+      memmove(s_progress.rssi_dbm,
+              s_progress.rssi_dbm + 1,
+              (SUBGHZ_RX_RSSI_SAMPLES - 1) * sizeof(s_progress.rssi_dbm[0]));
+    } else {
+      ++s_progress.rssi_count;
+    }
+    s_progress.rssi_dbm[s_progress.rssi_count - 1] = rssi;
+    ++s_progress.rssi_sequence;
+  }
+  xSemaphoreGive(s_result_mutex);
+}
+
+bool subghz_receiver_get_progress(subghz_rx_progress_t *out_progress) {
+  if (out_progress == NULL || s_result_mutex == NULL ||
+      xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
+    return false;
+  *out_progress = s_progress;
+  xSemaphoreGive(s_result_mutex);
+  return true;
+}
+
+static void record_failure(esp_err_t error);
 
 static void publish_rx_result(bool decoded,
                               const subghz_data_t *data,
                               const subghz_analyzer_result_t *analysis,
-                              const char *save_name) {
+                              const char *save_name,
+                              uint32_t matching_frames) {
   if (s_result_mutex == NULL)
     return;
   if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
     return;
 
+  if (s_discard_capture) {
+    xSemaphoreGive(s_result_mutex);
+    return;
+  }
   s_result_seq++;
   if (s_result_seq == 0)
     ++s_result_seq;
   s_latest.seq = s_result_seq;
   s_latest.decoded = decoded;
   s_latest.freq = s_rx_freq;
+  s_latest.is_limited = s_progress.is_limited;
+  s_latest.pulse_count = s_progress.pulse_count;
+  s_latest.frame_count = s_progress.frame_count;
+  s_latest.matching_frames = matching_frames;
   if (save_name != NULL)
     strlcpy(s_latest.save_name, save_name, sizeof(s_latest.save_name));
   else
@@ -143,9 +225,39 @@ static void publish_rx_result(bool decoded,
   xSemaphoreGive(s_result_mutex);
 }
 
-static void get_dynamic_filename(char *out_name, size_t out_size, const char *prefix) {
-  s_capture_count++;
-  snprintf(out_name, out_size, "%s_%03lu", prefix, (unsigned long)s_capture_count);
+static bool
+retain_capture(const int32_t *pulses, size_t count, const subghz_data_t *data, uint32_t te) {
+  char *text = heap_caps_malloc(CAPTURE_TEXT_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (text == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate pending capture");
+    record_failure(ESP_ERR_NO_MEM);
+    return false;
+  }
+  size_t length =
+      data != NULL
+          ? subghz_protocol_serialize_decoded(data, s_rx_freq, te, text, CAPTURE_TEXT_SIZE)
+          : subghz_protocol_serialize_raw(pulses, count, s_rx_freq, text, CAPTURE_TEXT_SIZE);
+  if (length == 0 || length >= CAPTURE_TEXT_SIZE) {
+    free(text);
+    record_failure(ESP_ERR_INVALID_SIZE);
+    return false;
+  }
+  text[length] = '\0';
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE) {
+    free(text);
+    record_failure(ESP_ERR_TIMEOUT);
+    return false;
+  }
+  bool is_retained = !s_discard_capture;
+  if (is_retained) {
+    free(s_capture_text);
+    s_capture_text = text;
+    s_capture_length = length;
+  } else {
+    free(text);
+  }
+  xSemaphoreGive(s_result_mutex);
+  return is_retained;
 }
 
 static bool subghz_rx_done_callback(rmt_channel_handle_t channel,
@@ -181,11 +293,11 @@ static size_t decode_rmt_symbols(const rmt_symbol_word_t *symbols,
 }
 
 static void handle_raw_mode(const int32_t *decode_buffer, size_t decode_idx) {
-  char filename[FILENAME_BUF_SIZE];
-  ESP_LOGD(TAG, "RAW: received %d pulses", (int)decode_idx);
-  get_dynamic_filename(filename, sizeof(filename), "RAW");
-  subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
-  publish_rx_result(false, NULL, NULL, filename);
+  ESP_LOGI(TAG, "RAW captured: %u pulses", (unsigned)decode_idx);
+  if (retain_capture(decode_buffer, decode_idx, NULL, 0)) {
+    publish_rx_result(false, NULL, NULL, "RAW", 0);
+    led_signal_info();
+  }
 }
 
 static void log_recovered_bitstream(const subghz_analyzer_result_t *analysis) {
@@ -213,11 +325,67 @@ static void log_recovered_bitstream(const subghz_analyzer_result_t *analysis) {
   ESP_LOGI(TAG, "Recovered Bitstream (Hex): %s...", hex_buf);
 }
 
-static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
-  char filename[FILENAME_BUF_SIZE];
+static bool decode_burst(subghz_rx_burst_t *burst, subghz_data_t *out, uint32_t *out_matches) {
+  size_t candidates = 0;
+  size_t start = 0;
+  memset(burst->candidates, 0, sizeof(burst->candidates));
+  for (size_t frame = 0; frame < burst->frames; ++frame) {
+    if (s_state != SUBGHZ_RX_RUNNING)
+      return false;
+    subghz_data_t data = {0};
+    size_t end = burst->ends[frame];
+    bool decoded = subghz_protocol_registry_decode_all(burst->pulses + start, end - start, &data);
+    start = end;
+    if (!decoded || data.protocol_name == NULL)
+      continue;
+    size_t candidate = 0;
+    for (; candidate < candidates; ++candidate) {
+      subghz_rx_candidate_t *entry = &burst->candidates[candidate];
+      if (entry->data.raw_value == data.raw_value && entry->data.bit_count == data.bit_count &&
+          entry->data.serial == data.serial && entry->data.btn == data.btn &&
+          strcmp(entry->name, data.protocol_name) == 0)
+        break;
+    }
+    if (candidate == candidates) {
+      if (candidates == BURST_MAX_CANDIDATES)
+        continue;
+      subghz_rx_candidate_t *entry = &burst->candidates[candidates++];
+      entry->data = data;
+      strlcpy(entry->name, data.protocol_name, sizeof(entry->name));
+      entry->data.protocol_name = entry->name;
+    }
+    ++burst->candidates[candidate].matches;
+  }
+  size_t best = 0;
+  bool is_tie = false;
+  for (size_t i = 1; i < candidates; ++i) {
+    if (burst->candidates[i].matches > burst->candidates[best].matches) {
+      best = i;
+      is_tie = false;
+    } else if (burst->candidates[i].matches == burst->candidates[best].matches) {
+      is_tie = true;
+    }
+  }
+  if (candidates && !is_tie) {
+    *out = burst->candidates[best].data;
+    *out_matches = burst->candidates[best].matches;
+    return true;
+  }
+  // Whole-buffer fallback can recover a frame split across RMT blocks, but not a conflicting vote.
+  if (!candidates && subghz_protocol_registry_decode_all(burst->pulses, burst->count, out)) {
+    *out_matches = 1;
+    return true;
+  }
+  return false;
+}
+
+static void handle_scan_mode(subghz_rx_burst_t *burst) {
+  const int32_t *decode_buffer = burst->pulses;
+  size_t decode_idx = burst->count;
+  uint32_t matches = 0;
   subghz_data_t decoded = {0};
 
-  if (subghz_protocol_registry_decode_all(decode_buffer, decode_idx, &decoded)) {
+  if (decode_burst(burst, &decoded, &matches)) {
     ESP_LOGI(TAG,
              "DECODED: Protocol: %s | Serial: 0x%lX | Btn: 0x%X | Bits: %d | Freq: %lu",
              decoded.protocol_name,
@@ -228,25 +396,27 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
 
     subghz_analyzer_result_t analysis = {0};
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
-    get_dynamic_filename(filename, sizeof(filename), "DEC");
-    subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te);
-    publish_rx_result(true, &decoded, &analysis, filename);
-    led_signal_info(); // decoded a known protocol
+    if (s_state != SUBGHZ_RX_RUNNING)
+      return;
+    if (retain_capture(decode_buffer, decode_idx, &decoded, analysis.estimated_te)) {
+      publish_rx_result(true, &decoded, &analysis, "Signal", matches);
+      led_signal_info();
+    }
     return;
   }
 
   subghz_analyzer_result_t analysis = {0};
-  if (subghz_analyzer_process(decode_buffer, decode_idx, &analysis)) {
+  subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
+  if (s_state == SUBGHZ_RX_RUNNING) {
     ESP_LOGW(TAG,
              "Unknown Signal: TE ~%luus | Peaks: %s | Count: %d | Freq: %lu",
              (unsigned long)analysis.estimated_te,
-             analysis.modulation_hint,
+             analysis.modulation_hint != NULL ? analysis.modulation_hint : "Unknown",
              (int)decode_idx,
              (unsigned long)s_rx_freq);
 
-    get_dynamic_filename(filename, sizeof(filename), "UNK");
-    subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
-    publish_rx_result(false, NULL, &analysis, filename);
+    if (retain_capture(decode_buffer, decode_idx, NULL, 0))
+      publish_rx_result(false, NULL, &analysis, "RAW", 0);
     log_recovered_bitstream(&analysis);
     led_signal_warning(); // captured RF but no known protocol matched
   }
@@ -289,6 +459,7 @@ static void subghz_rx_task(void *pvParameters) {
            (unsigned long)s_rx_freq);
 
   rmt_symbol_word_t *raw_symbols = NULL;
+  subghz_rx_burst_t *burst = NULL;
   int32_t *decode_buffer = NULL;
   esp_err_t err = ESP_OK;
   bool is_channel_enabled = false;
@@ -339,14 +510,15 @@ static void subghz_rx_task(void *pvParameters) {
     goto cleanup;
   }
 
-  decode_buffer = heap_caps_malloc(RX_BUFFER_SIZE * DECODE_BUFFER_FACTOR * sizeof(int32_t),
-                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (decode_buffer == NULL) {
+  burst = heap_caps_malloc(sizeof(*burst), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (burst == NULL) {
     ESP_LOGE(TAG, "Failed to allocate decode buffer");
     err = ESP_ERR_NO_MEM;
     goto cleanup;
   }
 
+  memset(burst, 0, sizeof(*burst));
+  decode_buffer = burst->pulses;
   if (s_state != SUBGHZ_RX_RUNNING)
     goto cleanup;
   err = cc1101_init();
@@ -370,15 +542,66 @@ static void subghz_rx_task(void *pvParameters) {
 
   TickType_t last_hop_time = xTaskGetTickCount();
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
+  TickType_t last_rssi = xTaskGetTickCount() - pdMS_TO_TICKS(RSSI_POLL_MS);
+  int16_t noise_floor = RSSI_FLOOR_DBM;
+  bool has_noise_floor = false;
+  bool is_signal_hold = false;
+  TickType_t hold_started = last_hop_time;
 
   while (s_state == SUBGHZ_RX_RUNNING) {
-    if (s_is_hopping_active && xTaskGetTickCount() - last_hop_time > hop_interval) {
+    TickType_t now = xTaskGetTickCount();
+    if (now - last_rssi >= pdMS_TO_TICKS(RSSI_POLL_MS)) {
+      uint8_t raw_rssi;
+      err = cc1101_get_register(CC1101_RSSI | CC1101_STATUS_READ, &raw_rssi);
+      if (err != ESP_OK)
+        break;
+      int16_t rssi = (int16_t)cc1101_convert_rssi(raw_rssi);
+      if (s_is_hopping_active && !burst->count && !is_signal_hold &&
+          rssi > HOP_RSSI_THRESHOLD_DBM) {
+        is_signal_hold = true;
+        hold_started = now;
+      }
+      if (!has_noise_floor) {
+        noise_floor = rssi;
+        has_noise_floor = true;
+      } else if (burst->count == 0) {
+        noise_floor = (noise_floor * (RSSI_NOISE_WEIGHT - 1) + rssi) / RSSI_NOISE_WEIGHT;
+      }
+      if (burst->count && rssi > noise_floor + RSSI_NOISE_MARGIN_DB)
+        burst->last_activity = now;
+      update_progress(burst,
+                      burst->count ? SUBGHZ_RX_PHASE_CAPTURING : SUBGHZ_RX_PHASE_WAITING,
+                      now,
+                      true,
+                      rssi);
+      last_rssi = now;
+    }
+    if (burst->count && s_rx_mode == SUBGHZ_MODE_SCAN &&
+        (burst->is_limited || now - burst->started >= pdMS_TO_TICKS(BURST_MAX_MS) ||
+         now - burst->last_activity >= pdMS_TO_TICKS(BURST_QUIET_MS))) {
+      burst->is_limited |= now - burst->started >= pdMS_TO_TICKS(BURST_MAX_MS);
+      err = rmt_disable(s_rx_channel);
+      if (err != ESP_OK)
+        break;
+      is_channel_enabled = false;
+      update_progress(burst, SUBGHZ_RX_PHASE_ANALYZING, now, false, 0);
+      if (s_state == SUBGHZ_RX_RUNNING)
+        handle_scan_mode(burst);
+      update_progress(burst, SUBGHZ_RX_PHASE_COMPLETE, now, false, 0);
+      break;
+    }
+    if (!burst->count && s_is_hopping_active && uxQueueMessagesWaiting(s_rx_queue) == 0 &&
+        now - last_hop_time >= hop_interval &&
+        (!is_signal_hold || now - hold_started >= pdMS_TO_TICKS(HOP_SIGNAL_HOLD_MS))) {
       err = rmt_disable(s_rx_channel);
       if (err != ESP_OK)
         break;
       is_channel_enabled = false;
       while (xQueueReceive(s_rx_queue, &rx_data, 0) == pdPASS) {}
       err = handle_frequency_hopping(&last_hop_time);
+      has_noise_floor = false;
+      is_signal_hold = false;
+      last_rssi = xTaskGetTickCount();
       if (err != ESP_OK)
         break;
       if (s_state != SUBGHZ_RX_RUNNING)
@@ -408,17 +631,34 @@ static void subghz_rx_task(void *pvParameters) {
       continue;
     }
 
+    if (rx_data.num_symbols > RX_BUFFER_SIZE) {
+      err = ESP_ERR_INVALID_SIZE;
+      break;
+    }
+    size_t offset = s_rx_mode == SUBGHZ_MODE_SCAN ? burst->count : 0;
     size_t decode_idx = decode_rmt_symbols(rx_data.received_symbols,
                                            rx_data.num_symbols,
-                                           decode_buffer,
-                                           RX_BUFFER_SIZE * DECODE_BUFFER_FACTOR);
-
-    if (decode_idx > 0) {
-      if (s_rx_mode == SUBGHZ_MODE_RAW) {
+                                           decode_buffer + offset,
+                                           BURST_MAX_PULSES - offset);
+    if (s_rx_mode == SUBGHZ_MODE_RAW) {
+      if (decode_idx > 0) {
+        burst->count = decode_idx;
+        burst->frames = 1;
+        update_progress(burst, SUBGHZ_RX_PHASE_COMPLETE, now, false, 0);
         handle_raw_mode(decode_buffer, decode_idx);
-      } else {
-        handle_scan_mode(decode_buffer, decode_idx);
+        break;
       }
+    } else if (decode_idx && (burst->count || decode_idx >= BURST_MIN_PULSES)) {
+      now = xTaskGetTickCount();
+      if (!burst->count)
+        burst->started = now;
+      burst->count += decode_idx;
+      burst->ends[burst->frames++] = burst->count;
+      burst->last_activity = now;
+      burst->is_limited = burst->count == BURST_MAX_PULSES || burst->frames == BURST_MAX_FRAMES;
+      update_progress(burst, SUBGHZ_RX_PHASE_CAPTURING, now, false, 0);
+      if (burst->is_limited)
+        continue;
     }
 
     if (s_state == SUBGHZ_RX_RUNNING &&
@@ -453,8 +693,8 @@ cleanup:
   if (raw_symbols != NULL) {
     free(raw_symbols);
   }
-  if (decode_buffer != NULL) {
-    free(decode_buffer);
+  if (burst != NULL) {
+    free(burst);
   }
   if (s_rx_queue != NULL) {
     vQueueDelete(s_rx_queue);
@@ -514,11 +754,19 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
     s_state = SUBGHZ_RX_IDLE;
     return ESP_ERR_NO_MEM;
   }
-  if (s_result_mutex != NULL &&
-      xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
-    memset(&s_latest, 0, sizeof(s_latest));
-    xSemaphoreGive(s_result_mutex);
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE) {
+    resource_release(s_rx_res);
+    s_rx_res = RES_HANDLE_NONE;
+    s_state = SUBGHZ_RX_IDLE;
+    return ESP_ERR_TIMEOUT;
   }
+  free(s_capture_text);
+  s_capture_text = NULL;
+  s_capture_length = 0;
+  s_discard_capture = false;
+  memset(&s_latest, 0, sizeof(s_latest));
+  memset(&s_progress, 0, sizeof(s_progress));
+  xSemaphoreGive(s_result_mutex);
 
   if (freq == 0) {
     s_is_hopping_active = true;
@@ -568,4 +816,45 @@ bool subghz_receiver_get_result(subghz_rx_result_t *out) {
   }
   xSemaphoreGive(s_result_mutex);
   return has;
+}
+
+void subghz_receiver_discard(void) {
+  if (s_result_mutex == NULL)
+    return;
+  xSemaphoreTake(s_result_mutex, portMAX_DELAY);
+  s_discard_capture = true;
+  free(s_capture_text);
+  s_capture_text = NULL;
+  s_capture_length = 0;
+  s_latest.seq = 0;
+  xSemaphoreGive(s_result_mutex);
+}
+
+esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out_text) {
+  if (out_text == NULL || s_result_mutex == NULL)
+    return ESP_ERR_INVALID_ARG;
+  *out_text = NULL;
+  xSemaphoreTake(s_result_mutex, portMAX_DELAY);
+  esp_err_t error = ESP_ERR_INVALID_STATE;
+  if (sequence != 0 && sequence == s_latest.seq && s_capture_text != NULL) {
+    *out_text = heap_caps_malloc(s_capture_length + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (*out_text != NULL) {
+      memcpy(*out_text, s_capture_text, s_capture_length + 1);
+      error = ESP_OK;
+    } else {
+      ESP_LOGE(TAG, "Cannot copy pending capture");
+      error = ESP_ERR_NO_MEM;
+    }
+  }
+  xSemaphoreGive(s_result_mutex);
+  return error;
+}
+
+esp_err_t subghz_receiver_save(uint32_t sequence, const char *name) {
+  char *text = NULL;
+  esp_err_t error = subghz_receiver_copy_capture(sequence, &text);
+  if (error == ESP_OK)
+    error = subghz_storage_save_capture(name, text);
+  free(text);
+  return error;
 }

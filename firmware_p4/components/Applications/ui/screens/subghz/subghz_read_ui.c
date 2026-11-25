@@ -16,141 +16,69 @@
 #include "subghz_menu_ui.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "lvgl.h"
 
 #include "capture_result_ui.h"
-#include "cc1101.h"
-#include "msgbox_ui.h"
-#include "notify_ui.h"
-#include "subghz_receiver.h"
-#include "subghz_storage.h"
 #include "keyboard_ui.h"
 #include "led_control.h"
-#include "subghz_replay.h"
-#include "subghz_transmitter.h"
+#include "notify_ui.h"
+#include "subghz_receiver.h"
+#include "subghz_send_ui.h"
 #include "subghz_settings.h"
+#include "subghz_storage.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
-#include "ui_semantic.h"
 #include "ui_theme.h"
+
+static bool s_is_raw;
 
 static const char *TAG = "SUBGHZ_RD";
 
-#define TICK_MS       33
-#define REVEAL_MS     1600
-#define POLL_MS       120
-#define SCOPE_TICK_MS 38
-#define DOT_CYCLE_MS  350
+#define READ_POLL_MS        50
+#define CONTENT_PAD         10
+#define CONTENT_GAP         6
+#define GRAPH_PAD           8
+#define GRAPH_RADIUS        10
+#define GRAPH_LINE_WIDTH    2
+#define GRAPH_GRID_LINES    3
+#define GRAPH_GRID_DIVISOR  4
+#define GRAPH_RSSI_MIN      (-120)
+#define GRAPH_RSSI_MAX      (-20)
+#define MHZ_SCALE           1000000UL
+#define MHZ_DECIMALS        10000UL
+#define FREQUENCY_TEXT_SIZE 24
+#define TEXT_SIZE           96
+#define MS_PER_SECOND       1000U
+#define MS_PER_TENTH        100U
 
-#define HEADER_TITLE_Y 10
-#define HEADER_RULE_Y  32
-#define HEADER_RULE_W  70
-#define HEADER_RULE_H  2
-
-#define STATUS_Y 48
-#define FREQ_Y   68
-
-#define SCOPE_W      208
-#define SCOPE_H      84
-#define SCOPE_Y_OFS  -22
-#define SCOPE_PAD    6
-#define SCOPE_RADIUS 8
-#define SCOPE_BORDER 2
-#define SCOPE_BG     0x0A0614
-
-#define WAVE_POINTS 49
-#define WAVE_W      (SCOPE_W - SCOPE_PAD * 2 - SCOPE_BORDER * 2)
-#define WAVE_H      (SCOPE_H - SCOPE_PAD * 2 - SCOPE_BORDER * 2)
-#define WAVE_CY     (WAVE_H / 2)
-#define WAVE_LINE_W 2
-
-#define AMP_SCAN        (WAVE_H / 2 - 4)
-#define AMP_VAR         (WAVE_H / 6)
-#define AMP_LOCK        (WAVE_H / 3)
-#define ANGLE_STEP_BASE 15
-#define ANGLE_VAR       9
-#define ANGLE_STEP_LOCK 15
-#define PHASE_STEP_SCAN 34
-#define MOD_STEP        6
-#define NOISE_SPREAD    7
-
-#define OOK_SYNC_T    2
-#define OOK_HI_WIDE   3
-#define OOK_HI_NARROW 1
-#define OOK_MAX_PTS   64
-
-#define GRID_OPA LV_OPA_20
-
-#define READOUT_W       192
-#define READOUT_Y       LV_MIN(198, ui_screen_h() - UI_CHROME_FOOTER_H - 70)
-#define READOUT_ROW_GAP 5
-#define READOUT_FADE_MS 240
-#define READOUT_STAGGER 70
-
-#define HINT_Y_OFS -6
-
-#define STATUS_SCAN "Scanning"
-#define HINT_SCAN   "BACK to cancel"
-#define HINT_SHOW   "BACK = Exit"
-#define HINT_MENU   "UP/DOWN choose   OK do   BACK exit"
-
-#define ROW_MAX 4
-
-typedef struct {
-  char label[16];
-  char value[24];
-} readout_row_t;
-
-static const uint8_t OOK_BITS[] = {0, 0, 0, 1, 1, 0};
-#define OOK_BIT_COUNT ((int)(sizeof(OOK_BITS) / sizeof(OOK_BITS[0])))
-
-static lv_obj_t *s_screen = NULL;
-static lv_timer_t *s_tick_timer = NULL;
-static lv_timer_t *s_scope_timer = NULL;
-
-static lv_obj_t *s_status = NULL;
-static lv_obj_t *s_freq = NULL;
-static lv_obj_t *s_wave = NULL;
-static lv_obj_t *s_scope = NULL;
-static lv_obj_t *s_readout = NULL;
-static lv_obj_t *s_hint = NULL;
-static capture_result_t s_cr = {0};
-static uint32_t s_locked_at = 0;
-static bool s_options = false;
-
-static lv_point_precise_t s_wave_pts[WAVE_POINTS];
-static lv_point_precise_t s_ook_pts[OOK_MAX_PTS];
-static int s_phase = 0;
-static int s_mod = 0;
-static uint32_t s_scan_start = 0;
-static bool s_locked = false;
-static bool s_saved = false;
+static lv_obj_t *s_screen;
+static lv_obj_t *s_content;
+static lv_obj_t *s_status;
+static lv_obj_t *s_freq;
+static lv_obj_t *s_stats;
+static lv_obj_t *s_graph;
+static lv_obj_t *s_trace;
+static lv_obj_t *s_grid[GRAPH_GRID_LINES];
+static lv_obj_t *s_hint;
+static lv_timer_t *s_tick_timer;
+static bool s_options;
+static bool s_saved;
 static bool s_has_rx_error;
 static bool s_owns_rx;
-static bool s_is_sending;
-
 static subghz_rx_result_t s_result;
-static readout_row_t s_rows[ROW_MAX];
-static int s_row_count = 0;
-static char s_freq_str[16];
-static char s_proto_str[24];
-static char s_mod_str[16];
-static char s_card_sub[sizeof(s_proto_str) + sizeof(s_mod_str) + sizeof(" ()")];
+static capture_result_t s_cr;
+static lv_point_precise_t s_trace_points[SUBGHZ_RX_RSSI_SAMPLES];
+static lv_point_precise_t s_grid_points[GRAPH_GRID_LINES][2];
+static char s_card_sub[TEXT_SIZE];
+static char s_card_value[TEXT_SIZE];
 
-static void read_tick_cb(lv_timer_t *t);
-static void scope_tick_cb(lv_timer_t *t);
-static void subghz_read_input(const input_event_t *ev, void *ctx);
-
-static void stop_timer(lv_timer_t **t) {
-  if (*t != NULL) {
-    lv_timer_delete(*t);
-    *t = NULL;
-  }
-}
+static void read_tick_cb(lv_timer_t *timer);
+static void subghz_read_input(const input_event_t *event, void *context);
 
 static void stop_rx(void) {
   if (s_owns_rx) {
@@ -164,434 +92,245 @@ static void screen_deleted_cb(lv_event_t *event) {
     ui_subghz_read_stop();
 }
 
-static void fmt_mhz(uint32_t hz, char *out, size_t n) {
-  if (hz == 0) {
-    snprintf(out, n, "Hopping");
+static void fmt_mhz(uint32_t hz, char *out, size_t size) {
+  if (!hz) {
+    snprintf(out, size, "Hopping bands");
     return;
   }
   snprintf(out,
-           n,
+           size,
            "%lu.%02lu MHz",
-           (unsigned long)(hz / 1000000UL),
-           (unsigned long)((hz % 1000000UL) / 10000UL));
+           (unsigned long)(hz / MHZ_SCALE),
+           (unsigned long)((hz % MHZ_SCALE) / MHZ_DECIMALS));
 }
 
-static void opa_cb(void *var, int32_t v) {
-  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)v, 0);
+static lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color) {
+  lv_obj_t *label = lv_label_create(parent);
+  lv_obj_set_width(label, lv_pct(100));
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  lv_label_set_text(label, text);
+  lv_obj_set_style_text_color(label, color, 0);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+  return label;
 }
 
-static void fade_in(lv_obj_t *obj, uint32_t duration_ms, uint32_t delay_ms) {
-  lv_obj_set_style_opa(obj, LV_OPA_TRANSP, 0);
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, obj);
-  lv_anim_set_exec_cb(&a, opa_cb);
-  lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
-  lv_anim_set_duration(&a, duration_ms);
-  lv_anim_set_delay(&a, delay_ms);
-  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-  lv_anim_start(&a);
-}
-
-static int clamp_y(int y) {
-  if (y < 0)
-    return 0;
-  if (y > WAVE_H)
-    return WAVE_H;
-  return y;
-}
-
-static void fill_wave(bool noisy) {
-  int step = ANGLE_STEP_LOCK;
-  int amp = AMP_LOCK;
-  if (noisy) {
-    step = ANGLE_STEP_BASE + (ANGLE_VAR * lv_trigo_sin((int16_t)(s_mod % 360))) / 32767;
-    amp = AMP_SCAN - (AMP_VAR * lv_trigo_sin((int16_t)((s_mod * 2) % 360))) / 32767;
-  }
-  for (int i = 0; i < WAVE_POINTS; i++) {
-    int ang = (s_phase + i * step) % 360;
-    if (ang < 0)
-      ang += 360;
-    int s = lv_trigo_sin((int16_t)ang);
-    int y = WAVE_CY - (amp * s) / 32767;
-    if (noisy)
-      y += ((i * 13 + s_phase) % NOISE_SPREAD) - NOISE_SPREAD / 2;
-    s_wave_pts[i].x = i * WAVE_W / (WAVE_POINTS - 1);
-    s_wave_pts[i].y = clamp_y(y);
-  }
-  if (s_wave != NULL)
-    lv_line_set_points(s_wave, s_wave_pts, WAVE_POINTS);
-}
-
-static void fill_ook(void) {
-  if (s_wave == NULL)
+static void draw_rssi(const subghz_rx_progress_t *progress) {
+  lv_obj_update_layout(s_screen);
+  int width = lv_obj_get_content_width(s_graph);
+  int height = lv_obj_get_content_height(s_graph);
+  if (width <= 1 || height <= 1)
     return;
-  int total_t = OOK_SYNC_T + OOK_BIT_COUNT * (OOK_HI_WIDE + OOK_HI_NARROW);
-  int unit = WAVE_W / total_t;
-  if (unit < 1)
-    unit = 1;
-  int hi = WAVE_CY - AMP_LOCK;
-  int lo = WAVE_CY + AMP_LOCK;
-  int n = 0;
-  int x = 0;
-  s_ook_pts[n].x = x;
-  s_ook_pts[n].y = lo;
-  n++;
-  x += OOK_SYNC_T * unit;
-  s_ook_pts[n].x = x;
-  s_ook_pts[n].y = lo;
-  n++;
-  for (int b = 0; b < OOK_BIT_COUNT && n + 4 <= OOK_MAX_PTS; b++) {
-    int hw = (OOK_BITS[b] ? OOK_HI_WIDE : OOK_HI_NARROW) * unit;
-    int lw = (OOK_BITS[b] ? OOK_HI_NARROW : OOK_HI_WIDE) * unit;
-    s_ook_pts[n].x = x;
-    s_ook_pts[n].y = hi;
-    n++;
-    x += hw;
-    s_ook_pts[n].x = x;
-    s_ook_pts[n].y = hi;
-    n++;
-    s_ook_pts[n].x = x;
-    s_ook_pts[n].y = lo;
-    n++;
-    x += lw;
-    s_ook_pts[n].x = x;
-    s_ook_pts[n].y = lo;
-    n++;
+  for (int i = 0; i < GRAPH_GRID_LINES; ++i) {
+    int y = (height - 1) * (i + 1) / GRAPH_GRID_DIVISOR;
+    s_grid_points[i][0] = (lv_point_precise_t){0, y};
+    s_grid_points[i][1] = (lv_point_precise_t){width - 1, y};
+    lv_line_set_points(s_grid[i], s_grid_points[i], 2);
   }
-  lv_line_set_points(s_wave, s_ook_pts, n);
+  uint32_t count = progress->rssi_count;
+  if (count > SUBGHZ_RX_RSSI_SAMPLES)
+    count = SUBGHZ_RX_RSSI_SAMPLES;
+  for (uint32_t i = 0; i < count; ++i) {
+    int value = progress->rssi_dbm[i];
+    value = LV_CLAMP(GRAPH_RSSI_MIN, value, GRAPH_RSSI_MAX);
+    s_trace_points[i].x =
+        (width - 1) * (SUBGHZ_RX_RSSI_SAMPLES - count + i) / (SUBGHZ_RX_RSSI_SAMPLES - 1);
+    s_trace_points[i].y =
+        (height - 1) * (GRAPH_RSSI_MAX - value) / (GRAPH_RSSI_MAX - GRAPH_RSSI_MIN);
+  }
+  if (count > 1)
+    lv_line_set_points(s_trace, s_trace_points, count);
 }
 
-static void build_scope(void) {
-  lv_obj_t *frame = lv_obj_create(s_screen);
-  s_scope = frame;
-  lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(frame, SCOPE_W, SCOPE_H);
-  lv_obj_align(frame, LV_ALIGN_CENTER, 0, SCOPE_Y_OFS);
-  lv_obj_set_style_radius(frame, SCOPE_RADIUS, 0);
-  lv_obj_set_style_pad_all(frame, SCOPE_PAD, 0);
-  lv_obj_set_style_bg_color(frame, lv_color_hex(SCOPE_BG), 0);
-  lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(frame, SCOPE_BORDER, 0);
-  lv_obj_set_style_border_color(frame, current_theme.border_accent, 0);
-  lv_obj_set_style_border_opa(frame, LV_OPA_70, 0);
-
-  lv_obj_t *grid = lv_obj_create(frame);
-  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(grid, WAVE_W, 1);
-  lv_obj_align(grid, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_border_width(grid, 0, 0);
-  lv_obj_set_style_radius(grid, 0, 0);
-  lv_obj_set_style_bg_color(grid, current_theme.border_accent, 0);
-  lv_obj_set_style_bg_opa(grid, GRID_OPA, 0);
-
-  s_wave = lv_line_create(frame);
-  lv_obj_align(s_wave, LV_ALIGN_TOP_LEFT, 0, 0);
-  lv_obj_set_style_line_width(s_wave, WAVE_LINE_W, 0);
-  lv_obj_set_style_line_color(s_wave, current_theme.border_accent, 0);
-  lv_obj_set_style_line_rounded(s_wave, true, 0);
-
-  s_phase = 0;
-  s_mod = 0;
-  fill_wave(true);
+void ui_subghz_read_set_raw(bool is_raw) {
+  s_is_raw = is_raw;
 }
 
 void ui_subghz_read_open(void) {
   ui_subghz_read_stop();
-  if (s_screen != NULL) {
-    lv_obj_del(s_screen);
-    s_screen = NULL;
-  }
-  s_status = NULL;
-  s_freq = NULL;
-  s_wave = NULL;
-  s_scope = NULL;
-  s_readout = NULL;
-  s_hint = NULL;
+  lv_obj_t *previous = s_screen;
+  s_screen = NULL;
+  if (previous != NULL)
+    lv_obj_delete(previous);
+  s_options = s_saved = s_has_rx_error = false;
+  s_result = (subghz_rx_result_t){0};
   s_cr = (capture_result_t){0};
-  s_options = false;
-  s_locked_at = 0;
-  s_locked = false;
-  s_saved = false;
-  s_has_rx_error = false;
-  s_is_sending = false;
-  s_row_count = 0;
-
-  subghz_settings_t cfg = subghz_settings_get();
-
+  subghz_settings_t config = subghz_settings_get();
   s_screen = ui_chrome_screen_create();
   lv_obj_add_event_cb(s_screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
-
   ui_chrome_header(s_screen, "READ", "/assets/icons/sensors.bin");
-
-  s_status = lv_label_create(s_screen);
-  lv_label_set_text(s_status, STATUS_SCAN);
-  lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
+  s_content = lv_obj_create(s_screen);
+  lv_obj_set_pos(s_content, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_size(
+      s_content, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_remove_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(s_content, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_content, 0, 0);
+  lv_obj_set_style_pad_all(s_content, CONTENT_PAD, 0);
+  lv_obj_set_style_pad_row(s_content, CONTENT_GAP, 0);
+  lv_obj_set_flex_flow(s_content, LV_FLEX_FLOW_COLUMN);
+  s_status = make_label(s_content, "Listening for a signal", current_theme.text_main);
   lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
-  lv_obj_align(s_status, LV_ALIGN_TOP_MID, 0, STATUS_Y);
-
-  fmt_mhz(cfg.freq, s_freq_str, sizeof(s_freq_str));
-  s_freq = lv_label_create(s_screen);
-  lv_label_set_text(s_freq, s_freq_str);
-  lv_obj_set_style_text_color(s_freq, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(s_freq, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_freq, LV_ALIGN_TOP_MID, 0, FREQ_Y);
-
-  build_scope();
-
-  s_hint = ui_chrome_footer(s_screen, HINT_SCAN);
-
-  s_scan_start = lv_tick_get();
-  s_scope_timer = lv_timer_create(scope_tick_cb, SCOPE_TICK_MS, NULL);
-  s_tick_timer = lv_timer_create(read_tick_cb, TICK_MS, NULL);
-
+  char frequency[FREQUENCY_TEXT_SIZE];
+  fmt_mhz(config.freq, frequency, sizeof(frequency));
+  s_freq = make_label(s_content, frequency, current_theme.border_accent);
+  s_graph = lv_obj_create(s_content);
+  lv_obj_set_width(s_graph, lv_pct(100));
+  lv_obj_set_height(s_graph, 0);
+  lv_obj_set_flex_grow(s_graph, 1);
+  lv_obj_remove_flag(s_graph, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(s_graph, GRAPH_PAD, 0);
+  lv_obj_set_style_bg_color(s_graph, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(s_graph, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(s_graph, current_theme.border_inactive, 0);
+  lv_obj_set_style_border_width(s_graph, 1, 0);
+  lv_obj_set_style_radius(s_graph, GRAPH_RADIUS, 0);
+  for (int i = 0; i < GRAPH_GRID_LINES; ++i) {
+    s_grid[i] = lv_line_create(s_graph);
+    lv_obj_set_style_line_color(s_grid[i], current_theme.border_inactive, 0);
+    lv_obj_set_style_line_opa(s_grid[i], LV_OPA_30, 0);
+  }
+  s_trace = lv_line_create(s_graph);
+  lv_obj_set_style_line_color(s_trace, current_theme.border_accent, 0);
+  lv_obj_set_style_line_width(s_trace, GRAPH_LINE_WIDTH, 0);
+  lv_obj_set_style_line_rounded(s_trace, true, 0);
+  s_stats =
+      make_label(s_content, "RSSI history / waiting for pulses", current_theme.text_secondary);
+  s_hint = ui_chrome_footer(s_screen, "BACK cancel");
+  s_tick_timer = lv_timer_create(read_tick_cb, READ_POLL_MS, NULL);
   ui_input_set_screen_handler(subghz_read_input, NULL);
-
-  esp_err_t rx = s_scope_timer != NULL && s_tick_timer != NULL
-                     ? subghz_receiver_start_configured(SUBGHZ_MODE_SCAN, &cfg.radio, cfg.freq)
-                     : ESP_ERR_NO_MEM;
-  s_owns_rx = rx == ESP_OK;
-  if (rx != ESP_OK) {
-    ESP_LOGE(TAG, "Cannot start reception: %s", esp_err_to_name(rx));
-    led_signal_error();
+  esp_err_t error =
+      s_tick_timer != NULL
+          ? subghz_receiver_start_configured(
+                s_is_raw ? SUBGHZ_MODE_RAW : SUBGHZ_MODE_SCAN, &config.radio, config.freq)
+          : ESP_ERR_NO_MEM;
+  s_owns_rx = error == ESP_OK;
+  if (error != ESP_OK) {
     s_has_rx_error = true;
-    stop_timer(&s_scope_timer);
+    ESP_LOGE(TAG, "Cannot start reception: %s", esp_err_to_name(error));
+    led_signal_error();
     lv_label_set_text(s_status, "Cannot start reception");
-    notify(NOTIFY_WARNING, "Cannot start reception");
   }
-
   ui_screen_load_owned(&s_screen, s_screen);
+  subghz_rx_progress_t empty = {0};
+  draw_rssi(&empty);
 }
 
-static void scope_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_scope_timer = NULL;
-    return;
-  }
-  s_phase = (s_phase + PHASE_STEP_SCAN) % 360;
-  s_mod = (s_mod + MOD_STEP) % 360;
-  fill_wave(true);
-}
-
-static void build_signal_readout(void) {
-  lv_obj_t *col = lv_obj_create(s_screen);
-  s_readout = col;
-  lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_width(col, READOUT_W);
-  lv_obj_set_height(col, LV_SIZE_CONTENT);
-  lv_obj_align(col, LV_ALIGN_TOP_MID, 0, READOUT_Y);
-  lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(col, 0, 0);
-  lv_obj_set_style_pad_all(col, 0, 0);
-  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(col, READOUT_ROW_GAP, 0);
-
-  for (int i = 0; i < s_row_count; i++) {
-    lv_obj_t *row = lv_obj_create(col);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(
-        row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *label = lv_label_create(row);
-    lv_label_set_text(label, s_rows[i].label);
-    lv_obj_set_style_text_color(label, current_theme.border_inactive, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-
-    lv_obj_t *value = lv_label_create(row);
-    lv_label_set_text(value, s_rows[i].value);
-    lv_obj_set_style_text_color(value, current_theme.border_accent, 0);
-    lv_obj_set_style_text_font(value, &lv_font_montserrat_12, 0);
-
-    fade_in(row, READOUT_FADE_MS, i * READOUT_STAGGER);
-  }
-}
-
-static void add_row(const char *label, const char *value) {
-  if (s_row_count >= ROW_MAX)
-    return;
-  snprintf(s_rows[s_row_count].label, sizeof(s_rows[s_row_count].label), "%s", label);
-  snprintf(s_rows[s_row_count].value, sizeof(s_rows[s_row_count].value), "%s", value);
-  s_row_count++;
-}
-
-static void build_rows_from_result(void) {
-  s_row_count = 0;
-
-  const char *mod =
-      (s_result.analysis.modulation_hint != NULL && s_result.analysis.modulation_hint[0] != '\0')
-          ? s_result.analysis.modulation_hint
-          : "OOK";
-  snprintf(s_mod_str, sizeof(s_mod_str), "%s", mod);
-
-  if (s_result.decoded) {
-    snprintf(s_proto_str, sizeof(s_proto_str), "%s", s_result.data.protocol_name);
-    char key[24];
-    snprintf(key, sizeof(key), "0x%lX", (unsigned long)s_result.data.raw_value);
-    char bits[16];
-    snprintf(bits, sizeof(bits), "%u bits", (unsigned)s_result.data.bit_count);
-    add_row("Protocol", s_proto_str);
-    add_row("Modulation", s_mod_str);
-    add_row("Bits", bits);
-    add_row("Key", key);
-  } else {
-    snprintf(s_proto_str, sizeof(s_proto_str), "Unknown");
-    char te[20];
-    snprintf(te, sizeof(te), "%lu us", (unsigned long)s_result.analysis.estimated_te);
-    add_row("Protocol", s_proto_str);
-    add_row("Modulation", s_mod_str);
-    add_row("TE", te);
-    add_row("Saved", "RAW");
-  }
-}
-
-static void do_lock(void) {
-  stop_timer(&s_scope_timer);
+static void show_result(void) {
   stop_rx();
-  if (lv_screen_active() != s_screen)
-    return;
-
-  s_locked = true;
-  if (s_wave != NULL)
-    lv_obj_set_style_line_rounded(s_wave, false, 0);
-  fill_ook();
-
-  fmt_mhz(s_result.freq, s_freq_str, sizeof(s_freq_str));
-  build_rows_from_result();
-
-  if (s_status) {
-    lv_label_set_text(s_status, "Signal locked!");
-    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
+  lv_obj_delete(s_content);
+  s_content = NULL;
+  s_graph = s_trace = s_status = s_freq = s_stats = NULL;
+  char frequency[FREQUENCY_TEXT_SIZE];
+  fmt_mhz(s_result.freq, frequency, sizeof(frequency));
+  if (s_result.decoded) {
+    snprintf(s_card_sub,
+             sizeof(s_card_sub),
+             "%s / Key %08lX / %u bits",
+             s_result.data.protocol_name,
+             (unsigned long)s_result.data.raw_value,
+             (unsigned)s_result.data.bit_count);
+  } else {
+    snprintf(s_card_sub, sizeof(s_card_sub), "Unknown protocol / RAW waveform");
   }
-  if (s_freq)
-    lv_label_set_text(s_freq, s_freq_str);
-
-  build_signal_readout();
-
-  if (s_hint != NULL)
-    ui_chrome_footer_set_text(s_hint, HINT_SHOW);
-  s_locked_at = lv_tick_get();
-
-  ESP_LOGI(TAG, "captured: %s %s", s_proto_str, s_freq_str);
-  ui_feedback(UI_FB_READ);
-}
-
-static void show_options(void) {
-  if (s_scope) {
-    lv_obj_del(s_scope);
-    s_scope = NULL;
-    s_wave = NULL;
-  }
-  if (s_readout) {
-    lv_obj_del(s_readout);
-    s_readout = NULL;
-  }
-  if (s_status)
-    lv_obj_add_flag(s_status, LV_OBJ_FLAG_HIDDEN);
-  if (s_freq)
-    lv_obj_add_flag(s_freq, LV_OBJ_FLAG_HIDDEN);
-
-  snprintf(s_card_sub, sizeof(s_card_sub), "%s (%s)", s_proto_str, s_mod_str);
-
-  capture_result_cfg_t cfg = {
+  snprintf(s_card_value,
+           sizeof(s_card_value),
+           "%s / %lu pulses%s",
+           frequency,
+           (unsigned long)s_result.pulse_count,
+           s_result.is_limited ? " / LIMITED" : "");
+  capture_result_cfg_t config = {
       .accent = current_theme.border_accent,
       .card_icon = "/assets/icons/graphic_eq.bin",
-      .card_title = "Signal captured",
+      .card_title = s_result.is_limited ? "Capture limit reached"
+                    : s_result.decoded  ? s_result.data.protocol_name
+                                        : "Signal captured",
       .card_sub = s_card_sub,
-      .card_value = s_freq_str,
+      .card_value = s_card_value,
       .primary_label = "Send",
       .again_label = "Capture again",
   };
-  s_cr = capture_result_create(s_screen, &cfg);
+  s_cr = capture_result_create(s_screen, &config);
   s_options = true;
-  if (s_hint)
-    ui_chrome_footer_set_text(s_hint, HINT_MENU);
+  ui_chrome_footer_set_text(s_hint, "UP/DOWN choose   OK select   BACK exit");
+  ESP_LOGI(TAG,
+           "Capture analyzed: %lu pulses, %lu blocks, %lu matches%s",
+           (unsigned long)s_result.pulse_count,
+           (unsigned long)s_result.frame_count,
+           (unsigned long)s_result.matching_frames,
+           s_result.is_limited ? " (limited)" : "");
+  ui_feedback(UI_FB_READ);
 }
 
-static void read_tick_cb(lv_timer_t *t) {
+static void read_tick_cb(lv_timer_t *timer) {
+  (void)timer;
   if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_tick_timer = NULL;
+    ui_subghz_read_stop();
     return;
   }
-
-  if (s_is_sending) {
-    subghz_tx_status_t status;
-    subghz_tx_get_status(&status);
-    if (status.error != ESP_OK || !status.is_busy) {
-      s_is_sending = false;
-      subghz_tx_stop();
-      notify(status.error == ESP_OK ? NOTIFY_INFO : NOTIFY_WARNING,
-             status.error == ESP_OK ? "Signal sent" : "Transmission failed");
-    }
-  }
-  if (!s_locked) {
-    if (!s_has_rx_error && subghz_receiver_get_error() != ESP_OK) {
-      s_has_rx_error = true;
-      stop_timer(&s_scope_timer);
-      lv_label_set_text(s_status, "Reception failed. BACK to exit");
-    }
-    if (s_has_rx_error)
-      return;
-    if (s_status != NULL) {
-      int dots = ((lv_tick_get() - s_scan_start) / DOT_CYCLE_MS) % 4;
-      char buf[20];
-      snprintf(buf,
-               sizeof(buf),
-               "%s%s",
-               STATUS_SCAN,
-               dots == 1   ? "."
-               : dots == 2 ? ".."
-               : dots == 3 ? "..."
-                           : "");
-      lv_label_set_text(s_status, buf);
-    }
-
-    if (subghz_receiver_get_result(&s_result))
-      do_lock();
+  if (s_options)
+    return;
+  if (subghz_receiver_get_result(&s_result)) {
+    show_result();
     return;
   }
-
-  if (s_locked && !s_options) {
-    if (lv_tick_get() - s_locked_at >= REVEAL_MS)
-      show_options();
+  if (s_has_rx_error)
+    return;
+  if (subghz_receiver_get_error() != ESP_OK) {
+    s_has_rx_error = true;
+    stop_rx();
+    lv_label_set_text(s_status, "Reception failed / BACK to exit");
+    return;
   }
+  subghz_rx_progress_t progress;
+  if (!subghz_receiver_get_progress(&progress))
+    return;
+  lv_label_set_text(s_status,
+                    progress.phase == SUBGHZ_RX_PHASE_CAPTURING   ? "Receiving / collecting pulses"
+                    : progress.phase == SUBGHZ_RX_PHASE_ANALYZING ? "Analyzing captured signal"
+                                                                  : "Listening for a signal");
+  char frequency[FREQUENCY_TEXT_SIZE];
+  fmt_mhz(progress.frequency_hz, frequency, sizeof(frequency));
+  if (progress.rssi_count)
+    lv_label_set_text_fmt(
+        s_freq, "%s  /  %d dBm", frequency, (int)progress.rssi_dbm[progress.rssi_count - 1]);
+  lv_label_set_text_fmt(s_stats,
+                        "%lu pulses / %lu blocks / %lu.%lus",
+                        (unsigned long)progress.pulse_count,
+                        (unsigned long)progress.frame_count,
+                        (unsigned long)(progress.elapsed_ms / MS_PER_SECOND),
+                        (unsigned long)((progress.elapsed_ms % MS_PER_SECOND) / MS_PER_TENTH));
+  draw_rssi(&progress);
 }
 
 static void send_current(void) {
-  if (s_is_sending)
-    return;
-  ui_feedback(UI_FB_EMULATE);
-  if (s_result.save_name[0] == '\0') {
-    notify(NOTIFY_WARNING, "Nothing to send");
-    return;
+  if (s_saved) {
+    ui_subghz_send_select(s_result.save_name);
+  } else {
+    esp_err_t error = ui_subghz_send_capture(s_result.seq);
+    if (error != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot prepare capture: %s", esp_err_to_name(error));
+      led_signal_error();
+      notify(NOTIFY_WARNING, "Cannot prepare signal for sending");
+      return;
+    }
   }
-  esp_err_t err = subghz_replay_file(s_result.save_name);
-  if (err == ESP_OK) {
-    s_is_sending = true;
-    notify(NOTIFY_INFO, "Transmitting...");
-  } else if (err == ESP_ERR_NOT_SUPPORTED)
-    notify(NOTIFY_WARNING, "Replay not supported");
-  else
-    notify(NOTIFY_WARNING, "Send failed");
+  ui_switch_screen(SCREEN_SUBGHZ_SEND);
 }
 
 static void save_name_submit(const char *name, void *context) {
   (void)context;
-  esp_err_t err = subghz_storage_rename(s_result.save_name, name);
+  esp_err_t err = subghz_receiver_save(s_result.seq, name);
   if (err == ESP_OK) {
     snprintf(s_result.save_name, sizeof(s_result.save_name), "%s", name);
     s_saved = true;
     capture_result_mark_saved(&s_cr);
+    ESP_LOGI(TAG, "Capture saved: %s", name);
+    led_signal_info();
     ui_feedback(UI_FB_WRITE);
     notify(NOTIFY_SAVED, "Saved to SD");
   } else {
+    ESP_LOGE(TAG, "Capture save failed: %s", esp_err_to_name(err));
+    led_signal_error();
     notify(NOTIFY_WARNING,
            err == ESP_ERR_INVALID_STATE ? "Name exists; choose another"
                                         : "Capture not saved; check SD");
@@ -636,6 +375,10 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
             send_current();
             break;
           case CAP_ACT_SAVE:
+            if (!s_result.save_name[0]) {
+              notify(NOTIFY_WARNING, "Capture not saved; check SD");
+              break;
+            }
             if (!s_saved)
               keyboard_open_filename("Signal name (without .sub)",
                                      s_result.save_name,
@@ -661,9 +404,9 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
 
 void ui_subghz_read_stop(void) {
   stop_rx();
-  if (s_is_sending)
-    subghz_tx_stop();
-  s_is_sending = false;
-  stop_timer(&s_tick_timer);
-  stop_timer(&s_scope_timer);
+  subghz_receiver_discard();
+  if (s_tick_timer != NULL) {
+    lv_timer_delete(s_tick_timer);
+    s_tick_timer = NULL;
+  }
 }

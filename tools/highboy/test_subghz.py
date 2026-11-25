@@ -33,13 +33,24 @@ def main():
     sources.append(ROOT / "firmware_p4/components/Drivers/cc1101/cc1101_config.c")
     with tempfile.TemporaryDirectory(prefix="highboy-subghz-") as temp:
         binary = Path(temp) / "test_subghz"
+        work = Path(temp)
+        notice = (STUBS / "esp_heap_caps.h").read_text().split("#pragma", 1)[0]
+        (work / "tos_storage_paths.h").write_text(notice + '#define TOS_PATH_SUBGHZ "' + temp + '/captures"\n')
+        (work / "storage_mkdir.h").write_text(notice + '#include <sys/stat.h>\n#include <errno.h>\n#include "esp_err.h"\nstatic inline esp_err_t storage_mkdir_recursive(const char *path) { return mkdir(path, 0700) == 0 || errno == EEXIST ? ESP_OK : ESP_FAIL; }\n')
         command = [os.environ.get("CC", "cc"), "-std=c11", "-D_POSIX_C_SOURCE=200809L",
                    "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined",
                    "-fno-sanitize-recover=all", "-g", "-I", str(STUBS),
-                   "-I", str(SOURCE / "include"),
+                   "-I", str(work), "-I", str(SOURCE / "include"),
                    "-I", str(ROOT / "firmware_p4/components/Drivers/cc1101/include"),
                    "-I", str(SOURCE / "protocols/include"),
                    str(HERE / "test_subghz.c"), *map(str, sources), "-o", str(binary)]
+        (work / "host_string.h").write_text(notice + '#include <string.h>\nstatic inline size_t fixture_strlcpy(char *dst, const char *src, size_t size) { size_t n = strlen(src); if (size) { size_t copy = n < size - 1 ? n : size - 1; memcpy(dst, src, copy); dst[copy] = 0; } return n; }\n#define strlcpy fixture_strlcpy\n')
+        storage_object = work / "storage.o"
+        storage_command = command[:command.index(str(HERE / "test_subghz.c"))]
+        subprocess.run([*storage_command, "-include", str(work / "host_string.h"),
+                        "-Dsubghz_storage_read=subghz_test_disk_read", "-c",
+                        str(SOURCE / "subghz_storage.c"), "-o", str(storage_object)], check=True)
+        command.insert(command.index("-o"), str(storage_object))
         subprocess.run(command, check=True)
         subprocess.run([str(binary)], check=True, timeout=30)
 

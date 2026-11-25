@@ -31,10 +31,8 @@
 #include "octobit_ui.h"
 #include "sigwave_ui.h"
 #include "subghz_receiver.h"
-#include "subghz_replay.h"
-#include "subghz_transmitter.h"
-#include "subghz_scope_ui.h"
-#include "subghz_spectrum.h"
+#include "subghz_send_ui.h"
+#include "subghz_settings.h"
 #include "subghz_storage.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
@@ -53,14 +51,6 @@ static const char *TAG = "SUBGHZ_MENU_UI";
 #define TITLE_BAR_H            30
 #define TITLE_BAR_RADIUS       12
 #define TITLE_BAR_BORDER_WIDTH 2
-
-#define BAR_COUNT      16
-#define BAR_W          8
-#define BAR_GAP        4
-#define BAR_MIN_H      6
-#define BAR_MAX_H      200
-#define BAR_BASELINE_Y (ui_screen_h() - UI_CHROME_FOOTER_H - 10)
-#define FREQ_CYCLE_MS  400
 
 #define CARD_W       200
 #define CARD_H       108
@@ -121,6 +111,7 @@ static const struct {
 };
 #define ITEM_COUNT ((int)(sizeof(ITEMS) / sizeof(ITEMS[0])))
 
+#define IDX_READ_RAW 1
 #define IDX_ANALYZER 2
 #define IDX_BRUTE    3
 #define IDX_SAVED    4
@@ -157,26 +148,16 @@ static const struct {
 };
 #define INFO_ACTION_COUNT ((int)(sizeof(INFO_ACTIONS) / sizeof(INFO_ACTIONS[0])))
 
-#define ANALYZER_CENTER_HZ 433920000
-#define ANALYZER_SPAN_HZ   2000000
-#define ANALYZER_POLL_MS   140
-#define ANALYZER_DBM_FLOOR -110
-#define ANALYZER_DBM_CEIL  -20
-
 typedef enum {
   VIEW_LIST = 0,
-  VIEW_ANALYZER,
   VIEW_SAVED,
   VIEW_SAVED_INFO,
 } view_t;
 
 static lv_obj_t *s_screen = NULL;
 static menu_component_t s_menu;
-static lv_timer_t *s_freq_timer = NULL;
 static view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
-
-static lv_obj_t *s_freq_lbl = NULL;
 
 static lv_obj_t *s_info_rows[INFO_ACTION_COUNT];
 static lv_obj_t *s_info_icons[INFO_ACTION_COUNT];
@@ -188,14 +169,6 @@ EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_row[SAVED_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_name[SAVED_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_sig_val[SAVED_MAX];
 static lv_obj_t *s_sig_thumb = NULL;
-static lv_obj_t *s_spec_bars[BAR_COUNT];
-
-static lv_obj_t *s_send_overlay = NULL;
-static bool s_owns_tx;
-static bool s_owns_spectrum;
-static lv_obj_t *s_send_status = NULL;
-static lv_timer_t *s_send_t1 = NULL;
-static lv_timer_t *s_send_t2 = NULL;
 
 static void subghz_menu_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
@@ -203,20 +176,6 @@ static void build_screen(void);
 static void rebuild_async(void *p) {
   (void)p;
   build_screen();
-}
-
-static void stop_tx(void) {
-  if (s_owns_tx) {
-    subghz_tx_stop();
-    s_owns_tx = false;
-  }
-}
-
-static void stop_freq_timer(void) {
-  if (s_freq_timer != NULL) {
-    lv_timer_delete(s_freq_timer);
-    s_freq_timer = NULL;
-  }
 }
 
 static void opa_anim_cb(void *var, int32_t v) {
@@ -233,126 +192,6 @@ static void fade_in(lv_obj_t *obj, uint32_t duration_ms) {
   lv_anim_set_duration(&a, duration_ms);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
   lv_anim_start(&a);
-}
-
-#define SIGNAL_STRONG_COLOR 0x00E676
-
-static void spectrum_poll_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen || s_view != VIEW_ANALYZER) {
-    lv_timer_delete(t);
-    s_freq_timer = NULL;
-    return;
-  }
-
-  if (subghz_spectrum_get_error() != ESP_OK) {
-    lv_label_set_text(s_freq_lbl, "Radio error");
-    stop_freq_timer();
-    return;
-  }
-  subghz_spectrum_line_t line;
-  if (!subghz_spectrum_get_line(&line) || line.timestamp == 0)
-    return;
-
-  int per = SPECTRUM_SAMPLES / BAR_COUNT;
-  if (per < 1)
-    per = 1;
-
-  for (int i = 0; i < BAR_COUNT; i++) {
-    float sum = 0.0f;
-    int cnt = 0;
-    for (int k = 0; k < per; k++) {
-      int idx = i * per + k;
-      if (idx < SPECTRUM_SAMPLES) {
-        sum += line.dbm_values[idx];
-        cnt++;
-      }
-    }
-    float dbm = cnt ? (sum / (float)cnt) : (float)ANALYZER_DBM_FLOOR;
-
-    int h = (int)(((dbm - ANALYZER_DBM_FLOOR) * (BAR_MAX_H - BAR_MIN_H)) /
-                  (ANALYZER_DBM_CEIL - ANALYZER_DBM_FLOOR)) +
-            BAR_MIN_H;
-    if (h < BAR_MIN_H)
-      h = BAR_MIN_H;
-    if (h > BAR_MAX_H)
-      h = BAR_MAX_H;
-
-    if (s_spec_bars[i] == NULL)
-      continue;
-    lv_obj_set_height(s_spec_bars[i], h);
-    lv_obj_set_y(s_spec_bars[i], BAR_BASELINE_Y - h);
-
-    lv_color_t c;
-    if (dbm >= -45.0f)
-      c = lv_color_hex(SIGNAL_STRONG_COLOR);
-    else if (dbm >= -75.0f)
-      c = current_theme.border_accent;
-    else
-      c = current_theme.border_inactive;
-    lv_obj_set_style_bg_color(s_spec_bars[i], c, 0);
-  }
-}
-
-static void build_analyzer(void) {
-  ui_chrome_header(s_screen, "ANALYZER", "/assets/icons/graphic_eq.bin");
-
-  char freq_str[16];
-  fmt_mhz(ANALYZER_CENTER_HZ, freq_str, sizeof(freq_str));
-  s_freq_lbl = lv_label_create(s_screen);
-  lv_label_set_text(s_freq_lbl, freq_str);
-  lv_obj_set_style_text_color(s_freq_lbl, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(s_freq_lbl, &lv_font_montserrat_14, 0);
-  lv_obj_align(s_freq_lbl, LV_ALIGN_TOP_MID, 0, UI_CHROME_HEADER_H + 14);
-
-  int total_w = BAR_COUNT * BAR_W + (BAR_COUNT - 1) * BAR_GAP;
-  int x0 = (ui_screen_w() - total_w) / 2;
-
-  static lv_point_precise_t base_pts[2];
-  base_pts[0].x = 0;
-  base_pts[0].y = 0;
-  base_pts[1].x = total_w;
-  base_pts[1].y = 0;
-  lv_obj_t *baseline = lv_line_create(s_screen);
-  lv_line_set_points(baseline, base_pts, 2);
-  lv_obj_set_pos(baseline, x0, BAR_BASELINE_Y);
-  lv_obj_set_style_line_color(baseline, current_theme.border_inactive, 0);
-  lv_obj_set_style_line_opa(baseline, LV_OPA_50, 0);
-  lv_obj_set_style_line_width(baseline, 2, 0);
-  lv_obj_set_style_line_dash_width(baseline, 4, 0);
-  lv_obj_set_style_line_dash_gap(baseline, 4, 0);
-
-  for (int i = 0; i < BAR_COUNT; i++) {
-    lv_obj_t *bar = lv_obj_create(s_screen);
-    s_spec_bars[i] = bar;
-    lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(bar, BAR_W, BAR_MIN_H);
-    lv_obj_set_style_radius(bar, 2, 0);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(bar, current_theme.border_inactive, 0);
-    lv_obj_set_style_bg_grad_color(bar, current_theme.bg_secondary, 0);
-    lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_border_width(bar, 0, 0);
-    lv_obj_set_pos(bar, x0 + i * (BAR_W + BAR_GAP), BAR_BASELINE_Y - BAR_MIN_H);
-  }
-
-  fade_in(s_freq_lbl, FADE_MS);
-
-  if (subghz_receiver_is_running())
-    subghz_receiver_stop();
-  s_freq_timer = lv_timer_create(spectrum_poll_cb, ANALYZER_POLL_MS, NULL);
-  esp_err_t error = s_freq_timer != NULL
-                        ? subghz_spectrum_start(ANALYZER_CENTER_HZ, ANALYZER_SPAN_HZ)
-                        : ESP_ERR_NO_MEM;
-  s_owns_spectrum = error == ESP_OK;
-  if (error != ESP_OK) {
-    ESP_LOGE(TAG, "Cannot start spectrum: %s", esp_err_to_name(error));
-    led_signal_error();
-    stop_freq_timer();
-    lv_label_set_text(s_freq_lbl, "Radio unavailable");
-    notify(NOTIFY_WARNING, "Cannot start spectrum");
-  }
-
-  ui_chrome_footer(s_screen, HINT_ANALYZER);
 }
 
 static void build_saved_empty(void) {
@@ -710,38 +549,17 @@ static void screen_deleted_cb(lv_event_t *event) {
 }
 
 static void build_screen(void) {
-  stop_tx();
-  stop_freq_timer();
-  if (s_owns_spectrum) {
-    subghz_spectrum_stop();
-    s_owns_spectrum = false;
-  }
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
   }
-  s_freq_lbl = NULL;
   s_sig_cont = NULL;
   s_sig_thumb = NULL;
-  if (s_send_t1 != NULL) {
-    lv_timer_delete(s_send_t1);
-    s_send_t1 = NULL;
-  }
-  if (s_send_t2 != NULL) {
-    lv_timer_delete(s_send_t2);
-    s_send_t2 = NULL;
-  }
-  subghz_scope_stop();
-  s_send_overlay = NULL;
-  s_send_status = NULL;
 
   s_screen = ui_chrome_screen_create();
   lv_obj_add_event_cb(s_screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
 
   switch (s_view) {
-    case VIEW_ANALYZER:
-      build_analyzer();
-      break;
     case VIEW_SAVED:
       build_saved_list();
       break;
@@ -764,131 +582,17 @@ static void build_screen(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-void ui_subghz_menu_stop(void) {
-  stop_freq_timer();
-  if (s_owns_spectrum) {
-    subghz_spectrum_stop();
-    s_owns_spectrum = false;
-  }
-  stop_tx();
-  subghz_scope_stop();
-  if (s_send_t1 != NULL) {
-    lv_timer_delete(s_send_t1);
-    s_send_t1 = NULL;
-  }
-  if (s_send_t2 != NULL) {
-    lv_timer_delete(s_send_t2);
-    s_send_t2 = NULL;
-  }
-}
-
-static void send_finish_cb(lv_timer_t *t) {
-  lv_timer_delete(t);
-  s_send_t2 = NULL;
-  subghz_scope_stop();
-  if (s_send_overlay != NULL) {
-    lv_obj_del(s_send_overlay);
-    s_send_overlay = NULL;
-    s_send_status = NULL;
-  }
-  notify(NOTIFY_INFO, "Signal sent");
-}
-
-static void send_lock_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    ui_subghz_menu_stop();
-    return;
-  }
-  subghz_tx_status_t status;
-  subghz_tx_get_status(&status);
-  if (status.error == ESP_OK && status.is_busy)
-    return;
-  lv_timer_delete(t);
-  s_send_t1 = NULL;
-  stop_tx();
-  if (status.error != ESP_OK) {
-    subghz_scope_stop();
-    if (s_send_status != NULL)
-      lv_label_set_text(s_send_status, "Transmission failed. BACK to exit");
-    return;
-  }
-  subghz_scope_lock();
-  if (s_send_status != NULL) {
-    lv_label_set_text(s_send_status, "Signal sent!");
-    lv_obj_set_style_text_color(s_send_status, current_theme.text_main, 0);
-  }
-  ui_feedback(UI_FB_WRITE);
-  s_send_t2 = lv_timer_create(send_finish_cb, SEND_DONE_MS, NULL);
-  if (s_send_t2 != NULL)
-    lv_timer_set_repeat_count(s_send_t2, 1);
-}
+void ui_subghz_menu_stop(void) {}
 
 static void start_saved_send(void) {
-  esp_err_t rerr = subghz_replay_file(s_saved[s_saved_sel].name);
-  if (rerr == ESP_ERR_NOT_SUPPORTED) {
-    notify(NOTIFY_WARNING, "Replay not supported");
-    return;
-  }
-  if (rerr != ESP_OK) {
-    notify(NOTIFY_WARNING, "Send failed");
-    return;
-  }
-
-  s_owns_tx = true;
-  s_send_overlay = lv_obj_create(s_screen);
-  lv_obj_set_size(s_send_overlay, lv_pct(100), lv_pct(100));
-  lv_obj_center(s_send_overlay);
-  lv_obj_remove_flag(s_send_overlay, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(s_send_overlay, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(s_send_overlay, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(s_send_overlay, 0, 0);
-  lv_obj_set_style_pad_all(s_send_overlay, 0, 0);
-
-  ui_chrome_header_overlay(s_send_overlay, "SEND", "/assets/icons/settings_input_antenna.bin");
-
-  s_send_status = lv_label_create(s_send_overlay);
-  lv_label_set_text(s_send_status, "Transmitting...");
-  lv_obj_set_style_text_color(s_send_status, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_send_status, &lv_font_montserrat_14, 0);
-  lv_obj_align(s_send_status, LV_ALIGN_TOP_MID, 0, SEND_STATUS_Y);
-
-  char freq_str[16];
-  fmt_mhz(s_saved[s_saved_sel].frequency, freq_str, sizeof(freq_str));
-  lv_obj_t *freq = lv_label_create(s_send_overlay);
-  lv_label_set_text(freq, freq_str);
-  lv_obj_set_style_text_color(freq, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(freq, &lv_font_montserrat_12, 0);
-  lv_obj_align(freq, LV_ALIGN_TOP_MID, 0, SEND_FREQ_Y);
-
-  subghz_scope_create(s_send_overlay, LV_ALIGN_CENTER, 0, SEND_SCOPE_Y);
-  ui_chrome_footer(s_send_overlay, "Transmitting...");
-
-  ui_feedback(UI_FB_EMULATE);
-  s_send_t1 = lv_timer_create(send_lock_cb, ANALYZER_POLL_MS, NULL);
-  if (s_send_t1 == NULL) {
-    ESP_LOGE(TAG, "Cannot allocate transmission monitor");
-    led_signal_error();
-    stop_tx();
-    subghz_scope_stop();
-    lv_label_set_text(s_send_status, "Cannot monitor transmission. BACK to exit");
-    notify(NOTIFY_WARNING, "Cannot monitor transmission");
-  }
+  ui_subghz_send_select(s_saved[s_saved_sel].name);
+  ui_switch_screen(SCREEN_SUBGHZ_SEND);
 }
 
 static void subghz_menu_input(const input_event_t *ev, void *ctx) {
   (void)ctx;
   const bool press = (ev->action == INPUT_ACTION_PRESS);
   const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
-
-  if (s_send_overlay != NULL) {
-    if (press && ev->button == INPUT_BTN_BACK) {
-      ui_subghz_menu_stop();
-      lv_obj_delete(s_send_overlay);
-      s_send_overlay = NULL;
-      s_send_status = NULL;
-    }
-    return;
-  }
 
   switch (s_view) {
     case VIEW_LIST:
@@ -905,8 +609,7 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
           if (press) {
             int sel = menu_component_get_selected(&s_menu);
             if (sel == IDX_ANALYZER) {
-              s_view = VIEW_ANALYZER;
-              build_screen();
+              ui_switch_screen(SCREEN_SUBGHZ_SPECTRUM);
             } else if (sel == IDX_SAVED) {
               s_saved_sel = 0;
               s_view = VIEW_SAVED;
@@ -918,6 +621,7 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
             } else if (sel == IDX_CONFIG) {
               ui_switch_screen(SCREEN_SUBGHZ_CONFIG);
             } else if (sel >= 0 && sel < ITEM_COUNT && ITEMS[sel].capture) {
+              ui_subghz_read_set_raw(sel == IDX_READ_RAW);
               ui_switch_screen(SCREEN_SUBGHZ_READ);
             }
           }
@@ -925,19 +629,6 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
         case INPUT_BTN_BACK:
           if (press)
             ui_switch_screen(SCREEN_MENU);
-          break;
-        default:
-          break;
-      }
-      break;
-
-    case VIEW_ANALYZER:
-      switch (ev->button) {
-        case INPUT_BTN_BACK:
-          if (press) {
-            s_view = VIEW_LIST;
-            build_screen();
-          }
           break;
         default:
           break;

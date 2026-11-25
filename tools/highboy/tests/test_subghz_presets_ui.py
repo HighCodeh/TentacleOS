@@ -57,6 +57,8 @@ code = r"""
 #include <string.h>
 #include "lvgl.h"
 #define SCREEN_SUBGHZ_MENU 1
+#define UI_CHROME_HEADER_H 46
+#define UI_CHROME_FOOTER_H 22
 #define UI_FB_NAV 1
 #define NOTIFY_WARNING 1
 enum { INPUT_ACTION_PRESS, INPUT_ACTION_REPEAT, INPUT_ACTION_RELEASE };
@@ -71,8 +73,15 @@ static lv_image_dsc_t *assets_get(const char *path) { (void)path; return NULL; }
 static int ui_screen_w(void) { return lv_display_get_horizontal_resolution(NULL); }
 static int ui_screen_h(void) { return lv_display_get_vertical_resolution(NULL); }
 static void ui_feedback(int event) { assert(event == UI_FB_NAV); }
+static lv_obj_t *gradient_objects[64];
+static int gradient_heights[64];
+static unsigned gradient_count;
 static void ui_chrome_gradient(lv_obj_t *obj, lv_color_t a, lv_color_t b, int h) {
-  (void)b; (void)h; lv_obj_set_style_bg_color(obj, a, 0);
+  unsigned i = 0;
+  while (i < gradient_count && gradient_objects[i] != obj) ++i;
+  assert(i < 64); if (i == gradient_count) ++gradient_count;
+  gradient_objects[i] = obj; gradient_heights[i] = h;
+  (void)b; lv_obj_set_style_bg_color(obj, a, 0);
 }
 static lv_obj_t *ui_chrome_light_title(lv_obj_t *root, const char *title) {
   lv_obj_t *label = lv_label_create(root); lv_label_set_text(label, title); return label;
@@ -117,6 +126,10 @@ static void send(int button) {
 static void check_layout(void) {
   lv_obj_update_layout(s_screen);
   assert(s_menu.item_count == 9);
+  unsigned gradient = 0;
+  while (gradient < gradient_count && gradient_objects[gradient] != s_menu.items[0]) ++gradient;
+  assert(gradient < gradient_count);
+  assert(gradient_heights[gradient] == lv_obj_get_height(s_menu.items[0]));
   lv_obj_t *labels[] = {s_menu.items[s_menu.selected], s_menu.hint_label};
   lv_obj_scroll_to_view(s_menu.items[s_menu.selected], LV_ANIM_OFF);
   lv_obj_update_layout(s_screen);
@@ -181,7 +194,33 @@ int main(void) {
       menu_component_select(&s_menu, FIELD_DEVIATION); send(INPUT_BTN_RIGHT);
       assert(!subghz_settings_get().has_custom_radio);
       menu_component_select(&s_menu, FIELD_LNA_GAIN); send(INPUT_BTN_RIGHT);
-      menu_component_select(&s_menu, FIELD_FREQUENCY); send(INPUT_BTN_LEFT);
+      menu_component_select(&s_menu, FIELD_FREQUENCY);
+      send(INPUT_BTN_OK);
+      assert(subghz_settings_get().freq == 433920000);
+      size_t count;
+      const uint32_t *frequencies = subghz_settings_get_frequencies(&count);
+      assert(count == 53);
+      for (size_t i = 0; i < count; ++i) {
+        uint32_t hz = subghz_settings_get().freq;
+        assert(hz == 0 || (hz >= 300000000 && hz <= 348000000) ||
+               (hz >= 387000000 && hz <= 464000000) || (hz >= 779000000 && hz <= 928000000));
+        assert(subghz_settings_get().has_custom_radio);
+        check_layout();
+        lv_obj_t *objects[] = {s_frequency_value, s_frequency_unit, s_frequency_ruler};
+        for (size_t j = 0; j < sizeof(objects)/sizeof(objects[0]); ++j) {
+          lv_area_t area; lv_obj_get_coords(objects[j], &area);
+          lv_obj_get_transformed_area(objects[j], &area, LV_OBJ_POINT_TRANSFORM_FLAG_RECURSIVE);
+          assert(area.x1 >= 0 && area.x2 < ui_screen_w());
+          assert(area.y1 >= UI_CHROME_HEADER_H && area.y2 < ui_screen_h());
+        }
+        send(INPUT_BTN_RIGHT);
+      }
+      assert(subghz_settings_get().freq == 433920000);
+      send(INPUT_BTN_LEFT); assert(subghz_settings_get().freq == 433889000);
+      send(INPUT_BTN_LEFT); assert(subghz_settings_get().freq == 433657070);
+      assert(strcmp(lv_label_get_text(s_frequency_value), "433.65707") == 0);
+      for (size_t i = 0; i < count && subghz_settings_get().freq != 0; ++i)
+        send(INPUT_BTN_LEFT);
       assert(subghz_settings_get().freq == 0);
       input_event_t release = {INPUT_ACTION_RELEASE, INPUT_BTN_RIGHT}; input(&release, NULL);
       assert(subghz_settings_get().freq == 0);
@@ -194,7 +233,7 @@ int main(void) {
     }
   }
   assert(backs == 4 && notices == 4);
-  puts("PASS: preset selection applies without confirmation, preserves frequency, wraps and survives re-entry; real LVGL/menu in both orientations and themes");
+  puts("PASS: inline frequency dial, all 53 entries, immediate tuning, wrap, overrides and layout in both orientations/themes");
 }
 """
 test = WORK / "test.c"
@@ -203,7 +242,8 @@ command = ["cc", "-std=gnu11", "-g", "-fsanitize=undefined,bounds", "-fno-saniti
            "-DLV_CONF_INCLUDE_SIMPLE", "-DLV_KCONFIG_IGNORE", "-I" + str(WORK), "-I" + str(BASE)]
 for folder in ("screens/subghz", "components/menu_component", "components/toggle", "components/intensity_bar"):
     command += ["-I" + str(UI / folder / "include")]
-command += ["-I" + str(APPS / "include"),
+command += ["-I" + str(ROOT / "firmware_p4/components/Service/frequency_analyzer/include"),
+            "-I" + str(APPS / "include"),
             "-I" + str(ROOT / "firmware_p4/components/Drivers/cc1101/include"),
             "-I" + str(ROOT / "firmware_p4/managed_components/lvgl__lvgl"), str(test),
             str(ROOT / "firmware_p4/components/Drivers/cc1101/cc1101_config.c"),

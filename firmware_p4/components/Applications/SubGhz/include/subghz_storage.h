@@ -37,6 +37,7 @@ typedef struct {
   char name[SUBGHZ_STORAGE_NAME_MAX];      /**< @brief File name without the .sub suffix. */
   char protocol[SUBGHZ_STORAGE_PROTO_MAX]; /**< @brief Protocol label ("RAW" for raw captures). */
   uint32_t frequency;                      /**< @brief Center frequency in Hz. */
+  int64_t modified;                        /**< @brief File modification time, newest first. */
 } subghz_storage_entry_t;
 
 /**
@@ -44,6 +45,8 @@ typedef struct {
  *
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
+esp_err_t subghz_storage_save_capture(const char *name, const char *text);
+
 esp_err_t subghz_storage_init(void);
 
 /**

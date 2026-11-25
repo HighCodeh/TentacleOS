@@ -220,6 +220,9 @@ esp_err_t cc1101_enable_fsk_mode(uint32_t freq_hz);
  */
 esp_err_t cc1101_enter_rx_mode(void);
 
+/** Tune, calibrate and sample RSSI with a bounded SPI reservation. */
+esp_err_t cc1101_scan_rssi(uint32_t freq_hz, float *out_dbm);
+
 /**
  * @brief Enter transmit mode.
  */

@@ -48,7 +48,7 @@ typedef int esp_err_t;
                      'driver/rmt_encoder.h','freertos/FreeRTOS.h','freertos/task.h',
                      'freertos/queue.h','freertos/semphr.h','pin_def.h','sys_prio.h','rom/ets_sys.h','led_control.h']:
             p=temp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('#include "test_platform.h"\n')
-        (temp/'led_control.h').write_text('void led_signal_error(void);\n')
+        (temp/'led_control.h').write_text('#include <stdbool.h>\n#include <stdint.h>\n#define LED_ACTIVITY_SUBGHZ (1U << 1)\nvoid led_signal_error(void);\nvoid led_set_activity(uint32_t source, bool active);\n')
         (temp/'power_manager.h').write_text('#include "esp_err.h"\nesp_err_t power_manager_no_sleep_acquire(void);\nesp_err_t power_manager_no_sleep_release(void);\n')
         command=[*shlex.split(os.environ.get('CC','cc')),'-std=gnu11','-Wall','-Wextra','-Werror',
                  '-Wno-unused-parameter','-fsanitize=address,undefined','-fno-sanitize-recover=all','-pthread', str(DRIVER/'cc1101_config.c')]
@@ -65,6 +65,9 @@ typedef int esp_err_t;
                         str(HERE/'test_backend.c'),str(DRIVER/'cc1101_lease.c'),
                         str(APPS/'subghz_protocol_serializer.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
+        subprocess.run([*command, str(HERE/'test_replay.c'),
+                        str(APPS/'subghz_protocol_serializer.c'), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=30)
         source=(DRIVER/'cc1101.c').read_text()
         start=source.index('static esp_err_t write_burst_impl(')
         end=source.index('static esp_err_t read_register(',start)
@@ -101,17 +104,15 @@ typedef int esp_err_t;
         subprocess.run([*command,str(HERE/'test_spectrum.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
         ui = ROOT/'firmware_p4/components/Applications/ui/screens/subghz'
-        for filename, callback, flags in [
-                ('subghz_send_ui.c', 'send_done_cb', ['-DTEST_SEND_SCREEN']),
-                ('subghz_menu_ui.c', 'send_lock_cb', [])]:
-            source = (ui/filename).read_text()
-            # Select the implementation after any forward declaration.
-            signature = f'static void {callback}(lv_timer_t *t) {{'
-            harness = (HERE/'test_ui.c').read_text().replace('/* CALLBACK */', function(signature))
-            (temp/'ui_test.c').write_text(harness)
-            subprocess.run([*command, *flags, '-Wno-unused-variable',
-                            str(temp/'ui_test.c'), '-o', str(binary)], check=True)
-            subprocess.run([str(binary)], check=True, timeout=30)
+        source = (ui/'subghz_send_ui.c').read_text()
+        callbacks = '\n'.join(function(signature) for signature in [
+            'static void stop_tx(void)', 'static void start_frame(void)',
+            'static void refresh_tick_cb(lv_timer_t *timer)',
+            'static void subghz_send_input(const input_event_t *event, void *context)'])
+        harness = (HERE/'test_ui.c').read_text().replace('/* CALLBACK */', callbacks)
+        (temp/'ui_test.c').write_text(harness)
+        subprocess.run([*command, str(temp/'ui_test.c'), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=30)
         (temp/'driver/gpio.h').write_text('#include "radio_platform.h"\n')
         (temp/'spi.h').write_text('#include "radio_platform.h"\n')
         (temp/'esp_check.h').write_text('#include "radio_platform.h"\n')

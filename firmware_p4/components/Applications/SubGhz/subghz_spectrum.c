@@ -58,6 +58,8 @@ static _Atomic(SemaphoreHandle_t) s_spectrum_mutex;
 static atomic_uint s_state;
 static atomic_int s_error;
 static res_handle_t s_grant;
+static cc1101_radio_config_t s_radio;
+static bool s_has_custom_radio;
 
 static subghz_spectrum_line_t s_latest_line = {0};
 
@@ -98,7 +100,8 @@ static void subghz_spectrum_task(void *pvParameters) {
   if (error != ESP_OK)
     goto cleanup;
   has_radio_config = true;
-  error = cc1101_set_preset(CC1101_PRESET_OOK_800KHZ, start);
+  error = s_has_custom_radio ? cc1101_set_radio_config(&s_radio, start)
+                             : cc1101_set_preset(CC1101_PRESET_OOK_800KHZ, start);
   if (error != ESP_OK)
     goto cleanup;
 
@@ -167,6 +170,14 @@ cleanup:
 }
 
 esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
+  return subghz_spectrum_start_configured(center_freq, span_hz, NULL);
+}
+
+esp_err_t subghz_spectrum_start_configured(uint32_t center_freq,
+                                           uint32_t span_hz,
+                                           const cc1101_radio_config_t *radio) {
+  if (radio != NULL && cc1101_config_validate(radio) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
   if (span_hz < SPECTRUM_SAMPLES || center_freq < span_hz / SPECTRUM_CENTER_DIVISOR)
     return ESP_ERR_INVALID_ARG;
   uint32_t start = center_freq - span_hz / SPECTRUM_CENTER_DIVISOR;
@@ -202,6 +213,9 @@ esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz) {
     return s_spectrum_mutex == NULL ? ESP_ERR_NO_MEM : ESP_ERR_TIMEOUT;
   }
   memset(&s_latest_line, 0, sizeof(s_latest_line));
+  s_has_custom_radio = radio != NULL;
+  if (radio != NULL)
+    s_radio = *radio;
   s_latest_line.center_freq = center_freq;
   s_latest_line.span_hz = span_hz;
   xSemaphoreGive(s_spectrum_mutex);

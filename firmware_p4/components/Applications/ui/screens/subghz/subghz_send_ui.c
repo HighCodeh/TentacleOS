@@ -16,131 +16,100 @@
 #include "subghz_send_ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "lvgl.h"
-#include "st7789.h"
 
 #include "assets_manager.h"
-#include "capture_result_ui.h"
 #include "led_control.h"
+#include "input_manager.h"
 #include "notify_ui.h"
 #include "octobit_ui.h"
 #include "subghz_replay.h"
-#include "subghz_transmitter.h"
-#include "subghz_scope_ui.h"
+#include "subghz_receiver.h"
 #include "subghz_storage.h"
 #include "ui_chrome.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_metrics.h"
-#include "ui_semantic.h"
 #include "ui_theme.h"
 
 static const char *TAG = "SUBGHZ_SEND_UI";
 
-#define ANTENNA_ICON "/assets/icons/settings_input_antenna.bin"
-#define SIGNAL_ICON  "/assets/icons/graphic_eq.bin"
+#define ANTENNA_ICON       "/assets/icons/settings_input_antenna.bin"
+#define WAVES_ICON         "/assets/icons/waves.bin"
+#define REFRESH_TICK_MS    50
+#define SIGNAL_MAX         64
+#define LIST_PAD_SIDE      8
+#define LIST_PAD_ROW       6
+#define LIST_SB_W          4
+#define LIST_SB_RADIUS     2
+#define ROW_H              44
+#define ROW_RADIUS         10
+#define ROW_PAD_H          10
+#define ROW_COL_GAP        10
+#define ROW_GLYPH_SLOT     28
+#define ROW_GLOW_W         14
+#define ROW_GLOW_SPREAD    -2
+#define DETAIL_PAD         10
+#define DETAIL_GAP         6
+#define DETAIL_KEY_SIZE    64
+#define STATUS_PAD         6
+#define STATUS_RADIUS      8
+#define FREQ_MHZ_SCALE     1000000UL
+#define FREQ_DECIMAL_SCALE 10000UL
+#define HINT_LIST          "UP/DOWN choose   OK open   BACK exit"
 
-#define REFRESH_TICK_MS 50
-#define DOT_CYCLE_MS    350
-#define REVEAL_MS       2600
+typedef enum { SUBGHZ_SEND_LIST, SUBGHZ_SEND_DETAIL, SUBGHZ_SEND_VIEW_COUNT } subghz_send_view_t;
 
-#define STATUS_Y    48
-#define FREQ_Y      68
-#define SCOPE_Y_OFS -8
-
-#define WAVES_ICON "/assets/icons/waves.bin"
-
-#define LIST_PAD_SIDE   8
-#define LIST_PAD_ROW    6
-#define LIST_SB_W       4
-#define LIST_SB_RADIUS  2
-#define ROW_H           44
-#define ROW_RADIUS      10
-#define ROW_PAD_H       10
-#define ROW_COL_GAP     10
-#define ROW_GLYPH_SLOT  28
-#define ROW_GLOW_W      14
-#define ROW_GLOW_SPREAD -2
-
-#define STATUS_SENDING "Transmitting"
-#define STATUS_SENT    "Signal sent!"
-
-#define HINT_SENDING "Transmitting..."
-#define HINT_SENT    "BACK = Exit"
-#define HINT_LIST    "UP/DOWN choose   OK send   BACK exit"
-#define HINT_OPTIONS "UP/DOWN choose   OK do   BACK exit"
-
-#define SIGNAL_MAX 64
 EXT_RAM_BSS_ATTR static subghz_storage_entry_t s_sigs[SIGNAL_MAX];
-static int s_sig_count = 0;
-static char s_card_freq[16];
-
-static void fmt_mhz(uint32_t hz, char *out, size_t n) {
-  if (hz == 0) {
-    snprintf(out, n, "-- MHz");
-    return;
-  }
-  snprintf(out,
-           n,
-           "%lu.%02lu MHz",
-           (unsigned long)(hz / 1000000UL),
-           (unsigned long)((hz % 1000000UL) / 10000UL));
-}
-
-static void load_signals(void) {
-  int n = subghz_storage_list(s_sigs, SIGNAL_MAX);
-  s_sig_count = (n < 0) ? 0 : n;
-}
-
-typedef enum {
-  VIEW_LIST = 0,
-  VIEW_SENDING,
-  VIEW_SENT,
-} send_view_t;
-
-static lv_obj_t *s_screen = NULL;
-static lv_obj_t *s_list = NULL;
 EXT_RAM_BSS_ATTR static lv_obj_t *s_rows[SIGNAL_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_row_name[SIGNAL_MAX];
 EXT_RAM_BSS_ATTR static lv_obj_t *s_row_val[SIGNAL_MAX];
-static send_view_t s_view = VIEW_LIST;
+static lv_obj_t *s_screen;
+static lv_obj_t *s_list;
+static lv_obj_t *s_status_label;
+static lv_obj_t *s_hint_label;
+static lv_timer_t *s_refresh_timer;
+static subghz_replay_t s_replay;
+static subghz_replay_t s_pending_replay;
+static subghz_send_view_t s_view;
+static int s_sel;
+static int s_sig_count;
 static bool s_owns_tx;
-static int s_sel = 0;
+static bool s_is_pressed;
+static bool s_is_repeating;
+static bool s_is_active;
+static bool s_is_direct;
+static uint32_t s_sent_count;
+static char s_pending_name[SUBGHZ_STORAGE_NAME_MAX];
 
-static lv_timer_t *s_refresh_timer = NULL;
-static lv_timer_t *s_send_timer = NULL;
-
-static lv_obj_t *s_status_label = NULL;
-static lv_obj_t *s_freq_label = NULL;
-static lv_obj_t *s_hint_label = NULL;
-static lv_obj_t *s_sig = NULL;
-static capture_result_t s_cr = {0};
-static bool s_options = false;
-static bool s_saved = false;
-static uint32_t s_send_start = 0;
-static uint32_t s_sent_at = 0;
-
-static void subghz_send_input(const input_event_t *ev, void *ctx);
-static void refresh_tick_cb(lv_timer_t *t);
 static void build_list(void);
-static void build_sending(void);
-static void send_done_cb(lv_timer_t *t);
+static void build_detail(const char *name);
+
+static void fmt_mhz(uint32_t hz, char *out, size_t size) {
+  snprintf(out,
+           size,
+           "%lu.%02lu MHz",
+           (unsigned long)(hz / FREQ_MHZ_SCALE),
+           (unsigned long)((hz % FREQ_MHZ_SCALE) / FREQ_DECIMAL_SCALE));
+}
+
+static void load_signals(void) {
+  int count = subghz_storage_list(s_sigs, SIGNAL_MAX);
+  s_sig_count = count < 0 ? 0 : count;
+}
 
 static void stop_tx(void) {
+  s_is_pressed = false;
+  s_is_repeating = false;
+  s_is_active = false;
   if (s_owns_tx) {
     subghz_tx_stop();
     s_owns_tx = false;
-  }
-}
-
-static void stop_send_timer(void) {
-  if (s_send_timer != NULL) {
-    lv_timer_delete(s_send_timer);
-    s_send_timer = NULL;
   }
 }
 
@@ -153,31 +122,13 @@ static void delete_screen(void) {
   lv_obj_t *previous = s_screen;
   s_screen = NULL;
   if (previous != NULL)
-    lv_obj_del(previous);
+    lv_obj_delete(previous);
 }
 
 static lv_obj_t *new_screen(void) {
-  lv_obj_t *screen = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen, current_theme.screen_base, 0);
-  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_border_width(screen, 0, 0);
-  lv_obj_set_style_pad_all(screen, 0, 0);
+  lv_obj_t *screen = ui_chrome_screen_create();
   lv_obj_add_event_cb(screen, screen_deleted_cb, LV_EVENT_DELETE, NULL);
   return screen;
-}
-
-static void set_status(const char *text, bool success) {
-  if (s_status_label == NULL)
-    return;
-  lv_label_set_text(s_status_label, text);
-  lv_obj_set_style_text_color(
-      s_status_label, success ? lv_color_hex(UI_COL_SUCCESS) : current_theme.text_main, 0);
-}
-
-static void set_hint(const char *text) {
-  if (s_hint_label != NULL)
-    ui_chrome_footer_set_text(s_hint_label, text);
 }
 
 static void style_row(int i, bool sel) {
@@ -212,15 +163,10 @@ static void update_selection(void) {
 }
 
 static void build_list(void) {
-  subghz_scope_stop();
   delete_screen();
   s_status_label = NULL;
-  s_freq_label = NULL;
   s_hint_label = NULL;
-  s_sig = NULL;
   s_list = NULL;
-  s_cr = (capture_result_t){0};
-  s_options = false;
 
   load_signals();
 
@@ -314,303 +260,212 @@ static void build_list(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void build_sending(void) {
-  subghz_scope_stop();
+static lv_obj_t *detail_label(lv_obj_t *parent, const char *text, lv_color_t color) {
+  lv_obj_t *label = lv_label_create(parent);
+  lv_obj_set_width(label, lv_pct(100));
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  lv_label_set_text(label, text);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(label, color, 0);
+  return label;
+}
+
+static void build_detail(const char *name) {
+  stop_tx();
+  subghz_replay_free(&s_replay);
+  esp_err_t error = ESP_OK;
+  if (s_pending_replay.pulses != NULL) {
+    s_replay = s_pending_replay;
+    s_pending_replay = (subghz_replay_t){0};
+  } else {
+    error = subghz_replay_load(name, &s_replay);
+  }
   delete_screen();
-  s_list = NULL;
-  s_cr = (capture_result_t){0};
-  s_options = false;
-
+  s_view = SUBGHZ_SEND_DETAIL;
+  s_sent_count = 0;
   s_screen = new_screen();
-  ui_chrome_header(s_screen, "SEND", ANTENNA_ICON);
-
-  s_status_label = lv_label_create(s_screen);
-  lv_label_set_text(s_status_label, STATUS_SENDING);
-  lv_obj_set_style_text_color(s_status_label, current_theme.text_main, 0);
-  lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
+  ui_chrome_header(s_screen, "TRANSMIT", ANTENNA_ICON);
+  lv_obj_t *content = lv_obj_create(s_screen);
+  lv_obj_set_size(content, ui_screen_w(), ui_screen_h() - UI_CHROME_HEADER_H - UI_CHROME_FOOTER_H);
+  lv_obj_set_pos(content, 0, UI_CHROME_HEADER_H);
+  lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(content, 0, 0);
+  lv_obj_set_style_pad_all(content, DETAIL_PAD, 0);
+  lv_obj_set_style_pad_row(content, DETAIL_GAP, 0);
+  lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  detail_label(content, name, current_theme.border_accent);
+  if (error == ESP_OK) {
+    char frequency[SUBGHZ_STORAGE_NAME_MAX];
+    fmt_mhz(s_replay.config.frequency_hz, frequency, sizeof(frequency));
+    detail_label(content, frequency, current_theme.text_main);
+    detail_label(content, s_replay.protocol, current_theme.text_main);
+    char key[DETAIL_KEY_SIZE];
+    if (s_replay.key[0])
+      snprintf(key, sizeof(key), "Key: %s", s_replay.key);
+    else
+      snprintf(key, sizeof(key), "RAW waveform: %u pulses", (unsigned)s_replay.count);
+    detail_label(content, key, current_theme.text_secondary);
+  } else {
+    ESP_LOGE(TAG, "Cannot prepare signal: %s", esp_err_to_name(error));
+    led_signal_error();
+  }
+  s_status_label = detail_label(content,
+                                error == ESP_OK                  ? "Ready to send"
+                                : error == ESP_ERR_NOT_SUPPORTED ? "Protocol cannot be transmitted"
+                                                                 : "Cannot load signal",
+                                current_theme.border_accent);
+  lv_obj_set_style_bg_color(s_status_label, current_theme.bg_secondary, 0);
+  lv_obj_set_style_bg_opa(s_status_label, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(s_status_label, current_theme.border_accent, 0);
+  lv_obj_set_style_border_width(s_status_label, 1, 0);
+  lv_obj_set_style_radius(s_status_label, STATUS_RADIUS, 0);
+  lv_obj_set_style_pad_all(s_status_label, STATUS_PAD, 0);
   lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, STATUS_Y);
-
-  char freq_str[16];
-  fmt_mhz(s_sigs[s_sel].frequency, freq_str, sizeof(freq_str));
-  s_freq_label = lv_label_create(s_screen);
-  lv_label_set_text(s_freq_label, freq_str);
-  lv_obj_set_style_text_color(s_freq_label, current_theme.border_accent, 0);
-  lv_obj_set_style_text_font(s_freq_label, &lv_font_montserrat_12, 0);
-  lv_obj_align(s_freq_label, LV_ALIGN_TOP_MID, 0, FREQ_Y);
-
-  s_sig = subghz_scope_create(s_screen, LV_ALIGN_CENTER, 0, SCOPE_Y_OFS);
-
-  s_hint_label = ui_chrome_footer(s_screen, HINT_SENDING);
-
+  s_hint_label = ui_chrome_footer(s_screen, "Hold OK to send   BACK exit");
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-static void show_options(void) {
-  subghz_scope_stop();
-  if (s_sig != NULL) {
-    lv_obj_del(s_sig);
-    s_sig = NULL;
-  }
-  if (s_status_label != NULL)
-    lv_obj_add_flag(s_status_label, LV_OBJ_FLAG_HIDDEN);
-  if (s_freq_label != NULL)
-    lv_obj_add_flag(s_freq_label, LV_OBJ_FLAG_HIDDEN);
-
-  fmt_mhz(s_sigs[s_sel].frequency, s_card_freq, sizeof(s_card_freq));
-  capture_result_cfg_t cfg = {
-      .accent = current_theme.border_accent,
-      .card_icon = SIGNAL_ICON,
-      .card_title = s_sigs[s_sel].name,
-      .card_sub = s_sigs[s_sel].protocol,
-      .card_value = s_card_freq,
-      .primary_label = "Send again",
-      .again_label = "Pick another",
-  };
-  s_cr = capture_result_create(s_screen, &cfg);
-  s_options = true;
-  s_saved = false;
-  set_hint(HINT_OPTIONS);
-}
-
-static void start_send(void) {
-  if (s_refresh_timer == NULL) {
-    notify(NOTIFY_WARNING, "Screen unavailable. BACK to exit");
+static void start_frame(void) {
+  if (s_refresh_timer == NULL || s_replay.pulses == NULL || s_is_active)
     return;
-  }
-  esp_err_t err = subghz_replay_file(s_sigs[s_sel].name);
-  if (err == ESP_ERR_NOT_SUPPORTED) {
-    notify(NOTIFY_WARNING, "Replay not supported");
-    return;
-  }
-  if (err != ESP_OK) {
-    notify(NOTIFY_WARNING, "Send failed");
-    return;
-  }
-  stop_send_timer();
-  s_owns_tx = true;
-  s_view = VIEW_SENDING;
-  s_send_start = lv_tick_get();
-  build_sending();
-  ui_feedback(UI_FB_SELECT);
-  s_send_timer = lv_timer_create(send_done_cb, REFRESH_TICK_MS, NULL);
-  if (s_send_timer == NULL) {
-    ESP_LOGE(TAG, "Cannot allocate transmission monitor");
+  esp_err_t error = subghz_replay_send(&s_replay);
+  if (error != ESP_OK) {
+    // Init may have succeeded before queue submission failed.
+    subghz_tx_stop();
+    s_owns_tx = false;
+    s_is_pressed = false;
+    s_is_repeating = false;
+    ESP_LOGE(TAG, "Cannot transmit signal: %s", esp_err_to_name(error));
     led_signal_error();
-    stop_tx();
-    s_view = VIEW_LIST;
-    build_list();
-    notify(NOTIFY_WARNING, "Cannot monitor transmission");
+    lv_label_set_text(s_status_label, "Send failed. OK retry");
+    return;
   }
+  s_owns_tx = true;
+  s_is_active = true;
+  lv_label_set_text(s_status_label, "Transmitting...");
 }
 
-static void send_done_cb(lv_timer_t *t) {
+static void refresh_tick_cb(lv_timer_t *timer) {
+  (void)timer;
   if (lv_screen_active() != s_screen) {
     ui_subghz_send_stop();
     return;
   }
-  subghz_tx_status_t status;
-  subghz_tx_get_status(&status);
-  if (status.error == ESP_OK && status.is_busy)
+  if (s_view != SUBGHZ_SEND_DETAIL)
     return;
-  stop_send_timer();
-  stop_tx();
-  if (status.error != ESP_OK) {
-    s_view = VIEW_LIST;
-    build_list();
-    notify(NOTIFY_WARNING, "Transmission failed");
-    return;
+  // A modal or a full input queue must not leave a held transmitter running.
+  if (s_is_pressed && !input_is_down(INPUT_BTN_OK)) {
+    if (s_is_repeating) {
+      stop_tx();
+      lv_label_set_text(s_status_label, "Released. OK send again");
+    }
+    s_is_pressed = false;
+    s_is_repeating = false;
   }
-
-  s_view = VIEW_SENT;
-  s_options = false;
-  set_status(STATUS_SENT, true);
-
-  subghz_scope_lock();
-
-  s_sent_at = lv_tick_get();
-  set_hint(HINT_SENT);
-  ui_feedback(UI_FB_WRITE);
+  if (s_is_active) {
+    subghz_tx_status_t status;
+    subghz_tx_get_status(&status);
+    if (status.is_busy && status.error == ESP_OK)
+      return;
+    s_is_active = false;
+    if (status.error != ESP_OK) {
+      stop_tx();
+      lv_label_set_text(s_status_label, "Transmission failed. OK retry");
+      return;
+    }
+    ++s_sent_count;
+    lv_label_set_text_fmt(s_status_label, "Sent: %lu", (unsigned long)s_sent_count);
+  }
+  if (s_is_pressed && s_is_repeating)
+    start_frame();
 }
 
-static void sending_tick(void) {
-  if (s_status_label == NULL)
-    return;
-  int dots = ((lv_tick_get() - s_send_start) / DOT_CYCLE_MS) % 4;
-  char buf[24];
-  snprintf(buf,
-           sizeof(buf),
-           "%s%s",
-           STATUS_SENDING,
-           dots == 1   ? "."
-           : dots == 2 ? ".."
-           : dots == 3 ? "..."
-                       : "");
-  lv_label_set_text(s_status_label, buf);
-}
-
-static void refresh_tick_cb(lv_timer_t *t) {
-  if (lv_screen_active() != s_screen) {
-    lv_timer_delete(t);
-    s_refresh_timer = NULL;
+static void subghz_send_input(const input_event_t *event, void *context) {
+  (void)context;
+  bool is_press = event->action == INPUT_ACTION_PRESS;
+  bool is_nav = is_press || event->action == INPUT_ACTION_REPEAT;
+  if (s_view == SUBGHZ_SEND_LIST) {
+    if (is_nav && event->button == INPUT_BTN_DOWN && s_sel < s_sig_count - 1) {
+      ++s_sel;
+      update_selection();
+      ui_feedback(UI_FB_NAV);
+    } else if (is_nav && event->button == INPUT_BTN_UP && s_sel > 0) {
+      --s_sel;
+      update_selection();
+      ui_feedback(UI_FB_NAV);
+    } else if (is_press && (event->button == INPUT_BTN_OK || event->button == INPUT_BTN_RIGHT) &&
+               s_sig_count > 0) {
+      build_detail(s_sigs[s_sel].name);
+    } else if (is_press && event->button == INPUT_BTN_BACK) {
+      ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    }
     return;
   }
-
-  if (s_view == VIEW_SENDING) {
-    sending_tick();
-  } else if (s_view == VIEW_SENT && !s_options) {
-    if (lv_tick_get() - s_sent_at >= REVEAL_MS)
-      show_options();
-  }
-}
-
-static void subghz_send_input(const input_event_t *ev, void *ctx) {
-  (void)ctx;
-  const bool press = (ev->action == INPUT_ACTION_PRESS);
-  const bool nav = press || (ev->action == INPUT_ACTION_REPEAT);
-
-  switch (s_view) {
-    case VIEW_LIST:
-      switch (ev->button) {
-        case INPUT_BTN_DOWN:
-          if (nav && s_sel < s_sig_count - 1) {
-            s_sel++;
-            update_selection();
-            ui_feedback(UI_FB_NAV);
-          }
-          break;
-        case INPUT_BTN_UP:
-          if (nav && s_sel > 0) {
-            s_sel--;
-            update_selection();
-            ui_feedback(UI_FB_NAV);
-          }
-          break;
-        case INPUT_BTN_OK:
-        case INPUT_BTN_RIGHT:
-          if (press)
-            start_send();
-          break;
-        case INPUT_BTN_BACK:
-          if (press)
-            ui_switch_screen(SCREEN_SUBGHZ_MENU);
-          break;
-        default:
-          break;
+  if (event->button == INPUT_BTN_BACK && is_press) {
+    stop_tx();
+    subghz_replay_free(&s_replay);
+    if (s_is_direct) {
+      ui_switch_screen(SCREEN_SUBGHZ_MENU);
+    } else {
+      s_view = SUBGHZ_SEND_LIST;
+      build_list();
+    }
+  } else if (event->button == INPUT_BTN_OK) {
+    if (is_press) {
+      s_is_pressed = true;
+      s_is_repeating = true;
+      start_frame();
+    } else if (event->action == INPUT_ACTION_RELEASE) {
+      // Every press uses the same PTT lifecycle, including short taps.
+      if (s_is_repeating) {
+        stop_tx();
+        lv_label_set_text(s_status_label, "Released. OK send again");
       }
-      break;
-
-    case VIEW_SENDING:
-      switch (ev->button) {
-        case INPUT_BTN_BACK:
-          if (press) {
-            stop_send_timer();
-            stop_tx();
-            s_view = VIEW_LIST;
-            build_list();
-          }
-          break;
-        default:
-          break;
-      }
-      break;
-
-    case VIEW_SENT:
-      if (!s_options) {
-        switch (ev->button) {
-          case INPUT_BTN_BACK:
-            if (press) {
-              s_view = VIEW_LIST;
-              build_list();
-            }
-            break;
-          default:
-            break;
-        }
-      } else {
-        switch (ev->button) {
-          case INPUT_BTN_DOWN:
-            if (nav) {
-              capture_result_next(&s_cr);
-              ui_feedback(UI_FB_NAV);
-            }
-            break;
-          case INPUT_BTN_UP:
-            if (nav) {
-              capture_result_prev(&s_cr);
-              ui_feedback(UI_FB_NAV);
-            }
-            break;
-          case INPUT_BTN_OK:
-            if (press) {
-              switch (capture_result_selected(&s_cr)) {
-                case CAP_ACT_PRIMARY:
-                  start_send();
-                  break;
-                case CAP_ACT_SAVE:
-                  if (!s_saved) {
-                    s_saved = true;
-                    capture_result_mark_saved(&s_cr);
-                    ui_feedback(UI_FB_WRITE);
-                    notify(NOTIFY_INFO, "Already on SD");
-                  }
-                  break;
-                case CAP_ACT_AGAIN:
-                  s_view = VIEW_LIST;
-                  build_list();
-                  break;
-                case CAP_ACT_DISCARD:
-                  ui_switch_screen(SCREEN_SUBGHZ_MENU);
-                  break;
-                default:
-                  break;
-              }
-            }
-            break;
-          case INPUT_BTN_BACK:
-            if (press)
-              ui_switch_screen(SCREEN_SUBGHZ_MENU);
-            break;
-          default:
-            break;
-        }
-      }
-      break;
-
-    default:
-      break;
+      s_is_pressed = false;
+      s_is_repeating = false;
+    }
   }
 }
 
 void ui_subghz_send_stop(void) {
-  stop_send_timer();
   if (s_refresh_timer != NULL) {
     lv_timer_delete(s_refresh_timer);
     s_refresh_timer = NULL;
   }
   stop_tx();
-  subghz_scope_stop();
+  subghz_replay_free(&s_replay);
+}
+
+esp_err_t ui_subghz_send_capture(uint32_t sequence) {
+  char *text = NULL;
+  subghz_replay_free(&s_pending_replay);
+  esp_err_t error = subghz_receiver_copy_capture(sequence, &text);
+  if (error == ESP_OK)
+    error = subghz_replay_prepare(text, &s_pending_replay);
+  free(text);
+  if (error == ESP_OK)
+    snprintf(s_pending_name, sizeof(s_pending_name), "Unsaved signal");
+  return error;
+}
+
+void ui_subghz_send_select(const char *name) {
+  subghz_replay_free(&s_pending_replay);
+  snprintf(s_pending_name, sizeof(s_pending_name), "%s", name != NULL ? name : "");
 }
 
 void ui_subghz_send_open(void) {
   ui_subghz_send_stop();
-  delete_screen();
-  s_status_label = NULL;
-  s_freq_label = NULL;
-  s_hint_label = NULL;
-  s_sig = NULL;
-  s_list = NULL;
-  s_cr = (capture_result_t){0};
-  s_options = false;
-  s_saved = false;
-  s_view = VIEW_LIST;
   s_sel = 0;
-
-  build_list();
-
-  if (s_refresh_timer == NULL)
-    s_refresh_timer = lv_timer_create(refresh_tick_cb, REFRESH_TICK_MS, NULL);
-
+  s_view = SUBGHZ_SEND_LIST;
+  s_is_direct = s_pending_name[0] != '\0';
+  if (s_is_direct) {
+    build_detail(s_pending_name);
+    s_pending_name[0] = '\0';
+  } else {
+    build_list();
+  }
+  s_refresh_timer = lv_timer_create(refresh_tick_cb, REFRESH_TICK_MS, NULL);
   if (s_refresh_timer == NULL) {
     ESP_LOGE(TAG, "Cannot allocate screen refresh timer");
     led_signal_error();

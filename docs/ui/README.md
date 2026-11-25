@@ -813,6 +813,16 @@ landscape. Immediate queue failures retain that draft for retry.
 
 Sub-GHz > Radio Config selects complete AM270/AM650/FM238/FM476 profiles, plus
 AM812/FM952. Selecting a preset populates Mode, BW, Rate, Dev, LNA and DVGA.
+The first settings item is a large inline frequency dial, with a central value,
+MHz/AUTO caption, left/right arrows and a tick ruler. Preset, Mode, BW, Rate, Dev,
+LNA and DVGA remain the existing compact rows beneath it. UP/DOWN moves between
+fields; LEFT/RIGHT changes the selected dial immediately across 52 fixed carriers
+and Hop bands. OK is inert on the dial; BACK returns to Sub-GHz with settings
+retained. No picker page or confirmation step is involved. The dial is part of
+the shared scroll container, so other fields remain reachable in both display
+orientations. Theme colors come from `current_theme`; labels/ruler are owned by
+the config screen, with no task, timer or radio ownership. The ruler is a discrete
+selection indicator rather than an RSSI trace or linear frequency scale.
 LEFT/RIGHT or OK edits bandwidth, rate, FSK deviation and gain limits individually;
 Mode follows the preset and OOK deviation shows N/A. A `*` marks a customized
 profile. `Reset preset` restores defaults while preserving frequency; selecting a
@@ -821,18 +831,54 @@ Settings update immediately in RAM; BACK returns without an extra Apply step,
 and re-entry reflects current values. The screen uses the shared themed menu and
 live display metrics. Read passes a copied configuration to the receiver, which
 applies it after acquiring the radio; the screen performs no hardware access.
-File replay uses its saved preset and custom values.
+Frequency Analyzer has its own [discovery service](../frequency_analyzer/README.md),
+with Auto, Radio Config carrier selection, preset groups/full search, threshold, RSSI history, pause and Read RAW handoff.
+The Waterfall action opens a separate spectrum/history screen with center, span,
+RX bandwidth, cursor, max hold and pause controls. Center is selected on entry and
+uses the same Radio Config catalog, including jumps across RF gaps. Each complete
+row measures 40 frequencies to reduce sweep work; a narrower span increases detail.
+Its bounded PSRAM history is
+freed by the screen close hook; theme changes rebuild it.
+RAW opens only after analyzer cleanup and preserves Radio Config modulation at
+the detected frequency. Read and Read RAW explicitly select their respective modes. File replay uses its saved preset and
+custom values. Read's Send action, Saved's Send action and the Send picker open a
+shared transmit detail screen without emitting a signal on entry. It displays the
+filename, frequency, protocol, key or RAW pulse count and transmission status.
+Pressing OK immediately starts PTT and repeats while held, with at most one burst
+outstanding; no LONG_PRESS delay is required.
+Decoded bursts include the checked file/default frame repeats; RAW plays once.
+Releasing OK stops TX for both short taps and long holds. BACK stops and leaves the detail
+screen (returns to the picker, or to Sub-GHz for direct entry). Native transmission
+pulses the status LED using its configured info color and brightness.
+`tools/highboy/tests/test_subghz_send_ui.py` exercises the complete screen with real
+LVGL in both orientations and light/dark themes, including long names, unsupported
+protocols and cleanup. `tools/subghz_api/test_subghz_api.py` checks tap/hold/release,
+no queued backlog, worker errors and configured spectrum API with host fakes.
+`tools/frequency_analyzer/test_ui.py` covers the analyzer in both orientations and
+themes, pending starts, RAW handoff, errors and cleanup.
 `tools/highboy/tests/test_subghz_presets_ui.py`, included in `test_ui.command`,
 checks preset reload, independent overrides, reset, OOK/FSK behavior, wraparound,
 frequency preservation and screen re-entry
 with the real menu/LVGL at 240x320 and 320x240 using light/dark theme fixtures.
 It does not validate RF reception on hardware.
+Read now displays Listening → Receiving → Analyzing → result. Its themed graph is
+measured RSSI history (64 samples at 50 ms), replacing the decorative sine/bit
+animations. Frequency, live dBm, elapsed time, pulse count and RMT block count are
+visible while collecting; hopping pauses on the captured frequency. The graph
+uses remaining chrome/content height in portrait and landscape. Protocol/key
+identification appears only after collection. The result retains Send, Save/name,
+Capture again and Back; limits are explicitly titled “Capture limit reached”.
+A failed write does not expose a false saved filename. The receiver owns all
+sampling/collection/analysis and publishes snapshots; the screen only renders.
+`test_subghz_read_ui.py` checks phase transitions, real RSSI projection bounds,
+result navigation, startup errors and release in both orientations/themes.
+
 Read, Send and saved-signal replay monitor worker results: “Signal sent” requires
 RMT completion and confirmed radio IDLE, rather than an animation timer. Radio
 failures stop the scan/spectrum animation and show an error with BACK available.
 Their close hooks cancel owned operations and remove UI timers before navigation,
 with idempotent deletion callbacks as a fallback;
-“Capture again” also stops an in-flight replay. Workers retain radio/buffer
+Workers retain radio/buffer
 ownership until hardware teardown succeeds, even after the screen closes.
 
 ## Handshake capture feedback
@@ -978,6 +1024,12 @@ metrics, scrolls its actions when necessary in landscape, and scrolls long title
 See [NFC naming and dump selection](../nfc/README.md) and
 [IR captured signals](../ir/README.md#captured-signals-and-names) for persistence
 and missing-data behavior. No folder chooser is introduced.
+
+Sub-GHz Read/Read RAW results remain in PSRAM until Save is chosen and a name is
+confirmed. Send can prepare an unsaved result directly in memory; Back/Discard
+and Capture again release it without creating an SD file. The Radio Config dial
+uses one full-height gradient in portrait and landscape. See the
+[Sub-GHz receiver flow](../SubGhz/README.md#receiver-subghz_receiver).
 
 Diagnostics uses two columns in landscape and a bounded body above the footer;
 its timer now has a central close hook and a guarded DELETE fallback. Chip labels

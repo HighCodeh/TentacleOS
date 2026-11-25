@@ -34,6 +34,7 @@
 #define LED_STACK_BYTES          3072
 #define LED_ACTIVITY_PERIOD_MS   100
 #define LED_ACTIVITY_ON_MS       10
+#define LED_SUBGHZ_PULSE_US      100000
 #define LED_RGB_MASK             0xFFFFFF
 #define LED_COLOR_CHARGING       0xFF1800
 #define LED_COLOR_FULL           0x00FF30
@@ -56,6 +57,8 @@ static int64_t s_signal_until;
 static bool s_manual;
 static uint32_t s_manual_color;
 static uint32_t s_activity;
+static int64_t s_subghz_started_us;
+static int64_t s_subghz_until_us;
 static bool s_display_active = true;
 static int64_t s_charge_pulse_started_us;
 static int64_t s_full_until_us;
@@ -79,8 +82,11 @@ static uint32_t desired_color(int64_t now) {
     color = scale_color(s_colors[s_signal], s_brightness);
   else if (s_manual)
     color = s_manual_color;
-  else if (s_activity) {
-    if ((now / 1000) % LED_ACTIVITY_PERIOD_MS < LED_ACTIVITY_ON_MS)
+  else if (s_activity || now < s_subghz_until_us) {
+    int64_t phase = (s_activity & LED_ACTIVITY_SUBGHZ) || now < s_subghz_until_us
+                        ? now - s_subghz_started_us
+                        : now;
+    if ((phase / 1000) % LED_ACTIVITY_PERIOD_MS < LED_ACTIVITY_ON_MS)
       color = scale_color(s_colors[SIG_INFO], s_brightness);
   } else {
     int brightness = s_brightness;
@@ -131,7 +137,7 @@ static void led_task(void *arg) {
       previous_error = result;
     }
     portENTER_CRITICAL(&s_lock);
-    bool active = s_activity != 0;
+    bool active = s_activity != 0 || esp_timer_get_time() < s_subghz_until_us;
     portEXIT_CRITICAL(&s_lock);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(active ? LED_ACTIVE_TICK_MS : LED_TICK_MS));
   }
@@ -296,7 +302,13 @@ void led_signal_error(void) {
 void led_set_activity(uint32_t source, bool active) {
   if (xPortInIsrContext() || source == 0)
     return;
+  int64_t now = esp_timer_get_time();
   portENTER_CRITICAL(&s_lock);
+  if (active && (source & LED_ACTIVITY_SUBGHZ)) {
+    if (!(s_activity & LED_ACTIVITY_SUBGHZ) && now >= s_subghz_until_us)
+      s_subghz_started_us = now;
+    s_subghz_until_us = now + LED_SUBGHZ_PULSE_US;
+  }
   if (active)
     s_activity |= source;
   else

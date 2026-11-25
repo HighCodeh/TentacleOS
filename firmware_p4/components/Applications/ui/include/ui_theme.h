@@ -62,6 +62,22 @@ typedef enum {
 
 extern ui_theme_t current_theme;
 
+#define UI_THEME_WATERFALL_MAX 255U
+
+/** Fixed RF intensity palette, independent of the interface accent. */
+static inline lv_color_t ui_theme_get_waterfall_color(uint8_t intensity) {
+  static const uint32_t WATERFALL_COLORS[] = {
+      0x000020, 0x0000FF, 0x00FFFF, 0x00FF00, 0xFFFF00, 0xFF0000};
+  const uint32_t segments = sizeof(WATERFALL_COLORS) / sizeof(WATERFALL_COLORS[0]) - 1;
+  uint32_t position = intensity * segments;
+  uint32_t index = position / UI_THEME_WATERFALL_MAX;
+  if (index == segments)
+    return lv_color_hex(WATERFALL_COLORS[index]);
+  return lv_color_mix(lv_color_hex(WATERFALL_COLORS[index + 1]),
+                      lv_color_hex(WATERFALL_COLORS[index]),
+                      position % UI_THEME_WATERFALL_MAX);
+}
+
 /** @brief Initialize the theme system from config or fallback. */
 void ui_theme_init(void);
 

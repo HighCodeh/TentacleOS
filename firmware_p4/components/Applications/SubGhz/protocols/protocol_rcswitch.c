@@ -76,8 +76,17 @@ static const subghz_rcswitch_proto_t RCSWITCH_PROTOCOLS[] = {
 #define RCSWITCH_SSCANF_EXPECTED 1
 
 static bool
+sync_matches(const int32_t *pulses, const subghz_rcswitch_proto_t *pro, uint32_t delay) {
+  bool first_is_high = pulses[0] > 0;
+  bool second_is_high = pulses[1] > 0;
+  return first_is_high != pro->is_inverted_signal && second_is_high == pro->is_inverted_signal &&
+         subghz_check_pulse(pulses[0], delay * pro->syncFactor.high, RCSWITCH_TOLERANCE_PCT) &&
+         subghz_check_pulse(pulses[1], delay * pro->syncFactor.low, RCSWITCH_TOLERANCE_PCT);
+}
+
+static bool
 protocol_rcswitch_decode(const int32_t *raw_data, size_t count, subghz_data_t *out_data) {
-  if (count < RCSWITCH_MIN_PULSES) {
+  if (raw_data == NULL || out_data == NULL || count < RCSWITCH_MIN_PULSES) {
     return false;
   }
 
@@ -152,7 +161,9 @@ protocol_rcswitch_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
         k += RCSWITCH_STEP_SIZE;
       }
 
-      if (bit_count >= RCSWITCH_MIN_DECODE_BITS) {
+      /* A timing error or capture boundary must not turn a prefix into a code. */
+      if (bit_count >= RCSWITCH_MIN_DECODE_BITS && k + 1 < count &&
+          sync_matches(&raw_data[k], pro, delay)) {
         static char s_name_buf[RCSWITCH_NAME_BUF_SIZE];
         snprintf(s_name_buf, sizeof(s_name_buf), "RCSwitch(P%d)", p + 1);
         out_data->protocol_name = s_name_buf;
@@ -160,6 +171,8 @@ protocol_rcswitch_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
         out_data->raw_value = code;
         out_data->serial = code;
         out_data->btn = 0;
+        out_data->te_us = delay;
+        out_data->guard_time = 0;
         ESP_LOGD(TAG, "Decoded %s", out_data->protocol_name);
         return true;
       }
@@ -189,11 +202,14 @@ protocol_rcswitch_encode(const subghz_data_t *data, int32_t *pulses, size_t max_
   }
   const subghz_rcswitch_proto_t *pro = &RCSWITCH_PROTOCOLS[p_idx];
 
-  if (max_count < (size_t)(data->bit_count * RCSWITCH_STEP_SIZE + RCSWITCH_SYNC_OVERHEAD)) {
+  if (max_count < (size_t)(data->bit_count * RCSWITCH_STEP_SIZE +
+                           RCSWITCH_SYNC_OVERHEAD * RCSWITCH_STEP_SIZE)) {
     return 0;
   }
 
-  uint32_t delay = pro->pulseLength;
+  uint32_t delay = data->te_us == 0 ? pro->pulseLength : data->te_us;
+  if (delay < RCSWITCH_MIN_DELAY_US || delay > RCSWITCH_MAX_DELAY_US)
+    return 0;
   size_t idx = 0;
 
   if (pro->is_inverted_signal) {
@@ -225,6 +241,9 @@ protocol_rcswitch_encode(const subghz_data_t *data, int32_t *pulses, size_t max_
     }
   }
 
+  /* Close the final frame even when the caller transmits only one repetition. */
+  pulses[idx++] = pulses[0];
+  pulses[idx++] = pulses[1];
   return idx;
 }
 

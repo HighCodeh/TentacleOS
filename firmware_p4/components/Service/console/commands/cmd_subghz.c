@@ -20,6 +20,8 @@
 #include <string.h>
 
 #include "esp_console.h"
+#include "esp_log.h"
+#include "frequency_analyzer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -30,6 +32,8 @@
 #include "subghz_replay.h"
 #include "subghz_spectrum.h"
 #include "subghz_storage.h"
+
+static const char *TAG = "SUBGHZ_CONSOLE";
 
 #define SUBGHZ_RX_DEFAULT_S   10
 #define SUBGHZ_SPEC_DEFAULT_N 5
@@ -67,11 +71,12 @@ static int subghz_rx(int argc, char **argv) {
                res.data.bit_count,
                (unsigned long)res.data.raw_value);
       else
-        printf("  [%lu] raw capture (saved as %s)\n", (unsigned long)res.seq, res.save_name);
+        ESP_LOGI(TAG, "[%lu] RAW captured in memory; not saved", (unsigned long)res.seq);
     }
     vTaskDelay(pdMS_TO_TICKS(SUBGHZ_POLL_MS));
   }
   subghz_receiver_stop();
+  subghz_receiver_discard();
   printf("subghz: stopped\n");
   return 0;
 }
@@ -127,9 +132,35 @@ static int subghz_list(void) {
   return 0;
 }
 
+static int analyzer_status(void) {
+  frequency_analyzer_snapshot_t snapshot;
+  frequency_analyzer_get_snapshot(&snapshot);
+  ESP_LOGI(TAG,
+           "Analyzer: running=%u mode=%s phase=%u error=%s threshold=%d dBm",
+           frequency_analyzer_is_running(),
+           frequency_analyzer_mode_name(snapshot.mode),
+           (unsigned)snapshot.phase,
+           esp_err_to_name(snapshot.error),
+           snapshot.threshold_dbm);
+  ESP_LOGI(TAG,
+           "Frequency=%lu Hz RSSI=%.1f dBm progress=%u/%u sweeps=%lu samples=%lu hits=%lu",
+           (unsigned long)snapshot.frequency_hz,
+           (double)snapshot.rssi_dbm,
+           snapshot.progress,
+           snapshot.total,
+           (unsigned long)snapshot.sweeps,
+           (unsigned long)snapshot.samples,
+           (unsigned long)snapshot.detections);
+  ESP_LOGI(TAG,
+           "Last sweep=%lu us refinement=%lu us",
+           (unsigned long)snapshot.sweep_us,
+           (unsigned long)snapshot.refine_us);
+  return 0;
+}
+
 static int cmd_subghz(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: subghz <rx|spectrum|list|replay|delete|selftest>\n");
+    printf("usage: subghz <rx|spectrum|analyzer|list|replay|delete|selftest>\n");
     printf("  rx <freq_hz> [seconds] [raw]     receive/decode for a window\n");
     printf("  spectrum <center> <span> [lines] RSSI sweep, print peak per line\n");
     printf("  list                             list saved captures\n");
@@ -139,6 +170,8 @@ static int cmd_subghz(int argc, char **argv) {
     return 1;
   }
 
+  if (strcmp(argv[1], "analyzer") == 0)
+    return analyzer_status();
   if (strcmp(argv[1], "rx") == 0)
     return subghz_rx(argc, argv);
   if (strcmp(argv[1], "spectrum") == 0)
@@ -190,7 +223,8 @@ static int cmd_subghz(int argc, char **argv) {
 void register_subghz_commands(void) {
   const esp_console_cmd_t cmd_subghz_def = {
       .command = "subghz",
-      .help = "Sub-GHz (CC1101): subghz rx | spectrum | list | replay | delete | selftest",
+      .help =
+          "Sub-GHz (CC1101): subghz rx | spectrum | analyzer | list | replay | delete | selftest",
       .hint = NULL,
       .func = &cmd_subghz,
   };

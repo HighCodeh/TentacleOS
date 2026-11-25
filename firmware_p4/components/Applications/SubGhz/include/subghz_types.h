@@ -31,6 +31,8 @@ typedef struct {
   uint8_t btn;               /**< @brief Button code. */
   uint8_t bit_count;         /**< @brief Number of bits in the raw value. */
   uint32_t raw_value;        /**< @brief Raw decoded value. */
+  uint32_t te_us;            /**< @brief Measured base interval; zero uses protocol default. */
+  uint32_t guard_time;       /**< @brief Princeton low guard in TE units; zero uses default. */
 } subghz_data_t;
 
 #ifdef __cplusplus

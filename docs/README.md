@@ -45,6 +45,7 @@ below; in-tree READMEs point to it.
 | `bridge_manager` | [README.md](bridge_manager/README.md) - P4<->C5 bridge lifecycle and coordination service |
 | `buttons_gpio` | [README.md](buttons_gpio/README.md)  |
 | `c5_flasher` | [README.md](c5_flasher/README.md)  |
+| `frequency_analyzer` | [README.md](frequency_analyzer/README.md) - carrier discovery and RAW handoff |
 | `cc1101` | [README.md](cc1101/README.md)  |
 | `connection_settings` | [README.md](connection_settings/README.md) - persistent Wi-Fi and Bluetooth controls |
 | `console` | [README.md](console/README.md)  |

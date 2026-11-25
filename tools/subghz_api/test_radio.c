@@ -25,8 +25,10 @@ static bool s_is_idle_stuck, s_is_calibration_stuck, s_is_rx_stuck;
 static bool s_is_lock_failed, s_is_allocation_failed, s_is_gpio_config_failed;
 static bool s_is_attach_failed, s_is_chip_missing, s_has_calibrated;
 static esp_err_t s_error;
-static bool s_is_packet_stuck, s_is_packet_underflow;
+static bool s_is_packet_stuck, s_is_packet_underflow, s_bus_locked;
 static unsigned s_packet_polls;
+
+TaskHandle_t xTaskGetCurrentTaskHandle(void) { return (void *)1; }
 
 bool cc1101_lease_enter(void) { return true; }
 void cc1101_lease_leave(void) {}
@@ -40,8 +42,12 @@ void *heap_caps_malloc(size_t size, unsigned caps) {
   assert(caps == MALLOC_CAP_DMA);
   return s_is_allocation_failed ? NULL : malloc(size);
 }
-bool spi_bus_lock_take(uint32_t timeout) { return !s_is_lock_failed; }
-void spi_bus_lock_give(void) {}
+bool spi_bus_lock_take(uint32_t timeout) {
+  assert(!s_bus_locked);
+  s_bus_locked = !s_is_lock_failed;
+  return s_bus_locked;
+}
+void spi_bus_lock_give(void) { assert(s_bus_locked); s_bus_locked = false; }
 esp_err_t gpio_config(const gpio_config_t *config) {
   assert(config->pin_bit_mask == ((1ULL << 17) | (1ULL << 18)));
   return s_is_gpio_config_failed ? ESP_FAIL : ESP_OK;
@@ -61,7 +67,7 @@ esp_err_t spi_add_device(int host, int id, const spi_device_config_t *config) {
 spi_device_handle_t spi_get_handle(int id) { return (void *)1; }
 
 esp_err_t spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *transaction) {
-  assert(handle != NULL);
+  assert(handle != NULL && s_bus_locked);
   if (++s_transactions == s_fail_transaction) return ESP_FAIL;
   const uint8_t *tx = transaction->flags & SPI_TRANS_USE_TXDATA
                           ? transaction->tx_data : transaction->tx_buffer;
@@ -141,6 +147,11 @@ esp_err_t spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *tra
   return ESP_OK;
 }
 
+esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *transaction) {
+  assert(atomic_load(&s_scan_bus_owner) == xTaskGetCurrentTaskHandle());
+  return spi_device_transmit(handle, transaction);
+}
+
 static void reset_test(void) {
   memset(s_registers, 0, sizeof(s_registers));
   memset(s_pa, 0, sizeof(s_pa));
@@ -167,8 +178,8 @@ static void test_paths(void) {
   const struct { uint32_t frequency; unsigned path, v1, v2; uint8_t pa; } cases[] = {
       {300000000, 1, 0, 0, 0xC2}, {315000000, 1, 0, 0, 0xC2}, {348000000, 1, 0, 0, 0xC2},
       {387000000, 1, 0, 0, 0xC0}, {433920000, 1, 0, 0, 0xC0}, {464000000, 1, 0, 0, 0xC0},
-      {779000000, 2, 0, 1, 0xCD}, {868350000, 2, 0, 1, 0xCD}, {899999999, 2, 0, 1, 0xCD},
-      {900000000, 2, 0, 1, 0xCC}, {915000000, 2, 0, 1, 0xCC}, {928000000, 2, 0, 1, 0xCC},
+      {779000000, 2, 0, 1, 0xC5}, {868350000, 2, 0, 1, 0xC5}, {899999999, 2, 0, 1, 0xC5},
+      {900000000, 2, 0, 1, 0xC3}, {915000000, 2, 0, 1, 0xC3}, {928000000, 2, 0, 1, 0xC3},
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
     reset_test();
@@ -185,6 +196,10 @@ static void test_paths(void) {
     assert(s_registers[CC1101_FSCTRL0] == 0);
     cc1101_set_modulation(CC1101_MOD_2FSK);
     assert(s_error == ESP_OK && s_pa[0] == cases[i].pa && s_pa[1] == 0);
+    if (cases[i].frequency >= 779000000) {
+      cc1101_set_pa(0);
+      assert(s_error == ESP_OK && s_pa[0] == (cases[i].frequency < 900000000 ? 0x50 : 0x8E));
+    }
   }
   const uint32_t invalid[] = {0, 299999999, 348000001, 386999999, 464000001, 778999999,
                               928000001, UINT32_MAX};
@@ -211,6 +226,7 @@ static void test_presets(void) {
     assert(s_registers[CC1101_FSCAL3] == 0xEA && s_registers[CC1101_TEST0] == 0x09);
     assert((s_registers[CC1101_MDMCFG4] & 0xF0) == bandwidth[preset]);
     assert(s_registers[CC1101_DEVIATN] == deviation[preset]);
+    assert(s_registers[CC1101_BSCFG] == (preset <= 4 ? 0x6C : 0x1C));
     bool is_flipper_am = preset == 1 || preset == 2;
     bool is_flipper_fm = preset == 3 || preset == 4;
     assert((s_registers[CC1101_MDMCFG2] & 7) == (is_flipper_fm ? 4 : 0));
@@ -475,7 +491,31 @@ static void test_packets(void) {
   assert(cc1101_get_register(CC1101_RSSI, NULL) == ESP_ERR_INVALID_ARG);
 }
 
+static void test_scan_rssi(void) {
+  reset_test();
+  float dbm = 42;
+  assert(cc1101_scan_rssi(315000000, NULL) == ESP_ERR_INVALID_ARG);
+  assert(cc1101_scan_rssi(500000000, &dbm) == ESP_ERR_INVALID_ARG);
+  s_registers[CC1101_RSSI] = 200;
+  assert(cc1101_scan_rssi(315000000, &dbm) == ESP_OK);
+  assert(dbm == cc1101_convert_rssi(200) && s_rx_count == 1);
+  assert(atomic_load(&s_scan_bus_owner) == NULL && !s_bus_locked);
+  unsigned transactions = s_transactions;
+  for (unsigned i = 1; i <= transactions; ++i) {
+    reset_test(); s_fail_transaction = i; dbm = 42;
+    assert(cc1101_scan_rssi(315000000, &dbm) == ESP_FAIL);
+    assert(dbm == 42 && atomic_load(&s_scan_bus_owner) == NULL && !s_bus_locked);
+  }
+  reset_test(); s_is_lock_failed = true;
+  assert(cc1101_scan_rssi(315000000, &dbm) == ESP_ERR_TIMEOUT);
+  assert(atomic_load(&s_scan_bus_owner) == NULL && !s_bus_locked);
+  reset_test(); s_is_calibration_stuck = true;
+  assert(cc1101_scan_rssi(315000000, &dbm) == ESP_ERR_TIMEOUT);
+  assert(atomic_load(&s_scan_bus_owner) == NULL && !s_bus_locked);
+}
+
 int main(void) {
+  test_scan_rssi();
   for (unsigned raw = 0; raw <= UINT8_MAX; ++raw) {
     float expected = (raw >= 128 ? (int)raw - 256 : (int)raw) / 2.0f - 74.0f;
     assert(cc1101_convert_rssi(raw) == expected);

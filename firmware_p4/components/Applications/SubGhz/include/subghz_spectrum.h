@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "cc1101.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,9 +49,12 @@ typedef struct {
  */
 esp_err_t subghz_spectrum_start(uint32_t center_freq, uint32_t span_hz);
 
-/**
- * @brief Stop the spectrum sweep.
- */
+/* Copy a complete profile before starting; NULL preserves the legacy profile. */
+esp_err_t subghz_spectrum_start_configured(uint32_t center_freq,
+                                           uint32_t span_hz,
+                                           const cc1101_radio_config_t *radio);
+
+/** Stop the spectrum sweep. */
 void subghz_spectrum_stop(void);
 
 /** First worker failure, retained until the next accepted start. */

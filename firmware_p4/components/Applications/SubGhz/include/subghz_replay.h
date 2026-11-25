@@ -17,6 +17,18 @@
 #define SUBGHZ_REPLAY_H
 
 #include "esp_err.h"
+#include "subghz_transmitter.h"
+
+#define SUBGHZ_REPLAY_PROTOCOL_SIZE 24
+#define SUBGHZ_REPLAY_KEY_SIZE      32
+
+typedef struct {
+  int32_t *pulses;
+  size_t count;
+  subghz_tx_config_t config;
+  char protocol[SUBGHZ_REPLAY_PROTOCOL_SIZE];
+  char key[SUBGHZ_REPLAY_KEY_SIZE];
+} subghz_replay_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +47,12 @@ extern "C" {
  *         protocol cannot be re-encoded, or another error code on failure.
  */
 esp_err_t subghz_replay_file(const char *name);
+
+/* Prepare once; queued sends copy the pulses and never retain this object. */
+esp_err_t subghz_replay_prepare(const char *content, subghz_replay_t *out_replay);
+esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out_replay);
+esp_err_t subghz_replay_send(const subghz_replay_t *replay);
+void subghz_replay_free(subghz_replay_t *replay);
 
 #ifdef __cplusplus
 }

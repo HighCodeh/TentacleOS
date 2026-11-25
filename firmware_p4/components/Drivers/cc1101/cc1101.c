@@ -18,6 +18,7 @@
 #include "cc1101_rf_path.h"
 #include "cc1101_lease.h"
 
+#include <stdatomic.h>
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -34,6 +35,8 @@
 
 #include "pin_def.h"
 #include "spi.h"
+
+#define CC1101_SCAN_SETTLE_MS 2
 
 #define CC1101_SPI_CLOCK_HZ             (1 * 1000 * 1000)
 #define CC1101_SPI_QUEUE_SIZE           7
@@ -126,9 +129,9 @@ static const uint8_t PA_TABLE_315[CC1101_PA_TABLE_SIZE] = {
 static const uint8_t PA_TABLE_433[CC1101_PA_TABLE_SIZE] = {
     0x12, 0x0E, 0x1D, 0x34, 0x60, 0x84, 0xC8, 0xC0}; // 387 - 464 MHz
 static const uint8_t PA_TABLE_868[CC1101_PA_TABLE_SIZE] = {
-    0x03, 0x17, 0x1D, 0x26, 0x37, 0x50, 0x86, 0xCD}; // 779 - 899 MHz
+    0x03, 0x17, 0x1D, 0x26, 0x50, 0x86, 0xCD, 0xC5}; // 779 - 899 MHz
 static const uint8_t PA_TABLE_915[CC1101_PA_TABLE_SIZE] = {
-    0x03, 0x0E, 0x1E, 0x27, 0x38, 0x8E, 0x84, 0xCC}; // 900 - 928 MHz
+    0x03, 0x0E, 0x1E, 0x27, 0x8E, 0x84, 0xCC, 0xC3}; // 900 - 928 MHz
 
 static esp_err_t write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len);
 static esp_err_t write_reg_impl(uint8_t reg, uint8_t val);
@@ -156,6 +159,8 @@ static bool is_initialized_impl(void);
 static esp_err_t recover_impl(void);
 static esp_err_t enable_async_mode_impl(uint32_t freq_hz);
 static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz);
+static _Atomic(TaskHandle_t) s_scan_bus_owner;
+
 static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz);
 static esp_err_t set_radio_config_impl(const cc1101_radio_config_t *config, uint32_t freq_hz);
 static esp_err_t get_radio_config_impl(cc1101_radio_config_t *out_config);
@@ -438,6 +443,35 @@ esp_err_t cc1101_enter_rx_mode(void) {
 
 static esp_err_t read_register(uint8_t reg, uint8_t *out_value);
 
+esp_err_t cc1101_scan_rssi(uint32_t freq_hz, float *out_dbm) {
+  if (out_dbm == NULL || cc1101_rf_path_for_frequency(freq_hz) == CC1101_RF_PATH_NONE)
+    return ESP_ERR_INVALID_ARG;
+  if (!cc1101_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+    cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+    cc1101_lease_leave();
+    return ESP_ERR_TIMEOUT;
+  }
+  // Batch tuning so display DMA cannot interleave at every register.
+  atomic_store(&s_scan_bus_owner, xTaskGetCurrentTaskHandle());
+  esp_err_t error = set_frequency_impl(freq_hz);
+  if (error == ESP_OK)
+    error = enter_rx_mode_impl();
+  uint8_t raw = 0;
+  if (error == ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(CC1101_SCAN_SETTLE_MS));
+    error = get_register_impl(CC1101_RSSI | CC1101_STATUS_READ, &raw);
+  }
+  atomic_store(&s_scan_bus_owner, NULL);
+  spi_bus_lock_give();
+  if (error == ESP_OK)
+    *out_dbm = cc1101_convert_rssi(raw);
+  cc1101_lease_record_error(error);
+  cc1101_lease_leave();
+  return error;
+}
+
 static esp_err_t wait_for_state(uint8_t state) {
   int64_t deadline = esp_timer_get_time() + CC1101_STATE_TIMEOUT_US;
   do {
@@ -473,7 +507,6 @@ static esp_err_t configure_sniffer(uint32_t freq_hz, const cc1101_async_profile_
       {CC1101_PKTLEN, 0x00},
       {CC1101_CHANNR, 0x00},
       {CC1101_MCSM0, 0x18},
-      {CC1101_BSCFG, 0x1C},
       {CC1101_FSCAL3, 0xE9},
       {CC1101_FSCAL2, 0x2A},
       {CC1101_FSCAL1, 0x00},
@@ -526,14 +559,17 @@ static esp_err_t cc1101_txn(spi_transaction_t *t) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+  bool is_scan_owner = atomic_load(&s_scan_bus_owner) == xTaskGetCurrentTaskHandle();
+  if (!is_scan_owner && !spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
     ESP_LOGE(TAG, "SPI3 bus lock timeout");
     cc1101_lease_record_error(ESP_ERR_TIMEOUT);
     return ESP_ERR_TIMEOUT;
   }
 
-  esp_err_t err = spi_device_transmit(s_cc1101_spi, t);
-  spi_bus_lock_give();
+  esp_err_t err = is_scan_owner ? spi_device_polling_transmit(s_cc1101_spi, t)
+                                : spi_device_transmit(s_cc1101_spi, t);
+  if (!is_scan_owner)
+    spi_bus_lock_give();
   if (err != ESP_OK)
     ESP_LOGE(TAG, "SPI transaction failed: %s", esp_err_to_name(err));
   cc1101_lease_record_error(err);

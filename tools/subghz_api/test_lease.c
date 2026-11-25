@@ -1,4 +1,21 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include <stdatomic.h>
 #include "test_platform.h"
+static _Atomic(TaskHandle_t) s_scan_bus_owner;
 #include "cc1101.h"
 #include "cc1101_lease.h"
 #include "resource_mgr.h"
@@ -25,6 +42,7 @@ static esp_err_t s_spi_error;
 static bool spi_bus_lock_take(uint32_t timeout) { return s_spi_lock_ok; }
 static void spi_bus_lock_give(void) {}
 static esp_err_t spi_device_transmit(void *spi,spi_transaction_t *transaction) { return s_spi_error; }
+static esp_err_t spi_device_polling_transmit(void *spi, spi_transaction_t *transaction) { return s_spi_error; }
 void ets_delay_us(uint32_t delay) {}
 /* TRANSACTIONS */
 /* WRAPPERS */

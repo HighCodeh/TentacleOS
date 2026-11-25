@@ -31,14 +31,17 @@ static const char *TAG = "PROTOCOL_NICE_FLO";
 #define NICE_FLO_STEP_SIZE     2
 #define NICE_FLO_SERIAL_SHIFT  2
 #define NICE_FLO_BTN_MASK      0x03
+#define NICE_FLO_GAP_US        (NICE_FLO_SHORT_US * 5)
 
 static bool
 protocol_nice_flo_decode(const int32_t *raw_data, size_t count, subghz_data_t *out_data) {
-  if (count < NICE_FLO_MIN_RAW_COUNT) {
+  if (raw_data == NULL || out_data == NULL || count <= NICE_FLO_MIN_RAW_COUNT) {
     return false;
   }
 
   for (size_t start_idx = 0; start_idx < count - NICE_FLO_MIN_RAW_COUNT; start_idx++) {
+    if (start_idx != 0 && raw_data[start_idx - 1] > -NICE_FLO_GAP_US)
+      continue;
     uint32_t decoded_data = 0;
     int bits_found = 0;
     size_t k = start_idx;
@@ -68,7 +71,9 @@ protocol_nice_flo_decode(const int32_t *raw_data, size_t count, subghz_data_t *o
       k += NICE_FLO_STEP_SIZE;
     }
 
-    if (is_fail == false && bits_found == NICE_FLO_BIT_COUNT) {
+    /* A twelve-bit prefix of a longer PWM frame is not a Nice Flo packet. */
+    bool has_stop = k < count && raw_data[k] <= -NICE_FLO_GAP_US;
+    if (is_fail == false && bits_found == NICE_FLO_BIT_COUNT && has_stop) {
       out_data->protocol_name = "Nice Flo 12bit";
       out_data->bit_count = NICE_FLO_BIT_COUNT;
       out_data->raw_value = decoded_data;

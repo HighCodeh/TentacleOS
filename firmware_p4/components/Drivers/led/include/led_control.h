@@ -111,7 +111,8 @@ void led_set_power_state(led_power_state_t state);
 void led_set_display_active(bool is_active);
 
 /** Source bits allow independent activities to release only their own indication. */
-#define LED_ACTIVITY_NFC (1U << 0)
+#define LED_ACTIVITY_NFC    (1U << 0)
+#define LED_ACTIVITY_SUBGHZ (1U << 1)
 void led_set_activity(uint32_t source, bool active);
 typedef struct {
   uint32_t rgb;

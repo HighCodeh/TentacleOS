@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "subghz_settings.h"
+#include "frequency_catalog.h"
 
 #include "freertos/FreeRTOS.h"
 
@@ -31,6 +32,10 @@ static subghz_settings_t s_settings = {
 
 static void lock(void);
 static void unlock(void);
+
+const uint32_t *subghz_settings_get_frequencies(size_t *out_count) {
+  return frequency_catalog_get(out_count);
+}
 
 subghz_settings_t subghz_settings_get(void) {
   lock();

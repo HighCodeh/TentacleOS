@@ -52,6 +52,10 @@ static unsigned int s_tx_stops, s_receive_calls, s_queue_events;
 static bool s_has_resource, s_has_channel, s_has_queue, s_is_enabled;
 static bool s_inject_stop, s_expect_dma, s_test_hopping;
 static unsigned s_clock_calls, s_stale_events, s_idle_failures;
+static bool s_fail_capture;
+static unsigned s_hop_case, s_hops, s_first_hop;
+static unsigned s_burst_case, s_burst_blocks, s_decodes, s_saves;
+static TickType_t s_now;
 
 static void *allocate_memory(size_t size) {
   if (s_failure == FAIL_DECODE)
@@ -62,7 +66,7 @@ static void *allocate_memory(size_t size) {
 }
 
 static void release_memory(void *pointer) {
-  assert(!s_has_channel && !s_is_enabled);
+  if (pointer == s_dma || pointer == s_decode) assert(!s_has_channel && !s_is_enabled);
   if (pointer == s_dma)
     s_dma = NULL;
   if (pointer == s_decode)
@@ -91,12 +95,37 @@ BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *event, BaseType_t 
   ++s_queue_events;
   return pdTRUE;
 }
+unsigned uxQueueMessagesWaiting(QueueHandle_t queue) { return 0; }
 BaseType_t xQueueReceive(QueueHandle_t queue, void *out, TickType_t timeout) {
   assert(s_has_queue && s_has_resource);
   if (timeout == 0) {
     if (s_stale_events != 0) {
       --s_stale_events;
       memset(out, 0, sizeof(rmt_rx_done_event_data_t));
+      return pdTRUE;
+    }
+    return pdFALSE;
+  }
+  if (s_hop_case) {
+    s_now += RX_QUEUE_TIMEOUT_MS;
+    if (s_now >= 1300) subghz_receiver_stop();
+    return pdFALSE;
+  }
+  if (s_burst_case) {
+    s_now += RX_QUEUE_TIMEOUT_MS;
+    if (s_burst_case == 4 && s_burst_blocks == 2) {
+      subghz_receiver_stop();
+      return pdFALSE;
+    }
+    unsigned blocks = s_burst_case == 2 ? BURST_MAX_FRAMES : 3;
+    if (s_burst_blocks < blocks) {
+      assert(!s_decodes && !s_saves);
+      rmt_symbol_word_t *symbols = s_dma;
+      for (unsigned i = 0; i < 16; ++i)
+        symbols[i] = (rmt_symbol_word_t){.duration0 = s_burst_blocks ? 350 : 700,
+                                        .duration1 = 350, .level0 = true};
+      *(rmt_rx_done_event_data_t *)out = (rmt_rx_done_event_data_t){symbols, 16};
+      ++s_burst_blocks;
       return pdTRUE;
     }
     return pdFALSE;
@@ -138,7 +167,7 @@ void vTaskDelay(TickType_t ticks) {
   }
   ++s_retries;
 }
-TickType_t xTaskGetTickCount(void) { return s_test_hopping ? s_clock_calls++ * (HOP_INTERVAL_MS + 1) : 0; }
+TickType_t xTaskGetTickCount(void) { if (s_burst_case || s_hop_case) return s_now; return s_test_hopping ? s_clock_calls++ * (HOP_INTERVAL_MS + 1) : 0; }
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config, rmt_channel_handle_t *out) {
   if (s_failure == FAIL_CHANNEL)
     return ESP_FAIL;
@@ -190,6 +219,8 @@ void *heap_caps_aligned_alloc(size_t alignment, size_t size, unsigned int caps) 
 }
 void *heap_caps_malloc(size_t size, unsigned caps) {
   assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (size == CAPTURE_TEXT_SIZE && s_fail_capture) return NULL;
+  if (size != sizeof(subghz_rx_burst_t)) return malloc(size);
   return allocate_memory(size);
 }
 esp_err_t cc1101_init(void) { assert(s_has_resource); return s_failure == FAIL_RADIO_INIT ? ESP_FAIL : ESP_OK; }
@@ -199,6 +230,7 @@ esp_err_t cc1101_strobe(uint8_t command) { assert(s_has_resource);
 }
 esp_err_t cc1101_set_frequency(uint32_t frequency) { assert(s_has_resource);
   assert(!s_is_enabled && s_stale_events == 0);
+  if (s_hop_case && s_hops++ == 0) s_first_hop = s_now;
   return s_failure == FAIL_HOP ? ESP_FAIL : ESP_OK;
 }
 esp_err_t cc1101_set_preset(cc1101_preset_t preset, uint32_t frequency) {
@@ -215,6 +247,9 @@ esp_err_t cc1101_set_radio_config(const cc1101_radio_config_t *config, uint32_t 
   s_applied_radio = *config;
   return cc1101_set_preset(config->preset, frequency);
 }
+
+esp_err_t cc1101_get_register(uint8_t reg, uint8_t *out) { *out = 0; return ESP_OK; }
+float cc1101_convert_rssi(uint8_t raw) { return s_hop_case == 2 || (s_burst_case == 3 && s_burst_blocks) ? -40 : -110; }
 
 void subghz_tx_stop(void) { ++s_tx_stops; }
 esp_err_t resource_acquire(const res_request_t *request, res_handle_t *out) {
@@ -234,10 +269,27 @@ esp_err_t resource_release(res_handle_t handle) {
 void led_signal_error(void) {}
 void led_signal_info(void) {}
 void led_signal_warning(void) {}
-bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, subghz_data_t *out) { return false; }
+bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, subghz_data_t *out) {
+  if (!s_burst_case) return false;
+  assert(!s_is_enabled && s_progress.phase == SUBGHZ_RX_PHASE_ANALYZING);
+  ++s_decodes;
+  *out = (subghz_data_t){.protocol_name="CAME", .raw_value=pulses[0] == 350 ? 42 : 99,
+                        .bit_count=12};
+  return true;
+}
 bool subghz_analyzer_process(const int32_t *pulses, size_t count, subghz_analyzer_result_t *out) { return false; }
-esp_err_t subghz_storage_save_raw(const char *name, const int32_t *pulses, size_t count, uint32_t frequency) { return ESP_OK; }
-esp_err_t subghz_storage_save_decoded(const char *name, const subghz_data_t *data, uint32_t frequency, uint32_t te) { return ESP_OK; }
+int subghz_storage_read(const char *name, char *out, size_t capacity) { return -1; }
+size_t subghz_protocol_serialize_raw(const int32_t *pulses, size_t count, uint32_t frequency, char *out, size_t size) {
+  strcpy(out, "RAW capture"); return strlen(out);
+}
+size_t subghz_protocol_serialize_decoded(const subghz_data_t *data, uint32_t frequency, uint32_t te, char *out, size_t size) {
+  assert(!s_is_enabled && s_decodes >= 3 && data->raw_value == 42);
+  strcpy(out, "decoded capture"); return strlen(out);
+}
+esp_err_t subghz_storage_save_capture(const char *name, const char *text) {
+  assert(!s_has_resource && (strcmp(text, "decoded capture") == 0 || strcmp(text, "RAW capture") == 0));
+  ++s_saves; return ESP_OK;
+}
 
 static void run(failure_t failure, bool is_cancelled, bool has_cleanup_failure) {
   assert(!subghz_receiver_is_running());
@@ -294,14 +346,63 @@ int main(void) {
   run(FAIL_RECEIVE, false, true);
   run(FAIL_NONE, false, false);
   subghz_data_t data={.protocol_name="CAME",.raw_value=42};
-  publish_rx_result(true,&data,NULL,NULL);
+  publish_rx_result(true,&data,NULL,NULL,0);
   subghz_rx_result_t first, second;
   assert(subghz_receiver_get_result(&first));
   run(FAIL_NONE,false,false);
   assert(!subghz_receiver_get_result(&second));
-  publish_rx_result(true,&data,NULL,NULL);
+  publish_rx_result(true,&data,NULL,NULL,0);
   assert(subghz_receiver_get_result(&second) && first.seq!=second.seq);
   assert(second.data.protocol_name==second.name_buf && strcmp(second.name_buf,"CAME")==0);
+  for (s_burst_case = 1; s_burst_case <= 4; ++s_burst_case) {
+    s_failure = FAIL_NONE; s_inject_stop = s_expect_dma = s_test_hopping = false;
+    s_burst_blocks = s_decodes = s_saves = s_now = 0;
+    assert(subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, DEFAULT_FREQ) == ESP_OK);
+    s_worker(NULL);
+    subghz_rx_result_t capture;
+    if (s_burst_case == 4) {
+      assert(!s_decodes && !s_saves && !subghz_receiver_get_result(&capture));
+    } else {
+      assert(s_saves == 0 && subghz_receiver_get_result(&capture));
+      assert(subghz_receiver_save(capture.seq + 1, "wrong") == ESP_ERR_INVALID_STATE);
+      assert(s_saves == 0);
+      assert(subghz_receiver_save(capture.seq, "test") == ESP_OK && s_saves == 1);
+      assert(capture.data.raw_value == 42 && capture.matching_frames == s_burst_blocks - 1);
+      assert(capture.pulse_count == s_burst_blocks * 32 && capture.frame_count == s_burst_blocks);
+      assert(capture.is_limited == (s_burst_case == 2 || s_burst_case == 3));
+      assert(s_now >= BURST_QUIET_MS || s_burst_case == 2);
+      subghz_rx_progress_t progress; assert(subghz_receiver_get_progress(&progress));
+      assert(progress.phase == SUBGHZ_RX_PHASE_COMPLETE && progress.rssi_count > 0);
+      if (s_burst_case == 3) assert(s_now >= BURST_MAX_MS);
+    }
+  }
+  subghz_receiver_discard();
+  assert(s_capture_text == NULL);
+  s_burst_case = 0;
+  for (s_hop_case = 1; s_hop_case <= 2; ++s_hop_case) {
+    s_now = s_hops = s_first_hop = 0;
+    assert(subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, 0) == ESP_OK);
+    s_worker(NULL);
+    assert(s_hops > 0);
+    assert(s_first_hop == (s_hop_case == 1 ? HOP_INTERVAL_MS : HOP_SIGNAL_HOLD_MS));
+    assert(!subghz_receiver_get_result(&second));
+  }
+  s_hop_case = 0;
+  s_burst_case = 1; s_now = s_burst_blocks = s_decodes = s_saves = 0;
+  assert(subghz_receiver_start(SUBGHZ_MODE_RAW, 3, DEFAULT_FREQ) == ESP_OK);
+  s_worker(NULL);
+  assert(subghz_receiver_get_result(&second) && !second.decoded && !s_saves);
+  char *pending = NULL;
+  assert(subghz_receiver_copy_capture(second.seq, &pending) == ESP_OK);
+  subghz_receiver_discard();
+  assert(!subghz_receiver_get_result(&first) && strcmp(pending, "RAW capture") == 0);
+  free(pending);
+  s_now = s_burst_blocks = s_decodes = 0; s_fail_capture = true;
+  assert(subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, DEFAULT_FREQ) == ESP_OK);
+  s_worker(NULL);
+  assert(!subghz_receiver_get_result(&second) && !s_saves && s_capture_text == NULL);
+  assert(subghz_receiver_get_error() == ESP_ERR_NO_MEM);
+  puts("Burst RX: no early decode, majority match, silence, limits, live RSSI and cancellation passed");
   puts("Sub-GHz RX lifecycle: radio failures, channel flush, cancellation, contention, allocation and retained DMA/IDLE cleanup passed");
   return 0;
 }

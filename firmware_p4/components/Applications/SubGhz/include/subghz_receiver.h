@@ -39,6 +39,31 @@ typedef enum {
   SUBGHZ_MODE_COUNT     /**< @brief Number of receiver modes (sentinel). */
 } subghz_mode_t;
 
+#define SUBGHZ_RX_RSSI_SAMPLES 64
+
+typedef enum {
+  SUBGHZ_RX_PHASE_WAITING,
+  SUBGHZ_RX_PHASE_CAPTURING,
+  SUBGHZ_RX_PHASE_ANALYZING,
+  SUBGHZ_RX_PHASE_COMPLETE,
+  SUBGHZ_RX_PHASE_COUNT
+} subghz_rx_phase_t;
+
+typedef struct {
+  subghz_rx_phase_t phase;
+  uint32_t frequency_hz;
+  uint32_t elapsed_ms;
+  uint32_t pulse_count;
+  uint32_t frame_count;
+  bool is_limited;
+  uint32_t rssi_sequence;
+  uint32_t rssi_count;
+  int16_t rssi_dbm[SUBGHZ_RX_RSSI_SAMPLES];
+} subghz_rx_progress_t;
+
+/* Chronological RSSI samples and acquisition state; never touches the radio. */
+bool subghz_receiver_get_progress(subghz_rx_progress_t *out_progress);
+
 /**
  * @brief Latest capture published by the receiver task for UI consumers.
  */
@@ -47,8 +72,12 @@ typedef struct {
   bool decoded;       /**< @brief true if a known protocol was decoded. */
   subghz_data_t data; /**< @brief Decoded fields; protocol_name points to name_buf. */
   char name_buf[32];  /**< @brief Backing storage for data.protocol_name. */
-  char save_name[40]; /**< @brief File name the capture was auto-saved under. */
-  uint32_t freq;      /**< @brief Frequency in Hz at the moment of capture. */
+  char save_name[40]; /**< @brief Suggested name; no file exists until explicit save. */
+  bool is_limited;    /**< Capture ended at a bounded time/buffer limit. */
+  uint32_t pulse_count;
+  uint32_t frame_count;
+  uint32_t matching_frames;
+  uint32_t freq;                     /**< @brief Frequency in Hz at the moment of capture. */
   subghz_analyzer_result_t analysis; /**< @brief Timing/modulation analysis of the capture. */
 } subghz_rx_result_t;
 
@@ -59,6 +88,12 @@ typedef struct {
  * @return true if a capture is available (out is filled), false otherwise.
  */
 bool subghz_receiver_get_result(subghz_rx_result_t *out);
+
+/* Pending capture is bounded PSRAM, retained until discard or the next start.
+ * The caller owns copy_capture output and must free it. Sequence rejects stale results. */
+esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out_text);
+esp_err_t subghz_receiver_save(uint32_t sequence, const char *name);
+void subghz_receiver_discard(void);
 
 /**
  * @brief Start the Sub-GHz receiver.

@@ -28,15 +28,19 @@ typedef int esp_err_t;
 #define ESP_ERR_NO_MEM 0x101
 #define ESP_ERR_INVALID_ARG 0x102
 #define ESP_ERR_INVALID_STATE 0x103
+#define ESP_ERR_TIMEOUT 0x107
+#define ESP_ERR_INVALID_SIZE 0x104
 #define ESP_ERR_NOT_SUPPORTED 0x106
 #define ESP_LOGE(tag, ...) ((void)(tag))
 #define ESP_LOGD(tag, ...) ((void)(tag))
 #define ESP_LOGI(tag, ...) ((void)(tag))
 #define ESP_LOGW(tag, ...) ((void)(tag))
+#define portMAX_DELAY UINT32_MAX
 #define pdTRUE 1
 #define pdFALSE 0
 #define pdPASS 1
 #define pdMS_TO_TICKS(ms) (ms)
+#define portTICK_PERIOD_MS 1
 #define SYS_PRIO_SERVICE_HI 5
 #define SYS_CORE_RADIO 0
 #define MALLOC_CAP_DMA 1
@@ -71,6 +75,7 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t);
 void xSemaphoreGive(SemaphoreHandle_t);
 QueueHandle_t xQueueCreate(unsigned int, size_t);
 void vQueueDelete(QueueHandle_t);
+unsigned uxQueueMessagesWaiting(QueueHandle_t);
 BaseType_t xQueueReceive(QueueHandle_t, void *, TickType_t);
 BaseType_t xQueueSendFromISR(QueueHandle_t, const void *, BaseType_t *);
 BaseType_t xTaskCreatePinnedToCore(void (*)(void *), const char *, uint32_t, void *, int, TaskHandle_t *, int);
@@ -98,6 +103,8 @@ void led_signal_warning(void);
 void led_signal_error(void);
 #include "subghz_types.h"
 bool subghz_protocol_registry_decode_all(const int32_t *, size_t, subghz_data_t *);
+esp_err_t subghz_storage_save_capture(const char *, const char *);
+int subghz_storage_read(const char *, char *, size_t);
 esp_err_t subghz_storage_save_raw(const char *, const int32_t *, size_t, uint32_t);
 esp_err_t subghz_storage_save_decoded(const char *, const subghz_data_t *, uint32_t, uint32_t);
 #endif
