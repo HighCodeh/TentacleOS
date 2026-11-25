@@ -34,3 +34,4 @@ python3 "$repo/tools/highboy/tests/test_nfc_guidance_ui.py" "$ui_test_dir"
 printf 'UI host evidence: %s\n' "$ui_test_dir"
 
 python3 "$repo/tools/rf_chamber/test_bench_ui.py" "$ui_test_dir"
+python3 "$repo/tools/frequency_analyzer/test_ui.py" --host-build "$ui_test_dir" --output "$ui_test_dir/frequency-analyzer"

@@ -16,6 +16,8 @@
 #ifndef UI_SUBGHZ_MENU_H
 #define UI_SUBGHZ_MENU_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,6 +31,7 @@ void ui_subghz_menu_stop(void);
  *        decoded protocol/frequency/key, and can replay or persist the capture.
  */
 void ui_subghz_read_open(void);
+void ui_subghz_read_set_raw(bool is_raw);
 void ui_subghz_read_stop(void);
 
 #ifdef __cplusplus

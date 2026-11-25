@@ -107,6 +107,7 @@
 #include "dev_menu_ui.h"
 #include "scripts_ui.h"
 #include "subghz_menu_ui.h"
+#include "subghz_frequency_ui.h"
 #include "subghz_brute_ui.h"
 #include "rfid_menu_ui.h"
 #include "ble_beacon_ui.h"
@@ -541,6 +542,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_wifi_hotspot_stop;
     case SCREEN_SCRIPTS:
       return ui_scripts_stop;
+    case SCREEN_SUBGHZ_SPECTRUM:
+      return ui_subghz_frequency_stop;
     case SCREEN_SUBGHZ_READ:
       return ui_subghz_read_stop;
     case SCREEN_SUBGHZ_SEND:
@@ -719,6 +722,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_dev_menu_open;
     case SCREEN_SUBGHZ_MENU:
       return ui_subghz_menu_open;
+    case SCREEN_SUBGHZ_SPECTRUM:
+      return ui_subghz_frequency_open;
     case SCREEN_SUBGHZ_READ:
       return ui_subghz_read_open;
     case SCREEN_SUBGHZ_BRUTE:
@@ -922,6 +927,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_IR_BURST:
     case SCREEN_IR_CONTROLLER:
     case SCREEN_IR_RAW:
+    case SCREEN_SUBGHZ_SPECTRUM:
     case SCREEN_SUBGHZ_READ:
     case SCREEN_SUBGHZ_SEND:
     case SCREEN_SUBGHZ_BRUTE:

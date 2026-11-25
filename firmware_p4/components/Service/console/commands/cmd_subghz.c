@@ -24,6 +24,7 @@
 #include "freertos/task.h"
 
 #include "cc1101.h"
+#include "frequency_analyzer.h"
 #include "subghz_receiver.h"
 #include "subghz_keeloq.h"
 #include "subghz_protocol_registry.h"
@@ -37,16 +38,29 @@
 
 static int subghz_rx(int argc, char **argv) {
   if (argc < 3) {
-    printf("usage: subghz rx <freq_hz> [seconds] [raw]\n");
+    printf("usage: subghz rx <freq_hz> [seconds] [raw] [ook270|ook650|ook812]\n");
     return 1;
   }
   uint32_t freq = (uint32_t)strtoul(argv[2], NULL, 0);
   int seconds = (argc >= 4) ? (int)strtoul(argv[3], NULL, 0) : SUBGHZ_RX_DEFAULT_S;
   subghz_mode_t mode = SUBGHZ_MODE_SCAN;
-  if (argc >= 5 && strcmp(argv[4], "raw") == 0)
-    mode = SUBGHZ_MODE_RAW;
+  cc1101_preset_t preset = CC1101_PRESET_OOK_270KHZ;
+  for (int i = 4; i < argc; ++i) {
+    if (strcmp(argv[i], "raw") == 0)
+      mode = SUBGHZ_MODE_RAW;
+    else if (strcmp(argv[i], "ook270") == 0)
+      preset = CC1101_PRESET_OOK_270KHZ;
+    else if (strcmp(argv[i], "ook650") == 0)
+      preset = CC1101_PRESET_OOK_650KHZ;
+    else if (strcmp(argv[i], "ook812") == 0)
+      preset = CC1101_PRESET_OOK_800KHZ;
+    else {
+      printf("subghz: expected raw, ook270, ook650 or ook812\n");
+      return 1;
+    }
+  }
 
-  if (subghz_receiver_start(mode, CC1101_PRESET_OOK_650KHZ, freq) != ESP_OK) {
+  if (subghz_receiver_start(mode, preset, freq) != ESP_OK) {
     printf("subghz: receiver start failed\n");
     return 1;
   }
@@ -129,8 +143,10 @@ static int subghz_list(void) {
 
 static int cmd_subghz(int argc, char **argv) {
   if (argc < 2) {
-    printf("usage: subghz <rx|spectrum|list|replay|delete|selftest>\n");
-    printf("  rx <freq_hz> [seconds] [raw]     receive/decode for a window\n");
+    printf("usage: subghz <rx|spectrum|analyzer|list|replay|delete|selftest>\n");
+    printf("  analyzer                         read analyzer state and timing\n");
+    printf(
+        "  rx <freq_hz> [seconds] [raw] [ook270|ook650|ook812]     receive/decode for a window\n");
     printf("  spectrum <center> <span> [lines] RSSI sweep, print peak per line\n");
     printf("  list                             list saved captures\n");
     printf("  replay <name>                    replay a saved capture\n");
@@ -139,6 +155,28 @@ static int cmd_subghz(int argc, char **argv) {
     return 1;
   }
 
+  if (strcmp(argv[1], "analyzer") == 0) {
+    frequency_analyzer_snapshot_t status;
+    frequency_analyzer_get_snapshot(&status);
+    printf("Analyzer running=%u mode=%s phase=%u error=%d threshold=%d dBm\n"
+           "frequency=%lu scan=%lu rssi=%.1f live=%.1f dBm\n"
+           "sweeps=%lu sweep_us=%lu refine_us=%lu samples=%lu detections=%lu\n",
+           frequency_analyzer_is_running(),
+           frequency_analyzer_mode_name(status.mode),
+           (unsigned)status.phase,
+           status.error,
+           status.threshold_dbm,
+           (unsigned long)status.frequency_hz,
+           (unsigned long)status.scan_frequency_hz,
+           (double)status.rssi_dbm,
+           (double)status.live_dbm,
+           (unsigned long)status.sweeps,
+           (unsigned long)status.sweep_us,
+           (unsigned long)status.refine_us,
+           (unsigned long)status.samples,
+           (unsigned long)status.detections);
+    return 0;
+  }
   if (strcmp(argv[1], "rx") == 0)
     return subghz_rx(argc, argv);
   if (strcmp(argv[1], "spectrum") == 0)

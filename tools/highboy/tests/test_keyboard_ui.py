@@ -54,6 +54,7 @@ write('lv_conf.h', '''#ifndef LV_CONF_H
 #define LV_USE_SNAPSHOT 1
 #define LV_USE_GIF 1
 #define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_24 1
 #define LV_MEM_SIZE (4 * 1024 * 1024U)
 #endif
 ''')

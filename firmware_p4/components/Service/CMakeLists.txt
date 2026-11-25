@@ -59,6 +59,8 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+  "frequency_analyzer/frequency_analyzer.c"
+  "frequency_analyzer/frequency_analyzer_plan.c"
   "rf_chamber/rf_chamber.c"
   "rf_chamber/rf_passive.c"
   "rf_chamber/rf_tag_test.c"
@@ -123,6 +125,7 @@ idf_component_register(SRCS
   "ota/ota_service.c"
 
   INCLUDE_DIRS
+  "frequency_analyzer/include"
   "rf_chamber/include"
   "wardrive/include"
   "imu/include"

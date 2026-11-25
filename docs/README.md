@@ -54,6 +54,7 @@ below; in-tree READMEs point to it.
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
 | `fatfs` | [README.md](fatfs/README.md) - exFAT integration and filesystem validation |
 | `firmware_crypto` | [README.md](crypto/README.md) - shared public PSA cryptography |
+| `frequency_analyzer` | [README.md](frequency_analyzer/README.md) - receive-only carrier discovery and RAW handoff |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |
 | `gatt` | [README.md](gatt/README.md) - remote BLE service discovery and characteristic reads |
 | `gps` | [README.md](gps/README.md) - external UART GPS wiring and console diagnostics |
