@@ -684,7 +684,23 @@ The protocol picker and Sub-GHz menu both expose **RF Lab**, backed by the
 configuration selectors and a scrolling live result view in either orientation.
 The close hook stops only the screen-owned run; checked cleanup remains in Service.
 Sub-GHz > Config edits the actual Read/Read RAW frequency and preset. Apply stores
-these in RAM; re-entry reflects the current values. File replay uses its own metadata.
+these in RAM; re-entry reflects the current values. The initial selection is
+315 MHz / OOK270. File replay uses its own metadata.
+Sub-GHz > Frequency Analyzer uses the dedicated
+[carrier discovery service](../frequency_analyzer/README.md). LEFT/RIGHT chooses
+the search band, UP/DOWN sets the threshold, and OK pauses. While paused,
+LEFT/RIGHT selects Resume or Read RAW. The RAW handoff waits for checked radio
+cleanup. BACK always exits; errors release display hold. Both orientations use
+theme colors and bounded snapshot updates without UI-thread SPI.
+
+Read and Read RAW use distinct receiver modes. Their view displays checked live
+RSSI, a sampled peak and RSSI history; on capture it shows actual pulse timings
+(first 64 pulses), total count and duration, then Save / Send / Again actions.
+Saved lists the newest 128 captures; Send lists the newest 64. Both include newly
+imported files when the directory already contains over 64 captures.
+Send is explicit; capture never starts transmission. This view uses the current
+theme in both orientations. Numeric values are formatted with libc `snprintf`
+before passing text to LVGL, including builds with LVGL float formatting disabled.
 Read, Send and saved-signal replay monitor worker results: “Signal sent” requires
 RMT completion and confirmed radio IDLE, rather than an animation timer. Radio
 failures stop the scan/spectrum animation and show an error with BACK available.

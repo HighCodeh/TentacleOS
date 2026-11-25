@@ -64,7 +64,7 @@ calibration succeed; the application does not override the switch GPIOs.
 
 ### Receiver (`subghz_receiver`)
 
-Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX peripheral. Runs as a FreeRTOS task pinned to Core 1.
+Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX peripheral. Runs as a FreeRTOS task pinned to `SYS_CORE_RADIO` (Core 0).
 
 **Operating Modes:**
 
@@ -76,11 +76,30 @@ Captures RF signals via the CC1101 GDO0 pin routed to the ESP32 RMT RX periphera
 **Frequency Hopping:** When `freq == 0` is passed to `subghz_receiver_start`, the receiver cycles through 12 predefined frequencies (433.92, 868.35, 315, 300, 390, 418, 915 MHz, etc.) every 5 seconds.
 
 **Signal Processing Pipeline:**
-1. RMT hardware captures pulse timings (min 1 us, idle timeout 10 ms)
+1. RMT hardware captures pulse timings (min 1 us, idle timeout 30 ms)
 2. Software filter removes pulses < 15 us
 3. Pulses converted to signed int32 buffer (positive = HIGH, negative = LOW)
 4. **SCAN mode:** Protocol registry tries all decoders -> Analyzer for unknowns
 5. **RAW mode:** Direct save to storage
+
+**Read / Read RAW view:** The two menu entries select SCAN and RAW respectively.
+The RX worker publishes checked RSSI samples at approximately 100 ms intervals;
+the UI never reads SPI. The live graph shows the last 48 samples, with current RSSI
+and sampled peak in dBm. This peak can miss bursts shorter than the sampling interval.
+After a capture the UI stops RX and plots the first 64 signed pulse durations,
+with total pulse count and duration. This is a bounded capture preview, not an
+uninterrupted RAW recording or a calibrated RF power/sensitivity measurement.
+RAW storage uses a checked 32 KiB PSRAM text buffer to fit a full 2048-pulse RMT
+capture; serialization failure is reported instead of saving a truncated prefix.
+Save opens the filename editor, Send explicitly replays the stored capture,
+and Again restarts reception. Configured replay PA is +10 dBm nominal, the
+highest entry in the current band-specific table; radiated power requires measurement.
+Saved-file enumeration scans the complete directory and retains the newest
+entries first (filename breaks timestamp ties). Saved shows up to 128 entries
+and Send keeps its 64-entry limit, both selecting from the complete directory,
+so a newly copied signal remains visible in a directory with over 64 captures.
+Automatic filenames skip existing files after reboot; storage creates files
+exclusively and reports failure rather than overwriting an existing capture.
 
 **LED feedback:** The RX pipeline drives the status LED as it processes signals: `led_signal_info()` fires when a known protocol is decoded, and `led_signal_warning()` fires when RF is captured but no registered protocol matches.
 
@@ -127,6 +146,14 @@ RMT ISR cache-safe mode disabled; enabling that SDK option requires revisiting
 symbol storage/encoder memory. Allocation failure does not fall back to internal RAM.
 Stop is checked between bounded 50 ms RMT waits; buffers remain owned until channel
 cleanup succeeds. Native replay requests +10 dBm nominal; this is not measured EIRP.
+Native decoded-file replay queues identical frames contiguously, without retuning
+between repetitions. Princeton defaults to ten frames, matching its Flipper encoder;
+other native protocols retain five. A decoded file can specify `Repeat: 1` through
+`Repeat: 100`, subject to the 8192-pulse and 120-second TX limits. Invalid repeats
+fail before the receiver is stopped. The encoder runs once, including for rolling-code
+formats; repetition does not repeatedly advance a rolling-code counter. RAW-file replay preserves the captured pulse
+sequence without adding repetitions. The console `cc1101 stop` requests both RX and
+native TX shutdown; `cc1101 status` verifies the resulting radio state.
 
 **Flow:** `subghz_tx_send_raw()` -> FreeRTOS Queue -> TX Task -> RMT TX -> CC1101
 
@@ -146,8 +173,16 @@ esp_err_t subghz_tx_send_configured(const int32_t *timings, size_t count,
 - Timing data is copied internally; caller retains ownership of the original buffer.
 - RMT half-symbol limit: 32767 us; longer pulses are split without changing level.
 - Legacy raw jobs preserve radio settings applied after init (including diagnostic PA/rate); configured calls retain file metadata.
-- Read/Read RAW now default to fixed 433.92 MHz / OOK270. Config can enable hopping.
+- Read/Read RAW default to fixed 315 MHz / OOK270 (RF1). Config can change the frequency/preset or enable hopping.
 - Task stack: 4096 bytes, `SYS_PRIO_SERVICE_HI`, `SYS_CORE_RADIO`.
+
+### Frequency discovery
+
+The Frequency Analyzer menu opens the dedicated receive-only
+[frequency analyzer service](../frequency_analyzer/README.md), with common-channel
+and full-band search, fine RSSI refinement, pause and Read RAW handoff.
+It replaces the former fixed-center menu view. The bounded spectrum APIs below
+remain available to other consumers.
 
 ### Spectrum Analyzer (`subghz_spectrum`)
 
@@ -328,7 +363,10 @@ Registry lookup accepts an exact name first, then a leading registered name
 followed by a space or `(`. This preserves saved names such as `CAME 12bit`,
 `Nice Flo 12bit`, `RCSwitch(P1)` and `KeeLoq <manufacturer>` without accepting
 arbitrary substring matches. Replay uses that same registry encoder.
-RCSwitch rejects zero or wider-than-32-bit input and out-of-range protocol
+RCSwitch requires a closing synchronization pair before accepting a decoded code.
+Its encoder includes that pair so a finite transmission closes its last frame.
+This rejects prefixes interrupted by noise or the capture boundary while retaining
+variable 12–32-bit reception. RCSwitch rejects zero or wider-than-32-bit input and out-of-range protocol
 indices before any shift or index adjustment.
 
 ### Utility Functions (`subghz_protocol_utils.h`)
@@ -548,8 +586,37 @@ registry. Complete metadata is validated before stopping the native receiver or
 starting TX; malformed fields and over-capacity pulses fail. Legacy fixed-code
 files may omit Serial/Btn/Preset (key-derived serial, button zero, OOK 800 kHz).
 Decoded keys with nonzero upper four bytes are rejected instead of truncated.
-Native storage replay rejects a full 8191-byte read because that API cannot prove
-the file was complete; embedded NUL is rejected too. App replay independently
+
+The parser accepts numeric High Boy preset IDs and these Flipper names:
+`FuriHalSubGhzPresetOok270Async`, `FuriHalSubGhzPresetOok650Async`,
+`FuriHalSubGhzPreset2FSKDev238Async` and `FuriHalSubGhzPreset2FSKDev476Async`.
+Unknown/custom presets and the not-yet-implemented 12 kHz FSK preset are rejected;
+there is no fallback to a different modulation. Multiple `RAW_Data:` lines are
+concatenated in order, including CRLF files. Every signed duration is retained,
+including long gaps and adjacent equal levels. Empty/malformed continuation lines
+fail instead of transmitting a valid prefix. RAW always plays once, even if the
+file contains `Repeat`.
+
+Princeton captures carry measured `te_us` and `guard_time` through decoding,
+saving and replay. Its frame uses TE/3TE pulses followed by a TE stop mark and
+15–72 TE guard (default 30). Replay honors the file's `TE` and `Guard_time`.
+RCSwitch likewise preserves its measured TE rather than always using the protocol
+nominal. Zero-initialized native callers retain default timings; old files without
+TE retain their legacy default. Other protocols still use their native timing rules.
+This is scoped compatibility, not a port of all Flipper protocols or custom presets.
+See [Flipper file format](https://github.com/flipperdevices/flipperzero-firmware/blob/a8a24de3ff394f77d599ea8ba9c073398670c880/documentation/file_formats/SubGhzFileFormats.md)
+and [Princeton reference](https://github.com/flipperdevices/flipperzero-firmware/blob/a8a24de3ff394f77d599ea8ba9c073398670c880/lib/subghz/protocols/princeton.c).
+
+The native UI/storage replay applies file repetitions; the bounded app ABI still
+parses one frame/RAW sequence and enforces its own operation duration. Receiver
+capture remains P4 RMT with rearming between buffers, unlike Flipper's STM32 timer
+edge stream. Equivalent uninterrupted capture, weak-signal sensitivity and range
+must not be inferred from host tests. Host checks include independent Princeton
+pulse vectors, multiline RAW, measured RCSwitch TE, repetition bounds and all
+existing lifecycle/ownership regressions. New profiles/timing require hardware
+acceptance; previous RF results apply only to the image actually tested.
+Native storage replay has a 64 KiB text buffer and rejects a full 65535-byte read
+because that API cannot prove the file was complete; embedded NUL is rejected too. App replay independently
 checks the complete file up to 8192 bytes and bounds the resulting transmission.
 See the [ABI contract](../app_sdk/README.md#sub-ghz-file-replay-abi-119) for path,
 frequency, duration, capability and hardware ownership requirements.
@@ -611,3 +678,26 @@ cover RX/spectrum start, retune, short buffers, startup RF-gate starvation/busy
 radio, foreign/stale owners, cancellation, generic/SPI errors, retained teardown
 and ID exhaustion. RMT, SPI and scheduler calls remain explicit fixtures; they
 do not establish RF timing, device stack headroom or reception quality.
+
+## Known-code bench verification
+
+The receiver preserves gaps up to 30 ms and rearms RMT after copying pulse data,
+before decoding and optional storage. Missing SD storage leaves the decoded result
+available but does not claim that a capture file was saved.
+
+Princeton reception requires all 24 bits and a stop boundary; transmission includes
+the high stop pulse and low guard interval used by Flipper. Nice Flo no longer accepts
+a twelve-bit prefix inside a longer PWM frame. Regression vectors use independent
+400/1200 us Princeton timings and test partial/corrupted frames.
+
+`cc1101 txtest ARMED [HEX24] [0|5|10] [433920000|868350000]` sends five
+synthetic RCSwitch P1 frames. Defaults are 433.92 MHz, nominal 10 dBm and code
+`5AA55A`. Frequency and power are explicit bounded bench choices. The dry-run validator follows the encoder's
+sync-first layout. Receiver-side confirmation of the complete code is required;
+a queued TX job or strong RSSI alone is not packet acceptance.
+
+The console receiver accepts `subghz rx HZ SECONDS [raw] [ook270|ook650|ook812]`
+for bandwidth comparisons; the default is OOK270, matching the native Read screen.
+On the earlier 02018913 bench comparison with the previous modem profiles, OOK270 received the three reference codes cleanly;
+OOK650 also produced short false decodes and failed that acceptance run. Unknown options are
+rejected before starting the radio.

@@ -21,6 +21,9 @@ A P4-local laboratory workflow for High Boy V2.03: CC1101 Sub-GHz first,
 SX1262 LoRa second, with existing NFC/LF diagnostics used separately.
 The console and on-device RF Lab menu share this service. Product capture and replay remain separate.
 
+See the [25 November RF laboratory update](rf-update-20261125.md) for the scoped
+changes, device/terminal workflow, reproducible checks and remaining hardware acceptance work.
+
 ## Architecture and ownership
 
 - `Drivers/cc1101/cc1101_bench.c`: checked configuration, explicit PE613050 shunt

@@ -19,8 +19,9 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 Only V2.03 is supported. Each target owns its `Drivers/pins/include/pin_def.h`.
 GPIO numbers belong in these headers. There is no legacy board selection.
-See the [migration map](../highboy/V2_03_MIGRATION_PLAN.md#2-mapa-confirmado-e-mudanças)
-for schematic page references and the complete migration sequence.
+See the [P4 pin definitions](../../firmware_p4/components/Drivers/pins/include/pin_def.h)
+and [C5 pin definitions](../../firmware_c5/components/Drivers/pins/include/pin_def.h)
+for the assignments used by this branch.
 
 ## P4
 
