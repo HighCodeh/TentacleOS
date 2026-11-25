@@ -54,34 +54,38 @@
 #include "sx1262_hal.h"
 #include "sx1262_regs.h"
 
-#define LF_DEFAULT_MEASURE_MS    50U
-#define LF_DEFAULT_READ_MS       150U
-#define LF_DEFAULT_WATCH_S       10U
-#define LF_MAX_WATCH_S           60U
-#define LF_MOD_TEST_RATE_HZ      1953U
-#define LF_MOD_TEST_MS           500U
-#define LF_EM_TEST_MS            3000U
-#define NFC_MEASURE_DELAY_MS     10U
-#define CC1101_DEFAULT_TEST_HZ   433920000U
-#define CC1101_MAX_TEST_MS       60000U
-#define CC1101_RSSI_DELAY_MS     2U
-#define CC1101_TX_DRY_CODE       0x000A6764U
-#define CC1101_TX_DRY_BITS       24U
-#define CC1101_TX_DRY_REPEATS    10U
-#define CC1101_TX_DRY_TE_US      350U
-#define CC1101_TX_DRY_SYNC_LOW   (31U * CC1101_TX_DRY_TE_US)
-#define CC1101_TX_DRY_MAX_PULSES ((CC1101_TX_DRY_BITS * 2U) + 2U)
-#define CC1101_TX_TEST_CODE      0x005AA55AU
-#define CC1101_TX_TEST_REPEATS   3U
-#define CC1101_TX_TEST_PA_DBM    (-30)
-#define CC1101_TX_TEST_PA_VALUE  0x12U
-#define CC1101_TX_TEST_BAUD      (1000000.0f / (float)CC1101_TX_DRY_TE_US)
-#define CC1101_TX_TEST_MDMCFG4   0x06U
-#define CC1101_TX_TEST_MDMCFG3   0xCDU
-#define CC1101_TX_TEST_WAIT_MS   750U
-#define CC1101_TX_TEST_ARM_TOKEN "ARMED"
-#define CC1101_TX_SQUARE_CYCLES  3U
-#define CC1101_TX_SQUARE_HALF_US 10000U
+#define LF_DEFAULT_MEASURE_MS     50U
+#define LF_DEFAULT_READ_MS        150U
+#define LF_DEFAULT_WATCH_S        10U
+#define LF_MAX_WATCH_S            60U
+#define LF_MOD_TEST_RATE_HZ       1953U
+#define LF_MOD_TEST_MS            500U
+#define LF_EM_TEST_MS             3000U
+#define NFC_MEASURE_DELAY_MS      10U
+#define CC1101_DEFAULT_TEST_HZ    433920000U
+#define CC1101_MAX_TEST_MS        60000U
+#define CC1101_RSSI_DELAY_MS      2U
+#define CC1101_TX_DRY_CODE        0x000A6764U
+#define CC1101_TX_DRY_BITS        24U
+#define CC1101_TX_DRY_REPEATS     10U
+#define CC1101_TX_DRY_TE_US       350U
+#define CC1101_TX_DRY_SYNC_LOW    (31U * CC1101_TX_DRY_TE_US)
+#define CC1101_TX_DRY_MAX_PULSES  ((CC1101_TX_DRY_BITS * 2U) + 4U)
+#define CC1101_TX_TEST_CODE       0x005AA55AU
+#define CC1101_TX_LINK_REPEATS    5U
+#define CC1101_TX_LINK_PA_DBM     10
+#define CC1101_TX_LINK_868_HZ     868350000U
+#define CC1101_TX_CODE_HEX_DIGITS 6U
+#define CC1101_TX_TEST_REPEATS    3U
+#define CC1101_TX_TEST_PA_DBM     (-30)
+#define CC1101_TX_TEST_PA_VALUE   0x12U
+#define CC1101_TX_TEST_BAUD       (1000000.0f / (float)CC1101_TX_DRY_TE_US)
+#define CC1101_TX_TEST_MDMCFG4    0x06U
+#define CC1101_TX_TEST_MDMCFG3    0xCDU
+#define CC1101_TX_TEST_WAIT_MS    750U
+#define CC1101_TX_TEST_ARM_TOKEN  "ARMED"
+#define CC1101_TX_SQUARE_CYCLES   3U
+#define CC1101_TX_SQUARE_HALF_US  10000U
 
 #define LORA_DIAG_DEFAULT_HZ      906875000U
 #define LORA_DIAG_DEFAULT_RSSI_MS 3000U
@@ -636,8 +640,8 @@ static bool cc1101_validate_p1_frame(
   uint32_t high = 0;
   uint32_t recovered = 0;
   for (uint32_t bit_idx = 0; bit_idx < CC1101_TX_DRY_BITS; bit_idx++) {
-    int32_t mark = pulses[bit_idx * 2U];
-    int32_t space = pulses[(bit_idx * 2U) + 1U];
+    int32_t mark = pulses[(bit_idx + 1U) * 2U];
+    int32_t space = pulses[((bit_idx + 1U) * 2U) + 1U];
     bool zero =
         mark == (int32_t)CC1101_TX_DRY_TE_US && space == -(int32_t)(3U * CC1101_TX_DRY_TE_US);
     bool one =
@@ -649,14 +653,14 @@ static bool cc1101_validate_p1_frame(
     total += (uint32_t)mark + (uint32_t)(-space);
   }
 
-  int32_t sync_mark = pulses[CC1101_TX_DRY_BITS * 2U];
-  int32_t sync_space = pulses[(CC1101_TX_DRY_BITS * 2U) + 1U];
+  int32_t sync_mark = pulses[0];
+  int32_t sync_space = pulses[1];
   if (sync_mark != (int32_t)CC1101_TX_DRY_TE_US || sync_space != -(int32_t)CC1101_TX_DRY_SYNC_LOW ||
-      recovered != code) {
+      pulses[count - 2U] != sync_mark || pulses[count - 1U] != sync_space || recovered != code) {
     return false;
   }
-  high += (uint32_t)sync_mark;
-  total += (uint32_t)sync_mark + (uint32_t)(-sync_space);
+  high += 2U * (uint32_t)sync_mark;
+  total += 2U * ((uint32_t)sync_mark + (uint32_t)(-sync_space));
   if (total_us != NULL)
     *total_us = total;
   if (high_us != NULL)
@@ -699,7 +703,7 @@ static int cmd_cc1101(int argc, char **argv) {
            "RF stays OFF\n");
     printf("  txdry                         validate captured P1 waveform; RF "
            "stays OFF\n");
-    printf("  txtest ARMED                  -30 dBm, 3-frame lab code; "
+    printf("  txtest ARMED [HEX24] [0|5|10 dBm] [433920000|868350000 Hz] 5-frame code; "
            "controlled test only\n");
     printf("  txgpio ARMED                 same lab code using direct GPIO "
            "timing\n");
@@ -770,9 +774,10 @@ static int cmd_cc1101(int argc, char **argv) {
 
   if (strcmp(argv[1], "stop") == 0) {
     subghz_receiver_stop();
+    subghz_tx_stop();
     vTaskDelay(pdMS_TO_TICKS(25));
     cc1101_strobe(CC1101_SIDLE);
-    printf("CC1101 receiver stopped; radio IDLE\n");
+    printf("CC1101 RX/TX stop requested; check cc1101 status for radio IDLE\n");
     return 0;
   }
 
@@ -871,7 +876,7 @@ static int cmd_cc1101(int argc, char **argv) {
            (unsigned long)CC1101_TX_DRY_CODE,
            CC1101_TX_DRY_BITS,
            CC1101_TX_DRY_TE_US);
-    printf("  frame=data+sync pulses=%u duration=%lu us high=%lu us duty=%.1f%%\n",
+    printf("  frame=sync+data+sync pulses=%u duration=%lu us high=%lu us duty=%.1f%%\n",
            (unsigned)count,
            (unsigned long)frame_us,
            (unsigned long)high_us,
@@ -1014,11 +1019,47 @@ static int cmd_cc1101(int argc, char **argv) {
   }
 
   if (strcmp(argv[1], "txtest") == 0) {
-    if (argc != 3 || strcmp(argv[2], CC1101_TX_TEST_ARM_TOKEN) != 0) {
+    if ((argc < 3 || argc > 6) || strcmp(argv[2], CC1101_TX_TEST_ARM_TOKEN) != 0) {
       printf("CC1101 TX test NOT ARMED; RF=OFF\n");
       printf("  controlled two-board test only: cc1101 txtest %s\n", CC1101_TX_TEST_ARM_TOKEN);
       return 1;
     }
+
+    uint32_t code = CC1101_TX_TEST_CODE;
+    if (argc >= 4) {
+      size_t digits = strlen(argv[3]);
+      if (digits == 0 || digits > CC1101_TX_CODE_HEX_DIGITS ||
+          strspn(argv[3], "0123456789abcdefABCDEF") != digits) {
+        printf("CC1101 TX test: expected 1..6 hexadecimal digits; RF=OFF\n");
+        return 1;
+      }
+      code = (uint32_t)strtoul(argv[3], NULL, 16);
+    }
+
+    int32_t power_dbm = CC1101_TX_LINK_PA_DBM;
+    uint32_t frequency_hz = CC1101_DEFAULT_TEST_HZ;
+    if (argc >= 5) {
+      if (strcmp(argv[4], "0") == 0)
+        power_dbm = 0;
+      else if (strcmp(argv[4], "5") == 0)
+        power_dbm = 5;
+      else if (strcmp(argv[4], "10") != 0) {
+        printf("CC1101 TX test: power must be 0, 5 or 10 dBm; RF=OFF\n");
+        return 1;
+      }
+    }
+    if (argc == 6) {
+      if (strcmp(argv[5], "868350000") == 0)
+        frequency_hz = CC1101_TX_LINK_868_HZ;
+      else if (strcmp(argv[5], "433920000") != 0) {
+        printf("CC1101 TX test: frequency must be 433920000 or 868350000 Hz; RF=OFF\n");
+        return 1;
+      }
+    }
+    const uint8_t pa_433[] = {0x60U, 0x84U, 0xC0U};
+    const uint8_t pa_868[] = {0x50U, 0x86U, 0xC5U};
+    size_t power_index = power_dbm == 0 ? 0 : power_dbm == 5 ? 1 : 2;
+    uint8_t expected_pa = (frequency_hz == CC1101_TX_LINK_868_HZ ? pa_868 : pa_433)[power_index];
 
     const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
     if (protocol == NULL || protocol->encode == NULL) {
@@ -1028,22 +1069,22 @@ static int cmd_cc1101(int argc, char **argv) {
 
     subghz_data_t data = {
         .protocol_name = "RCSwitch(P1)",
-        .serial = CC1101_TX_TEST_CODE,
+        .serial = code,
         .btn = 0,
         .bit_count = CC1101_TX_DRY_BITS,
-        .raw_value = CC1101_TX_TEST_CODE,
+        .raw_value = code,
     };
     int32_t frame[CC1101_TX_DRY_MAX_PULSES] = {0};
     size_t frame_count = protocol->encode(&data, frame, CC1101_TX_DRY_MAX_PULSES);
     uint32_t frame_us = 0;
     uint32_t high_us = 0;
-    if (!cc1101_validate_p1_frame(frame, frame_count, CC1101_TX_TEST_CODE, &frame_us, &high_us)) {
+    if (!cc1101_validate_p1_frame(frame, frame_count, code, &frame_us, &high_us)) {
       printf("CC1101 TX test: FAIL (waveform validation); RF=OFF\n");
       return 1;
     }
 
-    int32_t burst[CC1101_TX_DRY_MAX_PULSES * CC1101_TX_TEST_REPEATS];
-    for (uint32_t repeat = 0; repeat < CC1101_TX_TEST_REPEATS; repeat++) {
+    int32_t burst[CC1101_TX_DRY_MAX_PULSES * CC1101_TX_LINK_REPEATS];
+    for (uint32_t repeat = 0; repeat < CC1101_TX_LINK_REPEATS; repeat++) {
       memcpy(&burst[repeat * frame_count], frame, frame_count * sizeof(frame[0]));
     }
 
@@ -1054,11 +1095,11 @@ static int cmd_cc1101(int argc, char **argv) {
       printf("CC1101 TX test: init FAIL: %s; RF=OFF\n", esp_err_to_name(err));
       return 1;
     }
-    cc1101_set_frequency(CC1101_DEFAULT_TEST_HZ);
+    cc1101_set_frequency(frequency_hz);
     /* Protocol 1 uses TE as its fundamental symbol period.  Match the
      * asynchronous modulator rate so TE=350 us is exactly one data bit. */
     cc1101_set_data_rate(CC1101_TX_TEST_BAUD);
-    cc1101_set_pa(CC1101_TX_TEST_PA_DBM);
+    cc1101_set_pa(power_dbm);
 
     uint8_t pa_table[8] = {0};
     cc1101_read_burst(CC1101_PATABLE, pa_table, sizeof(pa_table));
@@ -1068,7 +1109,7 @@ static int cmd_cc1101(int argc, char **argv) {
     uint8_t tx_mdmcfg4 = cc1101_read_reg(CC1101_MDMCFG4);
     uint8_t tx_mdmcfg3 = cc1101_read_reg(CC1101_MDMCFG3);
     bool tx_config_ok = tx_part == 0x00U && tx_version == 0x14U && tx_frend0 == 0x11U &&
-                        pa_table[0] == 0x00U && pa_table[1] == CC1101_TX_TEST_PA_VALUE &&
+                        pa_table[0] == 0x00U && pa_table[1] == expected_pa &&
                         tx_mdmcfg4 == CC1101_TX_TEST_MDMCFG4 &&
                         tx_mdmcfg3 == CC1101_TX_TEST_MDMCFG3;
     if (!tx_config_ok) {
@@ -1088,15 +1129,15 @@ static int cmd_cc1101(int argc, char **argv) {
 
     printf("CC1101 TX test: START freq=%lu code=0x%06lX PA=%d dBm baud=%.1f "
            "rate=%02X/%02X frames=%u burst=%lu us\n",
-           (unsigned long)CC1101_DEFAULT_TEST_HZ,
-           (unsigned long)CC1101_TX_TEST_CODE,
-           CC1101_TX_TEST_PA_DBM,
+           (unsigned long)frequency_hz,
+           (unsigned long)code,
+           (int)power_dbm,
            (double)CC1101_TX_TEST_BAUD,
            tx_mdmcfg4,
            tx_mdmcfg3,
-           CC1101_TX_TEST_REPEATS,
-           (unsigned long)(frame_us * CC1101_TX_TEST_REPEATS));
-    err = subghz_tx_send_raw(burst, CC1101_TX_DRY_MAX_PULSES * CC1101_TX_TEST_REPEATS);
+           CC1101_TX_LINK_REPEATS,
+           (unsigned long)(frame_us * CC1101_TX_LINK_REPEATS));
+    err = subghz_tx_send_raw(burst, CC1101_TX_DRY_MAX_PULSES * CC1101_TX_LINK_REPEATS);
     if (err == ESP_OK)
       vTaskDelay(pdMS_TO_TICKS(CC1101_TX_TEST_WAIT_MS));
     subghz_tx_stop();
@@ -1192,9 +1233,7 @@ static int cmd_cc1101(int argc, char **argv) {
     vTaskDelay(pdMS_TO_TICKS(25));
     cc1101_set_preset(CC1101_PRESET_OOK_270KHZ, freq);
     if (full_gain) {
-      /* Preserve MAGN_TARGET=7 while enabling all DVGA stages.  The normal
-       * profile's 0xC7 blocks the three highest stages and puts a weak lab
-       * signal near the OOK decision threshold. */
+      /* Force all DVGA stages while preserving MAGN_TARGET=7. */
       cc1101_strobe(CC1101_SIDLE);
       cc1101_write_reg(CC1101_AGCCTRL2, 0x07U);
       cc1101_strobe(CC1101_SRX);
@@ -1504,7 +1543,8 @@ static int cmd_rfid(int argc, char **argv) {
   if (argc < 2) {
     printf("usage: rfid "
            "<status|bench|selftest|field|sweep|raw|read|watch|listen|modtest|emutest|"
-           "drive|on|off>\n");
+           "voltage|drive|on|off>\n");
+    printf("  voltage <passive|reader> [100..1000 ms] GPIO16 ADC sample range\n");
     ESP_LOGI(TAG, "  drive <20000..200000 Hz> <10..5000 ms> GPIO2 bench carrier, 50%%");
     printf("  bench                         safe hardware bring-up; Proxmark "
            "field must be OFF\n");
@@ -1525,6 +1565,45 @@ static int cmd_rfid(int argc, char **argv) {
     return 1;
   }
 
+  if (strcmp(argv[1], "voltage") == 0) {
+    char *end = NULL;
+    unsigned long duration = argc == 4 ? strtoul(argv[3], &end, 10) : 500U;
+    if (argc < 3 || argc > 4 ||
+        (strcmp(argv[2], "reader") != 0 && strcmp(argv[2], "passive") != 0) ||
+        (end != NULL && (end == argv[3] || *end != '\0')) || duration < 100 || duration > 1000) {
+      printf("usage: rfid voltage <passive|reader> [100..1000 ms]\n");
+      return 1;
+    }
+    esp_err_t err = power_manager_no_sleep_acquire();
+    if (err != ESP_OK)
+      return 1;
+    lf_rfid_voltage_report_t report = {0};
+    err = lf_rfid_measure_voltage(strcmp(argv[2], "reader") == 0, duration, &report);
+    if (!report.requires_reset) {
+      esp_err_t released = power_manager_no_sleep_release();
+      if (err == ESP_OK)
+        err = released;
+    }
+    if (err != ESP_OK) {
+      printf("RFID voltage failed: %s reset_required=%d\n",
+             esp_err_to_name(err),
+             report.requires_reset);
+      return 1;
+    }
+    printf("GPIO16 ADC: samples=%lu raw_min=%d raw_max=%d raw_mean=%d\n",
+           (unsigned long)report.samples,
+           report.raw_min,
+           report.raw_max,
+           report.raw_mean);
+    if (report.calibrated)
+      printf("  calibrated sampled range: %d..%d mV\n", report.min_mv, report.max_mv);
+    else
+      printf("  calibration unavailable; raw codes only, no voltage claim\n");
+    printf("  ADC loading and sampling affect the result; verify waveform with scope.\n"
+           "  Digital input restored; High Boy field OFF.\n");
+    return 0;
+  }
+
   if (strcmp(argv[1], "status") == 0) {
     printf("RF frontend: %s\n", rf_frontend_mode_name(rf_frontend_get_mode()));
     printf("LF: field=%s generated=%lu Hz EN(GPIO2)=%d MOD(GPIO11)=%d CL=%d "
@@ -1535,6 +1614,13 @@ static int cmd_rfid(int argc, char **argv) {
            gpio_get_level(GPIO_RFID_LF_MOD_PIN),
            gpio_get_level(GPIO_RFID_LF_CARRIER_PIN),
            gpio_get_level(GPIO_RFID_LF_DATA_PIN));
+    lf_rfid_read_stats_t stats;
+    lf_rfid_read_stats(&stats);
+    printf("Last capture: running=%d edges=%lu dropped=%lu invalid_pulses=%lu\n",
+           stats.running,
+           (unsigned long)stats.edges,
+           (unsigned long)stats.dropped,
+           (unsigned long)stats.invalid_pulses);
     return 0;
   }
 

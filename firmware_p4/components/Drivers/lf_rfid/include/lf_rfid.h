@@ -147,6 +147,24 @@ typedef struct {
 void lf_rfid_read_stats(lf_rfid_read_stats_t *out);
 esp_err_t lf_rfid_reader_quiesce(void);
 
+typedef struct {
+  uint32_t samples;
+  int raw_min;
+  int raw_max;
+  int raw_mean;
+  int min_mv;
+  int max_mv;
+  bool calibrated;
+  bool requires_reset;
+} lf_rfid_voltage_report_t;
+
+/** Lab-only GPIO16 ADC samples, 100..1000 ms. Reserves the idle frontend,
+ * optionally drives the reader after checking for an external field, and
+ * restores digital input configuration on return. Sampled extrema are not a
+ * waveform qualification or a decoded tag. Cleanup failure retains ownership.
+ */
+esp_err_t lf_rfid_measure_voltage(bool reader, uint32_t duration_ms, lf_rfid_voltage_report_t *out);
+
 /** Capture DA edges and require three parity-valid RF/64 Manchester frames. */
 esp_err_t lf_rfid_read_em4100(uint32_t timeout_ms, lf_rfid_em4100_t *out);
 

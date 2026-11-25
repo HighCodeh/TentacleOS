@@ -74,6 +74,28 @@ screen invalidates its generation; cleanup may take one 500 ms read interval plu
 Reopening while cleanup is active reports busy, and cannot launch a second
 reader. Task-creation failure permits a later retry.
 
+## DA voltage diagnostic (lab only)
+
+`rfid voltage passive [100..1000 ms]` samples GPIO16/DA through the P4 ADC with
+both High Boy LF outputs off. `rfid voltage reader [100..1000 ms]` checks that
+there is no detected external LF field, then enables 125 kHz / 50% drive and
+waits 450 ms before sampling. The default capture is 500 ms. The idle frontend
+is reserved, a no-sleep hold is acquired, and the driver restores GPIO16 to a
+digital input and disables the field before releasing ownership. Cleanup failure
+reports `reset_required` and retains ownership for a device reset.
+
+The report contains raw sample minimum, maximum and mean; calibrated minimum and
+maximum are printed only when ADC calibration succeeds. Bursts of 32 one-shot
+samples yield between bursts: this is neither continuous waveform capture nor
+tag decoding. ADC input loading and sampling gaps affect observed extrema; an
+oscilloscope remains necessary to qualify amplitude and timing. No thresholds
+or resistor values are changed by this command. `rfid status` also exposes the
+last MCPWM read's edge, overflow and invalid-pulse counts.
+
+Run `python3 tools/hardware_lab/test_lf_voltage.py` for actual-driver host tests
+of ranges, calibration fallback, input restoration, external-field refusal,
+ownership and failure cleanup. These fakes do not validate physical voltage.
+
 ## Bounded EM4100 emulation
 
 `lf_rfid_emulate_em4100()` emits a complete RF/64 Manchester EM4100 frame

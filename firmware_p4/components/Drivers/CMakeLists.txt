@@ -95,6 +95,7 @@ idf_component_register(SRCS
   Service
   esp_lcd
   PRIV_REQUIRES
+  esp_adc
   esp_timer
   esp_tinyusb
   soc
