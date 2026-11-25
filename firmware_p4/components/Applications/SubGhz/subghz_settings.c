@@ -17,7 +17,7 @@
 
 static subghz_settings_t s_settings = {
     .preset = CC1101_PRESET_OOK_270KHZ,
-    .freq = 433920000U,
+    .freq = 315000000U,
 };
 
 subghz_settings_t subghz_settings_get(void) {

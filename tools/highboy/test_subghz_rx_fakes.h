@@ -46,6 +46,8 @@ typedef int esp_err_t;
 #define GPIO_CC1101_GDO0_PIN 8
 #define CC1101_SIDLE 0x36
 #define CC1101_SRX 0x34
+#define CC1101_RSSI 0x34
+#define ESP_ERR_TIMEOUT 0x107
 typedef int BaseType_t;
 typedef uint32_t TickType_t;
 typedef void *SemaphoreHandle_t;
@@ -90,6 +92,9 @@ esp_err_t cc1101_strobe(uint8_t);
 esp_err_t cc1101_set_frequency(uint32_t);
 esp_err_t cc1101_set_preset(cc1101_preset_t, uint32_t);
 esp_err_t cc1101_init(void);
+esp_err_t cc1101_get_register(uint8_t, uint8_t *);
+int subghz_storage_read(const char *, char *, size_t);
+float cc1101_convert_rssi(uint8_t);
 esp_err_t cc1101_enter_rx_mode(void);
 void *heap_caps_malloc(size_t, unsigned int);
 void subghz_tx_stop(void);

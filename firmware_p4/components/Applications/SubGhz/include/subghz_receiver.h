@@ -39,6 +39,19 @@ typedef enum {
   SUBGHZ_MODE_COUNT     /**< @brief Number of receiver modes (sentinel). */
 } subghz_mode_t;
 
+#define SUBGHZ_RX_PREVIEW_PULSES 64
+
+typedef struct {
+  bool rssi_valid;
+  uint32_t sample_seq;
+  uint32_t frequency_hz;
+  float rssi_dbm;
+  float peak_dbm;
+} subghz_rx_monitor_t;
+
+/** Latest worker-owned RSSI sample. Does not access SPI from the UI thread. */
+bool subghz_receiver_get_monitor(subghz_rx_monitor_t *out);
+
 /**
  * @brief Latest capture published by the receiver task for UI consumers.
  */
@@ -49,6 +62,10 @@ typedef struct {
   char name_buf[32];  /**< @brief Backing storage for data.protocol_name. */
   char save_name[40]; /**< @brief File name the capture was auto-saved under. */
   uint32_t freq;      /**< @brief Frequency in Hz at the moment of capture. */
+  uint32_t pulse_count;
+  uint32_t duration_us;
+  uint16_t preview_count;
+  int32_t preview[SUBGHZ_RX_PREVIEW_PULSES];
   subghz_analyzer_result_t analysis; /**< @brief Timing/modulation analysis of the capture. */
 } subghz_rx_result_t;
 

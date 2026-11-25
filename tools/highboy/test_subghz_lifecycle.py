@@ -40,7 +40,8 @@ def main():
         (work / "rx_fakes.h").write_text((HERE / "test_subghz_rx_fakes.h").read_text())
         binary = work / "rx_test"
         subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra",
-                        "-Werror", "-Wno-unused-parameter", "-fsanitize=address,undefined",
+                        "-Werror", "-Wno-unused-parameter",
+                        "-fsanitize=" + os.environ.get("HIGHBOY_TEST_SANITIZERS", "address,undefined"),
                         "-fno-sanitize-recover=all", "-g", "-I", str(work), "-I", str(SOURCE),
                         "-I", str(SOURCE / "include"),
                         "-I", str(ROOT / "firmware_p4/components/Drivers/cc1101/include"),

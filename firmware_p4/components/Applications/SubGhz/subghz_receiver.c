@@ -49,7 +49,7 @@ static res_handle_t s_rx_res = RES_HANDLE_NONE;
 #define DECODE_BUFFER_FACTOR  2
 #define MIN_PULSE_NS          1000
 #define SOFTWARE_FILTER_US    15
-#define MAX_PULSE_NS          10000000
+#define MAX_PULSE_NS          30000000
 #define RMT_MEM_BLOCK_SYMBOLS 256
 #define RMT_DMA_ALIGNMENT     64
 #define RX_QUEUE_DEPTH        1
@@ -64,6 +64,8 @@ static res_handle_t s_rx_res = RES_HANDLE_NONE;
 #define RAW_PREVIEW_COUNT     20
 #define DEFAULT_FREQ          433920000
 #define CLEANUP_RETRY_MS      100
+#define RSSI_SAMPLE_MS        100
+#define STATUS_READ_FLAG      0x40U
 
 static const uint32_t HOP_FREQUENCIES[] = {433920000,
                                            868350000,
@@ -100,12 +102,15 @@ static QueueHandle_t s_rx_queue = NULL;
 #define RESULT_LOCK_TIMEOUT_MS 20
 static _Atomic(SemaphoreHandle_t) s_result_mutex;
 static subghz_rx_result_t s_latest;
+static subghz_rx_monitor_t s_monitor;
 static uint32_t s_result_seq = 0;
 
 static void publish_rx_result(bool decoded,
                               const subghz_data_t *data,
                               const subghz_analyzer_result_t *analysis,
-                              const char *save_name) {
+                              const char *save_name,
+                              const int32_t *pulses,
+                              size_t pulse_count) {
   if (s_result_mutex == NULL)
     return;
   if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE)
@@ -117,6 +122,14 @@ static void publish_rx_result(bool decoded,
   s_latest.seq = s_result_seq;
   s_latest.decoded = decoded;
   s_latest.freq = s_rx_freq;
+  s_latest.pulse_count = pulse_count;
+  s_latest.preview_count =
+      pulse_count < SUBGHZ_RX_PREVIEW_PULSES ? pulse_count : SUBGHZ_RX_PREVIEW_PULSES;
+  memcpy(s_latest.preview, pulses, s_latest.preview_count * sizeof(*pulses));
+  uint64_t duration = 0;
+  for (size_t i = 0; i < pulse_count; i++)
+    duration += pulses[i] < 0 ? -(int64_t)pulses[i] : pulses[i];
+  s_latest.duration_us = duration > UINT32_MAX ? UINT32_MAX : (uint32_t)duration;
   if (save_name != NULL)
     strlcpy(s_latest.save_name, save_name, sizeof(s_latest.save_name));
   else
@@ -142,9 +155,16 @@ static void publish_rx_result(bool decoded,
   xSemaphoreGive(s_result_mutex);
 }
 
-static void get_dynamic_filename(char *out_name, size_t out_size, const char *prefix) {
-  s_capture_count++;
-  snprintf(out_name, out_size, "%s_%03lu", prefix, (unsigned long)s_capture_count);
+static bool get_dynamic_filename(char *out_name, size_t out_size, const char *prefix) {
+  char probe[2];
+  for (unsigned attempt = 0; attempt < 10000; attempt++) {
+    s_capture_count++;
+    snprintf(out_name, out_size, "%s_%03lu", prefix, (unsigned long)s_capture_count);
+    if (subghz_storage_read(out_name, probe, sizeof(probe)) < 0)
+      return true;
+  }
+  out_name[0] = '\0';
+  return false;
 }
 
 static bool subghz_rx_done_callback(rmt_channel_handle_t channel,
@@ -182,9 +202,13 @@ static size_t decode_rmt_symbols(const rmt_symbol_word_t *symbols,
 static void handle_raw_mode(const int32_t *decode_buffer, size_t decode_idx) {
   char filename[FILENAME_BUF_SIZE];
   ESP_LOGD(TAG, "RAW: received %d pulses", (int)decode_idx);
-  get_dynamic_filename(filename, sizeof(filename), "RAW");
-  subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
-  publish_rx_result(false, NULL, NULL, filename);
+  esp_err_t error = get_dynamic_filename(filename, sizeof(filename), "RAW")
+                        ? subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq)
+                        : ESP_FAIL;
+  subghz_analyzer_result_t analysis = {0};
+  subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
+  publish_rx_result(
+      false, NULL, &analysis, error == ESP_OK ? filename : NULL, decode_buffer, decode_idx);
 }
 
 static void log_recovered_bitstream(const subghz_analyzer_result_t *analysis) {
@@ -227,9 +251,12 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
 
     subghz_analyzer_result_t analysis = {0};
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
-    get_dynamic_filename(filename, sizeof(filename), "DEC");
-    subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te);
-    publish_rx_result(true, &decoded, &analysis, filename);
+    esp_err_t error =
+        get_dynamic_filename(filename, sizeof(filename), "DEC")
+            ? subghz_storage_save_decoded(filename, &decoded, s_rx_freq, analysis.estimated_te)
+            : ESP_FAIL;
+    publish_rx_result(
+        true, &decoded, &analysis, error == ESP_OK ? filename : NULL, decode_buffer, decode_idx);
     led_signal_info(); // decoded a known protocol
     return;
   }
@@ -243,9 +270,11 @@ static void handle_scan_mode(const int32_t *decode_buffer, size_t decode_idx) {
              (int)decode_idx,
              (unsigned long)s_rx_freq);
 
-    get_dynamic_filename(filename, sizeof(filename), "UNK");
-    subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq);
-    publish_rx_result(false, NULL, &analysis, filename);
+    esp_err_t error = get_dynamic_filename(filename, sizeof(filename), "UNK")
+                          ? subghz_storage_save_raw(filename, decode_buffer, decode_idx, s_rx_freq)
+                          : ESP_FAIL;
+    publish_rx_result(
+        false, NULL, &analysis, error == ESP_OK ? filename : NULL, decode_buffer, decode_idx);
     log_recovered_bitstream(&analysis);
     led_signal_warning(); // captured RF but no known protocol matched
   }
@@ -370,7 +399,28 @@ static void subghz_rx_task(void *pvParameters) {
   TickType_t last_hop_time = xTaskGetTickCount();
   const TickType_t hop_interval = pdMS_TO_TICKS(HOP_INTERVAL_MS);
 
+  TickType_t last_rssi_time = last_hop_time - pdMS_TO_TICKS(RSSI_SAMPLE_MS);
   while (s_state == SUBGHZ_RX_RUNNING) {
+    TickType_t now = xTaskGetTickCount();
+    if (now - last_rssi_time >= pdMS_TO_TICKS(RSSI_SAMPLE_MS)) {
+      uint8_t raw_rssi = 0;
+      err = cc1101_get_register(CC1101_RSSI | STATUS_READ_FLAG, &raw_rssi);
+      if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
+        bool had_sample = s_monitor.rssi_valid;
+        s_monitor.rssi_valid = err == ESP_OK;
+        if (err == ESP_OK) {
+          s_monitor.rssi_dbm = cc1101_convert_rssi(raw_rssi);
+          if (!had_sample || s_monitor.rssi_dbm > s_monitor.peak_dbm)
+            s_monitor.peak_dbm = s_monitor.rssi_dbm;
+          s_monitor.frequency_hz = s_rx_freq;
+          s_monitor.sample_seq++;
+        }
+        xSemaphoreGive(s_result_mutex);
+      }
+      if (err != ESP_OK)
+        break;
+      last_rssi_time = now;
+    }
     if (s_is_hopping_active && xTaskGetTickCount() - last_hop_time > hop_interval) {
       err = rmt_disable(s_rx_channel);
       if (err != ESP_OK)
@@ -412,19 +462,20 @@ static void subghz_rx_task(void *pvParameters) {
                                            decode_buffer,
                                            RX_BUFFER_SIZE * DECODE_BUFFER_FACTOR);
 
+    /* Decode data is copied; rearm DMA before analysis and optional SD writes. */
+    if (s_state == SUBGHZ_RX_RUNNING &&
+        (err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config)) !=
+            ESP_OK) {
+      ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
+      break;
+    }
+
     if (decode_idx > 0) {
       if (s_rx_mode == SUBGHZ_MODE_RAW) {
         handle_raw_mode(decode_buffer, decode_idx);
       } else {
         handle_scan_mode(decode_buffer, decode_idx);
       }
-    }
-
-    if (s_state == SUBGHZ_RX_RUNNING &&
-        (err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config)) !=
-            ESP_OK) {
-      ESP_LOGE(TAG, "rmt_receive failed; stopping RX");
-      break;
     }
   }
 
@@ -501,11 +552,15 @@ esp_err_t subghz_receiver_start(subghz_mode_t mode, cc1101_preset_t preset, uint
     s_state = SUBGHZ_RX_IDLE;
     return ESP_ERR_NO_MEM;
   }
-  if (s_result_mutex != NULL &&
-      xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) == pdTRUE) {
-    memset(&s_latest, 0, sizeof(s_latest));
-    xSemaphoreGive(s_result_mutex);
+  if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(RESULT_LOCK_TIMEOUT_MS)) != pdTRUE) {
+    resource_release(s_rx_res);
+    s_rx_res = RES_HANDLE_NONE;
+    s_state = SUBGHZ_RX_IDLE;
+    return ESP_ERR_TIMEOUT;
   }
+  memset(&s_latest, 0, sizeof(s_latest));
+  memset(&s_monitor, 0, sizeof(s_monitor));
+  xSemaphoreGive(s_result_mutex);
 
   if (freq == 0) {
     s_is_hopping_active = true;
@@ -555,4 +610,12 @@ bool subghz_receiver_get_result(subghz_rx_result_t *out) {
   }
   xSemaphoreGive(s_result_mutex);
   return has;
+}
+
+bool subghz_receiver_get_monitor(subghz_rx_monitor_t *out) {
+  if (out == NULL || s_result_mutex == NULL || xSemaphoreTake(s_result_mutex, 0) != pdTRUE)
+    return false;
+  *out = s_monitor;
+  xSemaphoreGive(s_result_mutex);
+  return true;
 }

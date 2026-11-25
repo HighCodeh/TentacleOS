@@ -56,26 +56,92 @@ static void keyboard_open_filename(const char *t,const char *initial,unsigned m,
  (void)t;(void)m;(void)cb;dialogs++;strcpy(editor,initial);
 }
 '''
-run('subghz_name_test',common+'#include <sys/stat.h>\n#include <unistd.h>\n'+constants+'''
+run('subghz_name_test',common+'#include <sys/stat.h>\n#include <unistd.h>\n#include <fcntl.h>\n'+constants+'''
 #define PATH_BUF_SIZE 128
 #define SUB_EXT ".sub"
 static char directory[64];
 #define STORAGE_DIR directory
+#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+static int storage_mkdir_recursive(const char*p){(void)p;return ESP_OK;}
 static struct{char save_name[40];}s_result;
-'''+function(storage,'static void build_path(')+function(storage,'esp_err_t subghz_storage_rename(')+function(sub,'static void save_name_submit(')+'''
+'''+function(storage,'static void build_path(')+function(storage,'static esp_err_t write_file(')+function(storage,'esp_err_t subghz_storage_rename(')+function(sub,'static void saved_name(')+'''
 static void file(const char *name,const char *data){char p[128];build_path(p,sizeof(p),name);FILE*f=fopen(p,"wb");assert(f);fputs(data,f);fclose(f);}
 static void content(const char *name,const char *data){char p[128],b[32]={0};build_path(p,sizeof(p),name);FILE*f=fopen(p,"rb");assert(f);fread(b,1,sizeof(b)-1,f);fclose(f);assert(!strcmp(b,data));}
 int main(void){
  strcpy(directory,"/tmp/highboy-name-test-XXXXXX");assert(mkdtemp(directory));
  file("capture","original");file("occupied","keep");strcpy(s_result.save_name,"capture");
- save_name_submit("occupied",NULL);assert(!s_saved && marked==0 && dialogs==1);content("occupied","keep");content("capture","original");
- save_name_submit("TV Room",NULL);assert(s_saved && marked==1 && !strcmp(s_result.save_name,"TV Room"));content("TV Room","original");
+ saved_name("occupied",NULL);assert(!strcmp(s_result.save_name,"capture"));content("occupied","keep");content("capture","original");
+ saved_name("TV Room",NULL);assert(!strcmp(s_result.save_name,"TV Room"));content("TV Room","original");
  assert(subghz_storage_rename("capture","x")==ESP_ERR_NOT_FOUND);
  assert(subghz_storage_rename("TV Room","TV Room")==ESP_OK);
  assert(subghz_storage_rename("TV Room","../x")==ESP_ERR_INVALID_ARG);
- s_saved=false;strcpy(s_result.save_name,"missing");save_name_submit("new",NULL);assert(!s_saved && marked==1);
+ strcpy(s_result.save_name,"missing");saved_name("new",NULL);assert(!strcmp(s_result.save_name,"missing"));
+ assert(write_file("occupied","overwrite",9)!=ESP_OK);content("occupied","keep");
+ assert(write_file("fresh","new",3)==ESP_OK);content("fresh","new");
+ char fresh[128];build_path(fresh,sizeof(fresh),"fresh");assert(unlink(fresh)==0);
  char p[128];build_path(p,sizeof(p),"TV Room");assert(unlink(p)==0);build_path(p,sizeof(p),"occupied");assert(unlink(p)==0);assert(rmdir(directory)==0);
  puts("PASS: production Sub-GHz save naming, persisted bytes, collision retention and missing-file errors");
+}
+''')
+serializer=read('Applications/SubGhz/subghz_protocol_serializer.c')
+raw_limit=next(line for line in storage.splitlines() if line.startswith('#define RAW_BUF_SIZE'))
+run('subghz_full_raw_storage',common+'#include <stdint.h>\n#include <fcntl.h>\n#include <unistd.h>\n'+constants+raw_limit+'\n'+'''
+#define PATH_BUF_SIZE 128
+#define SUB_EXT ".sub"
+#define MALLOC_CAP_SPIRAM 1
+#define MALLOC_CAP_8BIT 2
+#define ESP_ERR_NO_MEM 4
+#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+static char directory[64];
+#define STORAGE_DIR directory
+static void *heap_caps_malloc(size_t n,int caps){assert(caps==3);return malloc(n);}
+static int storage_mkdir_recursive(const char*p){(void)p;return 0;}
+static unsigned subghz_protocol_get_preset_id(void){return 1;}
+'''+function(storage,'static void build_path(')+function(storage,'static esp_err_t write_file(')+function(serializer,'size_t subghz_protocol_serialize_raw(')+'\nesp_err_t\n'+function(storage,'subghz_storage_save_raw(')+r'''
+int main(void){
+ strcpy(directory,"/tmp/highboy-raw-test-XXXXXX");assert(mkdtemp(directory));
+ int32_t pulses[2048];for(int i=0;i<2048;i++)pulses[i]=i%2?-30000:30000;
+ assert(subghz_storage_save_raw("burst",pulses,2048,315000000)==ESP_OK);
+ char path[128];build_path(path,sizeof(path),"burst");FILE*f=fopen(path,"rb");assert(f);
+ char buf[32768];size_t size=fread(buf,1,sizeof(buf)-1,f);fclose(f);buf[size]=0;
+ assert(size>8192&&strstr(buf,"Frequency: 315000000\n"));
+ char*data=strstr(buf,"RAW_Data:");assert(data);data+=9;
+ for(int i=0;i<2048;i++){char*end;long v=strtol(data,&end,10);assert(end!=data&&v==pulses[i]);data=end;}
+ assert(*data=='\n'&&data[1]==0);assert(unlink(path)==0);assert(rmdir(directory)==0);
+ puts("PASS: full 2048-pulse RAW capture persists without text truncation");
+}
+''')
+storage_header=read('Applications/SubGhz/include/subghz_storage.h')
+entry_type=storage_header[storage_header.index('typedef struct {'):storage_header.index('} subghz_storage_entry_t;')+len('} subghz_storage_entry_t;')]
+run('subghz_latest_files',common+'#include <stdint.h>\n#include <dirent.h>\n#include <sys/stat.h>\n#include <unistd.h>\n#include <fcntl.h>\n#include <time.h>\n'+'''
+#define SUBGHZ_STORAGE_NAME_MAX 40
+#define SUBGHZ_STORAGE_PROTO_MAX 24
+#define PATH_BUF_SIZE 128
+#define HEADER_PEEK_SIZE 256
+#define SUB_EXT ".sub"
+static char directory[64];
+#define STORAGE_DIR directory
+'''+entry_type+function(storage,'static void build_path(')+function(storage,'int subghz_storage_read(')+function(storage,'parse_header(').replace('parse_header(', 'static void parse_header(',1)+function(storage,'int subghz_storage_list(')+r'''
+int main(void){
+ strcpy(directory,"/tmp/highboy-list-test-XXXXXX");assert(mkdtemp(directory));
+ char path[128],name[40];
+ for(int i=0;i<140;i++){
+  snprintf(name,sizeof(name),"Signal_%03d",i);build_path(path,sizeof(path),name);FILE*f=fopen(path,"wb");assert(f);
+  fputs("Frequency: 433920000\nProtocol: RAW\n",f);fclose(f);
+  struct timespec when[2]={{100000+i,0},{100000+i,0}};assert(utimensat(AT_FDCWD,path,when,0)==0);
+ }
+ subghz_storage_entry_t entries[128];
+ assert(subghz_storage_list(entries,128)==128);
+ for(int i=0;i<128;i++){
+  snprintf(name,sizeof(name),"Signal_%03d",139-i);assert(!strcmp(entries[i].name,name));
+  assert(entries[i].frequency==433920000&&!strcmp(entries[i].protocol,"RAW"));
+ }
+ assert(subghz_storage_list(entries,1)==1&&!strcmp(entries[0].name,"Signal_139"));
+ assert(subghz_storage_list(NULL,128)==-1&&subghz_storage_list(entries,0)==-1);
+ for(int i=0;i<140;i++){snprintf(name,sizeof(name),"Signal_%03d",i);build_path(path,sizeof(path),name);assert(unlink(path)==0);}
+ assert(rmdir(directory)==0);puts("PASS: complete directory scan retains newest captures beyond the old 64-entry limit");
 }
 ''')
 run('ir_name_test',common+constants+'''

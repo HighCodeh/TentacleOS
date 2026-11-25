@@ -32,7 +32,7 @@
 #define FIELD_APPLY     2
 #define MHZ             1000000U
 static const char *TAG = "SUBGHZ_CONFIG";
-static const uint32_t FREQUENCIES[] = {433920000, 868350000, 915000000, 315000000, 0};
+static const uint32_t FREQUENCIES[] = {315000000, 433920000, 868350000, 915000000, 0};
 static const char *PRESET_NAMES[] = {
     "OOK 270 kHz", "OOK 650 kHz", "OOK 812 kHz", "FSK 2.38 kHz", "FSK 47.6 kHz", "FSK 95.2 kHz"};
 static const cc1101_preset_t PRESETS[] = {CC1101_PRESET_OOK_270KHZ,
@@ -111,7 +111,8 @@ void ui_subghz_config_open(void) {
   menu_component_add_selector(&s_menu, NULL, "Freq", "");
   menu_component_add_selector(&s_menu, NULL, "Preset", "");
   menu_component_add_item(&s_menu, "/assets/icons/tune.bin", "Apply RX settings");
-  menu_component_add_section(&s_menu, "RF1: 315/433 | RF2: 868/915");
+  menu_component_add_section(&s_menu, "TX +10 dBm nominal");
+  menu_component_add_section(&s_menu, "315: RF1 / auto RX gain");
   menu_component_set_hint(&s_menu, "UP/DN select  L/R edit  OK apply");
   refresh();
   ui_input_set_screen_handler(input, NULL);
