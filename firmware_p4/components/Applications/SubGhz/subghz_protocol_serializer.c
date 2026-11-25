@@ -28,11 +28,16 @@
 #include "cc1101.h"
 #include "subghz_protocol_registry.h"
 
-#define CAPTURE_PROTOCOL_MAX   40
-#define CAPTURE_KEY_BYTES      8
-#define CAPTURE_KEY_HIGH_BYTES 4
-#define CAPTURE_BYTE_BITS      8
-#define CAPTURE_KEY_RADIX      16
+#define CAPTURE_PROTOCOL_MAX      40
+#define CAPTURE_KEY_BYTES         8
+#define CAPTURE_KEY_HIGH_BYTES    4
+#define CAPTURE_BYTE_BITS         8
+#define CAPTURE_KEY_RADIX         16
+#define CAPTURE_DEFAULT_REPEATS   5U
+#define CAPTURE_PRINCETON_REPEATS 10U
+#define CAPTURE_MAX_REPEATS       100U
+#define CAPTURE_PRINCETON_GUARD   30U
+#define CAPTURE_PRINCETON_TE_MAX  (INT32_MAX / 72U)
 
 static const char *TAG = "SUBGHZ_SERIALIZER";
 
@@ -51,6 +56,8 @@ size_t subghz_protocol_serialize_decoded(
   }
 
   uint32_t val = data->raw_value;
+  if (data->te_us != 0)
+    te = data->te_us;
 
   int written = snprintf(out_buf,
                          out_size,
@@ -79,6 +86,16 @@ size_t subghz_protocol_serialize_decoded(
     out_buf[0] = '\0';
     ESP_LOGW(TAG, "Decoded capture buffer is too small");
     return 0;
+  }
+  if (strcmp(data->protocol_name, "Princeton") == 0) {
+    uint32_t guard = data->guard_time == 0 ? CAPTURE_PRINCETON_GUARD : data->guard_time;
+    int extra = snprintf(
+        out_buf + written, out_size - (size_t)written, "Guard_time: %lu\n", (unsigned long)guard);
+    if (extra < 0 || (size_t)extra >= out_size - (size_t)written) {
+      out_buf[0] = '\0';
+      return 0;
+    }
+    written += extra;
   }
   return (size_t)written;
 }
@@ -162,6 +179,71 @@ static bool parse_metadata(const char *content, const char *key, uint32_t limit,
   return true;
 }
 
+static bool has_field(const char *content, const char *key) {
+  size_t length = strlen(key);
+  for (const char *line = content; *line != '\0';) {
+    if (strncmp(line, key, length) == 0)
+      return true;
+    const char *next = strchr(line, '\n');
+    if (next == NULL)
+      break;
+    line = next + 1;
+  }
+  return false;
+}
+
+static bool field_equals(const char *text, const char *value) {
+  size_t length = strlen(value);
+  if (text == NULL || strncmp(text, value, length) != 0)
+    return false;
+  text += length;
+  while (*text == ' ' || *text == '\t' || *text == '\r')
+    ++text;
+  return *text == '\n' || *text == '\0';
+}
+
+static bool parse_preset(const char *content, uint32_t *out_preset) {
+  const char *text = find_field(content, PRESET_KEY);
+  if (text == NULL)
+    return false;
+  while (*text == ' ' || *text == '\t')
+    ++text;
+  static const struct {
+    const char *name;
+    uint8_t preset;
+  } PRESETS[] = {
+      {"FuriHalSubGhzPresetOok270Async", CC1101_PRESET_OOK_270KHZ},
+      {"FuriHalSubGhzPresetOok650Async", CC1101_PRESET_OOK_650KHZ},
+      {"FuriHalSubGhzPreset2FSKDev238Async", CC1101_PRESET_2FSK_2KHZ},
+      {"FuriHalSubGhzPreset2FSKDev476Async", CC1101_PRESET_2FSK_47KHZ},
+  };
+  for (size_t i = 0; i < sizeof(PRESETS) / sizeof(PRESETS[0]); ++i) {
+    if (field_equals(text, PRESETS[i].name)) {
+      *out_preset = PRESETS[i].preset;
+      return true;
+    }
+  }
+  return parse_metadata(content, PRESET_KEY, CC1101_PRESET_COUNT - 1U, out_preset) &&
+         *out_preset != CC1101_PRESET_IDLE;
+}
+
+esp_err_t subghz_protocol_parse_repeat(const char *content, uint32_t *out_repeat) {
+  if (content == NULL || out_repeat == NULL)
+    return ESP_ERR_INVALID_ARG;
+  if (has_field(content, RAW_DATA_KEY)) {
+    *out_repeat = 1;
+    return ESP_OK;
+  }
+  uint32_t repeat = field_equals(find_field(content, "Protocol: "), "Princeton")
+                        ? CAPTURE_PRINCETON_REPEATS
+                        : CAPTURE_DEFAULT_REPEATS;
+  if (has_field(content, "Repeat:") &&
+      (!parse_metadata(content, "Repeat: ", CAPTURE_MAX_REPEATS, &repeat) || repeat == 0))
+    return ESP_ERR_INVALID_ARG;
+  *out_repeat = repeat;
+  return ESP_OK;
+}
+
 size_t subghz_protocol_parse_raw(const char *content,
                                  int32_t *out_pulses,
                                  size_t max_count,
@@ -170,28 +252,48 @@ size_t subghz_protocol_parse_raw(const char *content,
   if (content == NULL || out_pulses == NULL || max_count == 0)
     return 0;
   uint32_t frequency, preset;
-  if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) ||
-      !parse_metadata(content, PRESET_KEY, UINT8_MAX, &preset))
-    return 0;
-  const char *text = find_field(content, RAW_DATA_KEY);
-  if (text == NULL)
+  if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) || !parse_preset(content, &preset))
     return 0;
   size_t count = 0;
-  while (true) {
-    while (isspace((unsigned char)*text))
-      ++text;
-    if (*text == '\0')
+  bool has_raw = false;
+  for (const char *line = content; *line != '\0';) {
+    const char *end_line = strchr(line, '\n');
+    if (end_line == NULL)
+      end_line = line + strlen(line);
+    bool is_raw = strncmp(line, RAW_DATA_KEY, sizeof(RAW_DATA_KEY) - 1U) == 0;
+    const char *text = is_raw ? line + sizeof(RAW_DATA_KEY) - 1U : line;
+    if (is_raw)
+      has_raw = true;
+    else if (has_raw) {
+      while (text < end_line && isspace((unsigned char)*text))
+        ++text;
+      if (text != end_line && *text != '#')
+        return 0;
+    }
+    if (is_raw) {
+      size_t before = count;
+      while (text < end_line) {
+        while (text < end_line && isspace((unsigned char)*text))
+          ++text;
+        if (text == end_line)
+          break;
+        if (count == max_count)
+          return 0;
+        errno = 0;
+        char *end;
+        long value = strtol(text, &end, 10);
+        if (end == text || end > end_line || errno != 0 || value <= INT32_MIN ||
+            value > INT32_MAX || value == 0 || (end < end_line && !isspace((unsigned char)*end)))
+          return 0;
+        out_pulses[count++] = (int32_t)value;
+        text = end;
+      }
+      if (count == before)
+        return 0;
+    }
+    if (*end_line == '\0')
       break;
-    if (count == max_count)
-      return 0;
-    errno = 0;
-    char *end;
-    long value = strtol(text, &end, 10);
-    if (end == text || errno != 0 || value < INT32_MIN || value > INT32_MAX || value == 0 ||
-        (*end != '\0' && !isspace((unsigned char)*end)))
-      return 0;
-    out_pulses[count++] = (int32_t)value;
-    text = end;
+    line = end_line + 1;
   }
   if (count != 0) {
     if (out_frequency != NULL)
@@ -242,7 +344,7 @@ esp_err_t subghz_protocol_parse_capture(const char *content,
   *out_count = 0;
   uint32_t frequency = 0, preset = CC1101_PRESET_OOK_800KHZ;
   size_t count = 0;
-  if (find_field(content, RAW_DATA_KEY) != NULL) {
+  if (has_field(content, RAW_DATA_KEY)) {
     uint8_t raw_preset = 0;
     count = subghz_protocol_parse_raw(content, out_pulses, capacity, &frequency, &raw_preset);
     if (count == 0)
@@ -267,8 +369,7 @@ esp_err_t subghz_protocol_parse_capture(const char *content,
         !parse_key(find_field(content, "Key: "), &key))
       return ESP_ERR_INVALID_ARG;
     serial = key;
-    if ((strstr(content, "Preset:") != NULL &&
-         !parse_metadata(content, PRESET_KEY, UINT8_MAX, &preset)) ||
+    if ((has_field(content, "Preset:") && !parse_preset(content, &preset)) ||
         (strstr(content, "Serial:") != NULL &&
          !parse_metadata(content, "Serial: ", UINT32_MAX, &serial)) ||
         (strstr(content, "Btn:") != NULL && !parse_metadata(content, "Btn: ", UINT8_MAX, &button)))
@@ -278,6 +379,15 @@ esp_err_t subghz_protocol_parse_capture(const char *content,
                           .serial = serial,
                           .bit_count = (uint8_t)bits,
                           .btn = (uint8_t)button};
+    if (encoder->name != NULL &&
+        (strcmp(encoder->name, "Princeton") == 0 || strcmp(encoder->name, "RCSwitch") == 0)) {
+      if ((has_field(content, "TE:") &&
+           (!parse_metadata(content, "TE: ", CAPTURE_PRINCETON_TE_MAX, &data.te_us) ||
+            data.te_us == 0)) ||
+          (has_field(content, "Guard_time:") &&
+           !parse_metadata(content, "Guard_time: ", UINT32_MAX, &data.guard_time)))
+        return ESP_ERR_INVALID_ARG;
+    }
     count = subghz_protocol_registry_encode(protocol, &data, out_pulses, capacity);
     if (count == 0)
       return ESP_ERR_NOT_SUPPORTED;

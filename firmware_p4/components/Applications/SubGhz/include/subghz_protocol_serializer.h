@@ -76,7 +76,10 @@ size_t subghz_protocol_parse_raw(const char *content,
                                  uint32_t *out_frequency,
                                  uint8_t *out_preset);
 
-/** Parse a complete RAW or encodable decoded capture. Discard pulse output on error. */
+/** RAW plays once; decoded Repeat is bounded to 1..100 (Princeton default 10, others 5). */
+esp_err_t subghz_protocol_parse_repeat(const char *content, uint32_t *out_repeat);
+
+/** Parse one RAW sequence or one decoded frame. Discard pulse output on error. */
 esp_err_t subghz_protocol_parse_capture(const char *content,
                                         int32_t *out_pulses,
                                         size_t capacity,

@@ -16,12 +16,15 @@
 #include "subghz_storage.h"
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 #include "storage_mkdir.h"
 #include "subghz_protocol_serializer.h"
@@ -30,7 +33,8 @@
 static const char *TAG = "SUBGHZ_STORAGE";
 
 #define DECODED_BUF_SIZE 1024
-#define RAW_BUF_SIZE     8192
+/* Full 2048-pulse RMT capture, including signed decimal text and header. */
+#define RAW_BUF_SIZE     32768
 #define STORAGE_DIR      TOS_PATH_SUBGHZ
 #define PATH_BUF_SIZE    128
 #define HEADER_PEEK_SIZE 256
@@ -49,16 +53,23 @@ static esp_err_t write_file(const char *name, const char *content, size_t len) {
   char path[PATH_BUF_SIZE];
   build_path(path, sizeof(path), name);
 
-  FILE *f = fopen(path, "wb");
-  if (f == NULL) {
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+  if (fd < 0) {
     ESP_LOGE(TAG, "open for write failed: %s", path);
+    return ESP_FAIL;
+  }
+  FILE *f = fdopen(fd, "wb");
+  if (f == NULL) {
+    close(fd);
+    remove(path);
     return ESP_FAIL;
   }
 
   size_t written = fwrite(content, 1, len, f);
-  fclose(f);
+  int close_error = fclose(f);
 
-  if (written != len) {
+  if (written != len || close_error != 0) {
+    remove(path);
     ESP_LOGE(TAG, "short write: %s (%u/%u)", path, (unsigned)written, (unsigned)len);
     return ESP_FAIL;
   }
@@ -100,7 +111,7 @@ subghz_storage_save_raw(const char *name, const int32_t *pulses, size_t count, u
     return ESP_ERR_INVALID_ARG;
   }
 
-  char *buf = malloc(RAW_BUF_SIZE);
+  char *buf = heap_caps_malloc(RAW_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (buf == NULL)
     return ESP_ERR_NO_MEM;
 
@@ -161,7 +172,7 @@ int subghz_storage_list(subghz_storage_entry_t *out, int max_entries) {
   struct dirent *ent;
   char content[HEADER_PEEK_SIZE];
 
-  while ((ent = readdir(d)) != NULL && count < max_entries) {
+  while ((ent = readdir(d)) != NULL) {
     if (ent->d_name[0] == '.')
       continue;
     const char *dot = strrchr(ent->d_name, '.');
@@ -172,9 +183,23 @@ int subghz_storage_list(subghz_storage_entry_t *out, int max_entries) {
     if (base_len == 0 || base_len >= SUBGHZ_STORAGE_NAME_MAX)
       continue;
 
-    subghz_storage_entry_t *e = &out[count];
+    subghz_storage_entry_t candidate = {0};
+    subghz_storage_entry_t *e = &candidate;
     memcpy(e->name, ent->d_name, base_len);
     e->name[base_len] = '\0';
+    char path[PATH_BUF_SIZE];
+    struct stat info;
+    build_path(path, sizeof(path), e->name);
+    if (stat(path, &info) != 0 || !S_ISREG(info.st_mode))
+      continue;
+    e->modified = (int64_t)info.st_mtime;
+    int position = 0;
+    while (position < count &&
+           (out[position].modified > e->modified ||
+            (out[position].modified == e->modified && strcmp(out[position].name, e->name) <= 0)))
+      position++;
+    if (position >= max_entries)
+      continue;
     e->protocol[0] = '\0';
     e->frequency = 0;
 
@@ -184,7 +209,10 @@ int subghz_storage_list(subghz_storage_entry_t *out, int max_entries) {
     if (e->protocol[0] == '\0')
       strlcpy(e->protocol, "RAW", sizeof(e->protocol));
 
-    count++;
+    if (count < max_entries)
+      count++;
+    memmove(&out[position + 1], &out[position], (count - position - 1) * sizeof(*out));
+    out[position] = candidate;
   }
 
   closedir(d);

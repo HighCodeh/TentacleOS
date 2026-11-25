@@ -68,10 +68,24 @@ esp_err_t subghz_replay_file(const char *name) {
   size_t count = 0;
   uint32_t frequency = 0;
   uint8_t preset = 0;
+  uint32_t repeats = 0;
+  err = subghz_protocol_parse_repeat(content, &repeats);
+  if (err != ESP_OK)
+    goto cleanup;
   err = subghz_protocol_parse_capture(
       content, pulses, REPLAY_MAX_PULSES, &count, &frequency, &preset);
   if (err != ESP_OK)
     goto cleanup;
+  if (repeats > 1) {
+    if (count > REPLAY_MAX_PULSES / repeats) {
+      err = ESP_ERR_INVALID_SIZE;
+      goto cleanup;
+    }
+    // Keep repetitions contiguous so the receiving radio can settle within the burst.
+    for (size_t repeat = 1; repeat < repeats; ++repeat)
+      memcpy(pulses + repeat * count, pulses, count * sizeof(*pulses));
+    count *= repeats;
+  }
   if (subghz_receiver_is_running()) {
     subghz_receiver_stop();
     vTaskDelay(pdMS_TO_TICKS(REPLAY_RX_DRAIN_MS));
