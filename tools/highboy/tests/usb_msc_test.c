@@ -34,7 +34,7 @@ typedef struct { struct { uint32_t capacity, sector_size; } csd; } sdmmc_card_t;
 static sdmmc_card_t card = {.csd = {2097154048, 512}};
 static bool owned, exposed, mounted, initialized, in_flight;
 static int detach_error, restore_error, mux_error, io_error, sense, reads, writes;
-static uint32_t last_lba;
+static uint32_t last_lba, last_read_count;
 static int fail_write_call, restore_calls;
 static void (*pending)(void *);
 static void *pending_arg;
@@ -73,7 +73,7 @@ int usb_mux_set_native(bool value) { return value ? mux_error : ESP_OK; }
 int host_link_cdc_init(void) { return ESP_OK; }
 int sdmmc_get_status(sdmmc_card_t *raw) { assert(raw == &card && owned); return io_error; }
 int sdmmc_read_sectors(sdmmc_card_t *raw, void *buf, uint32_t lba, uint32_t count) {
-  assert(raw == &card && owned && buf && count > 0); reads++; last_lba = lba; return io_error;
+  assert(raw == &card && owned && buf && count > 0); reads++; last_lba = lba; last_read_count = count; return io_error;
 }
 int sdmmc_write_sectors(sdmmc_card_t *raw, const void *buf, uint32_t lba, uint32_t count) {
   assert(raw == &card && owned && buf && count > 0); writes++; last_lba = lba; assert(count == 1);
@@ -82,7 +82,7 @@ int sdmmc_write_sectors(sdmmc_card_t *raw, const void *buf, uint32_t lba, uint32
 #include "../../../firmware_p4/components/Service/storage_vfs/usb_msc.c"
 
 int main(void) {
-  uint8_t data[1024] = {0}, cmd[16] = {0};
+  uint8_t data[32768] = {0}, cmd[16] = {0};
   uint32_t count; uint16_t size;
   assert(!tud_msc_test_unit_ready_cb(0));
   for (int i = 0; i < 10; i++) {
@@ -91,8 +91,8 @@ int main(void) {
     mounted = true; assert(usb_msc_host_connected());
     usb_msc_enter();
     tud_msc_capacity_cb(0, &count, &size); assert(count == card.csd.capacity && size == 512);
-    assert(tud_msc_read10_cb(0, 8, 512, data, sizeof(data)) == sizeof(data)); assert(last_lba == 9);
-    assert(tud_msc_write10_cb(0, count - 2, 0, data, sizeof(data)) == sizeof(data));
+    assert(tud_msc_read10_cb(0, 8, 512, data, sizeof(data)) == sizeof(data)); assert(last_lba == 9 && last_read_count == 64);
+    assert(tud_msc_write10_cb(0, count - 64, 0, data, sizeof(data)) == sizeof(data));
     in_flight = initialized;
     usb_msc_exit(); assert(!owned && !exposed && usb_msc_get_state() == USB_MSC_IDLE);
   }
@@ -108,6 +108,7 @@ int main(void) {
   fail_write_call = writes + 2;
   assert(tud_msc_write10_cb(0, 0, 0, data, sizeof(data)) == -1);
   assert(sense == SCSI_SENSE_MEDIUM_ERROR);
+  assert(writes == fail_write_call);
   int io_count = reads + writes;
   for (int i = 0; i < 20; i++) {
     assert(tud_msc_read10_cb(0, 0, 0, data, sizeof(data)) == -1);
