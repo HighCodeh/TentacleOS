@@ -34,6 +34,7 @@ typedef struct { void (*entry)(void *);void *context; } task_t;
 static pthread_t s_thread;
 static bool s_thread_created;
 static atomic_bool s_grant_live,s_channel_live,s_enabled,s_encoder_live,s_tx_entered,s_hold_tx,s_dma_pending;
+static atomic_bool s_wait_entered;
 static atomic_uintptr_t s_dma_pointer;
 static atomic_uint s_alloc_count,s_received;
 static unsigned s_fail_alloc;
@@ -170,6 +171,7 @@ esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t encoder
   return s_fault==7?ESP_FAIL:ESP_OK;
 }
 esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
+  s_wait_entered=true;
   while(s_hold_tx)pause_tick();
   if (s_fault == 8) {
     return ESP_ERR_TIMEOUT;
@@ -200,8 +202,10 @@ int main(void) {
     subghz_tx_stop();join_worker();
   }
   s_fault=8;s_tx_entered=false;s_hold_tx=true;s_retries=0;s_disable_fail=s_delete_fail=s_encoder_delete_fail=2;
+  s_wait_entered=false;
   assert(subghz_tx_init()==ESP_OK);assert(subghz_tx_send_raw(timings,3)==ESP_OK);
-  while (!s_tx_entered) {
+  /* Cancel only after the mock wait is held, not while transmit is returning. */
+  while (!s_wait_entered) {
     pause_tick();
   }
   subghz_tx_stop();

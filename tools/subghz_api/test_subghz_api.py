@@ -51,7 +51,7 @@ typedef int esp_err_t;
         (temp/'led_control.h').write_text('void led_signal_error(void);\n')
         (temp/'power_manager.h').write_text('#include "esp_err.h"\nesp_err_t power_manager_no_sleep_acquire(void);\nesp_err_t power_manager_no_sleep_release(void);\n')
         command=[*shlex.split(os.environ.get('CC','cc')),'-std=gnu11','-Wall','-Wextra','-Werror',
-                 '-Wno-unused-parameter','-fsanitize=address,undefined','-fno-sanitize-recover=all','-pthread']
+                 '-Wno-unused-parameter','-fsanitize='+os.environ.get('HIGHBOY_TEST_SANITIZERS','address,undefined'),'-fno-sanitize-recover=all','-pthread']
         for folder in [temp,HERE/'fixtures',SERVICE/'app_runtime',SERVICE/'app_runtime/include',
                        SERVICE/'host_link/include',ROOT/'firmware_p4/components/Core/resource_mgr/include',
                        DRIVER/'include',APPS,APPS/'include',APPS/'protocols/include']:

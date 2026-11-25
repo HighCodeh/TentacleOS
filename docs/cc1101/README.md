@@ -19,6 +19,19 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 This component provides a full driver for the Texas Instruments CC1101 low-power sub-GHz RF transceiver. It handles SPI communication, frequency configuration, modulation presets, and TX/RX operations.
 
+## Frequency analyzer sampling
+
+`cc1101_scan_rssi(frequency, &rssi)` performs checked tune/calibration, RX entry,
+2 ms settling and a single RSSI read under one bounded SPI3 reservation. Only
+that owning task uses polling SPI inside the reservation. Every failure path
+releases the bus and leaves the output unchanged; the caller retains radio
+ownership for checked IDLE cleanup. Other users retain the existing transaction
+path. The analyzer configures manual calibration (MCSM0=0x08) to avoid repeating
+SCAL on SRX. See [frequency analyzer](../frequency_analyzer/README.md).
+
+Production-driver host tests cover one reservation per sample, every SPI failure,
+failed lock acquisition, calibration timeout, invalid arguments and release.
+
 ## Overview
 
 - **Location:** `components/Drivers/cc1101/`
@@ -58,30 +71,70 @@ they are distinct from the current prototype selection below. The report notes
 high measurement uncertainty at 315/433 MHz.
 These supplied hardware documents are reference inputs, not packaged firmware assets.
 
-The current driver uses Vini's prototype link measurements from 13 November 2026:
+The current lab profile uses the 20 November 2026 comparison on unit **02018913**:
 
 | Supported tuning range | Selected branch | V1 / GPIO17 | V2 / GPIO18 |
 | --- | --- | --- | --- |
 | 300–348 MHz (315 band) | RF1 | 0 | 0 |
-| 387–464 MHz (433 band) | RF1 | 0 | 0 |
-| 779–928 MHz (868/915 bands) | RF2 | 0 | 1 |
+| 387–464 MHz (433 band) | RF2 | 0 | 1 |
+| 779–<900 MHz (868 band) | RF4 | 1 | 1 |
+| 900–928 MHz (915 band) | RF2 | 0 | 1 |
 
-The supplied results compare High Boy transmission received by a Flipper at
-5 cm, 50 cm and 1 m, with two 1 s carrier bursts per cell at nominal 0 dBm.
-RF1 led at 433.92 MHz at all distances and at 315 MHz at 5/50 cm; the 315 MHz
-results at 1 m were near the noise floor. RF2 led at 915 MHz at all distances
-and at 868.35 MHz at 5/50 cm, while RF1 led at 868.35 MHz at 1 m. RF2 is the
-selected upper-band compromise for this prototype. Applying these choices
-across each supported band is firmware policy; these limited measurements do
-not establish a best path at every frequency, receive performance or suitability
-for other board assemblies.
+At 433.92 MHz, RF2 improved received Flipper signal by 11.5 dB over RF1;
+High Boy carrier transmission at nominal 0 dBm improved by 13 dB. At
+868.35 MHz RF4 led RF2 by 4.5 dB for High Boy transmission. These are uncalibrated
+RSSI comparisons with adjacent devices on an open bench, not range or antenna
+efficiency certification. The 315/915 selections are retained from the earlier
+unit 0201891B comparison; only configuration/noise was checked there on 20 November.
+The upper-band Flipper-to-High-Boy known-signal test remains unverified.
 
-This selection applies independently of `CONFIG_HIGHBOY_BOARD_V203`. The PA
-tables remain frequency-specific, with their existing 900 MHz boundary between
-868/915 tables; that boundary no longer changes the RF path. Invalid frequencies
-are rejected before touching the GPIOs or radio.
+The 13 November profile used RF1 at 315/433 and RF2 at 868/915 on another unit.
+Different assembly and positioning produced different optima. Do not generalize
+this prototype profile to all units without conducted and over-the-air measurements.
+All four paths remain available in RF Lab. PA tables remain frequency-specific.
+Invalid frequencies are rejected before touching GPIOs or the radio.
+
 Changes to either switch pin require a confirmed IDLE state, followed by the
 switch's 5 us maximum settling interval before tuning.
+
+### Power and OOK gain profile
+
+The nominal power steps are -30, -20, -15, -10, 0, 5, 7 and 10 dBm.
+The 868/915 MHz tables follow TI SWRS061I table 37, retaining the existing
+wire-wound reference profile; 315/433 MHz use table 39. The former upper-band
+arrays included an extra -6 dBm entry but used the eight-step index, so requests
+for 0/5/7/10 dBm selected -6/0/5/7 dBm codes. The corrected indices select the
+requested nominal step, including C5/C3 for 10 dBm at 868/915 MHz. These are
+reference register values; output on this PCB still requires conducted calibration.
+See [TI CC1101 datasheet, tables 37 and 39](https://www.ti.com/lit/ds/symlink/cc1101.pdf).
+
+The standard OOK270/OOK650 and 2-FSK 2.38/47.6 kHz modem profiles follow
+[official Flipper revision a8a24de3](https://github.com/flipperdevices/flipperzero-firmware/blob/a8a24de3ff394f77d599ea8ba9c073398670c880/lib/subghz/devices/cc1101_configs.c).
+Each profile programs its complete modem, AGC, FIFO retention, frequency compensation
+and frontend settings after reset, before tuning/calibration and RX entry.
+
+| Profile | MDMCFG4/3/2/1/0 | AGCCTRL2/1/0 | FIFOTHR | FOCCFG |
+| --- | --- | --- | --- | --- |
+| OOK270 | 67/32/30/00/00 | 03/00/40 | 47 | 18 |
+| OOK650 | 17/32/30/00/00 | 07/00/91 | 07 | 18 |
+| 2-FSK 2.38 | 67/83/04/02/00 | 07/00/91 | 07 | 16 |
+| 2-FSK 47.6 | 67/83/04/02/00 | 07/00/91 | 07 | 16 |
+
+Values are hexadecimal. OOK modem rate is 3.793716 kbaud; 2-FSK is 4.79794 kbaud.
+OOK uses FREND1=B6; FSK uses 56. All four use BSCFG=6C, WORCTRL=FB,
+MCSM0=18 and async PKTCTRL0=32. OOK270 no longer shares OOK650's gain target
+and hysteresis. FSK 2.38 now uses the reference 270.833 kHz receive filter;
+its previous 58 kHz filter was not the Flipper profile. Stored numeric preset IDs
+remain stable, but their radio settings have changed. The OOK812 and FSK95
+extensions, including the legacy generic async entry points, retain their prior
+modem behavior and are not claimed to be Flipper presets.
+
+PA tables, High Boy switch GPIOs, GDO2 high impedance and checked synthesizer
+calibration remain board-specific. AGC is automatic; these settings do not prove
+maximum sensitivity or equivalent range. The 21 November candidate is host-tested
+and requires new physical acceptance; earlier hardware results used the prior
+profiles. Host checks cover register values, nominal PA steps, IDLE ordering and
+failure at every SPI transaction. No increased radiated power is inferred.
 
 ## Modulation Presets (`cc1101_preset_t`)
 
@@ -91,7 +144,7 @@ switch's 5 us maximum settling interval before tuning.
 | `CC1101_PRESET_OOK_270KHZ`| ASK/OOK | 270 kHz     |
 | `CC1101_PRESET_OOK_650KHZ`| ASK/OOK | 650 kHz     |
 | `CC1101_PRESET_OOK_800KHZ`| ASK/OOK | 812 kHz     |
-| `CC1101_PRESET_2FSK_2KHZ` | 2-FSK   | 58 kHz       |
+| `CC1101_PRESET_2FSK_2KHZ` | 2-FSK   | 270 kHz      |
 | `CC1101_PRESET_2FSK_47KHZ`| 2-FSK   | 270 kHz      |
 | `CC1101_PRESET_2FSK_95KHZ`| 2-FSK   | 540 kHz      |
 
@@ -167,7 +220,7 @@ esp_err_t cc1101_enable_async_mode(uint32_t freq_hz);
 ```
 Configures **ASK/OOK async serial output** on GDO0 for RMT capture, with infinite
 packet length, no sync-word qualification, and approximately 812 kHz RX bandwidth.
-Retains the existing AGCCTRL2/1/0 profile `C7/00/91`; this is not a maximum-gain
+Retains the extension AGCCTRL2/1/0 profile `07/00/91`; this is not a maximum-gain
 claim. OOK disables frequency-offset compensation (`FOC_LIMIT=0`), as required
 by the CC1101 datasheet. The current PA request is retained across presets.
 

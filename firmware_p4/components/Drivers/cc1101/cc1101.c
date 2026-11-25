@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
@@ -69,15 +70,10 @@
 #define CC1101_RATE_EXPONENT_MASK       0x0FU
 #define CC1101_BANDWIDTH_MASK           0xF0U
 #define CC1101_CHSP_EXPONENT_MASK       0x03U
-#define CC1101_DEFAULT_RATE_BAUD        4800.0f
-#define CC1101_DEFAULT_BANDWIDTH_KHZ    812.0f
-#define CC1101_DEFAULT_DEVIATION_KHZ    47.0f
 #define CC1101_DEFAULT_PA_DBM           10
 #define CC1101_GDO_HIGH_IMPEDANCE       0x2EU
 #define CC1101_GDO_ASYNC_DATA           0x0DU
 #define CC1101_PKT_ASYNC                0x32U
-#define CC1101_FOC_OOK                  0x14U
-#define CC1101_FOC_FSK                  0x16U
 #define CC1101_MAX_TX_FIFO              61
 #define CC1101_PA_TABLE_SIZE            8
 #define CC1101_RSSI_OFFSET              74
@@ -115,8 +111,88 @@
 #define CC1101_RSSI_SIGN_RANGE     256
 #define CC1101_RSSI_DB_PER_STEP    0.5f
 
+typedef struct {
+  uint8_t modem[5]; // MDMCFG4 through MDMCFG0.
+  uint8_t modulation;
+  uint8_t deviation;
+  uint8_t fifo_threshold;
+  uint8_t packet_control;
+  uint8_t foc;
+  uint8_t agc_target;
+  uint8_t agc_control;
+  uint8_t frontend;
+  uint8_t bit_sync;
+} cc1101_async_profile_t;
+
+/* Modem/AGC settings: official Flipper a8a24de3, lib/subghz/devices/cc1101_configs.c.
+ * PA, RF switches and synthesizer calibration remain board-specific. */
+static const cc1101_async_profile_t ASYNC_PROFILES[CC1101_PRESET_COUNT] = {
+    [CC1101_PRESET_OOK_270KHZ] = {.modem = {0x67, 0x32, 0x30, 0x00, 0x00},
+                                  .modulation = CC1101_MOD_ASK,
+                                  .deviation = 0x47,
+                                  .fifo_threshold = 0x47,
+                                  .packet_control = 0x00,
+                                  .foc = 0x18,
+                                  .agc_target = 0x03,
+                                  .agc_control = 0x40,
+                                  .frontend = 0xB6,
+                                  .bit_sync = 0x6C},
+    [CC1101_PRESET_OOK_650KHZ] = {.modem = {0x17, 0x32, 0x30, 0x00, 0x00},
+                                  .modulation = CC1101_MOD_ASK,
+                                  .deviation = 0x47,
+                                  .fifo_threshold = 0x07,
+                                  .packet_control = 0x00,
+                                  .foc = 0x18,
+                                  .agc_target = 0x07,
+                                  .agc_control = 0x91,
+                                  .frontend = 0xB6,
+                                  .bit_sync = 0x6C},
+    [CC1101_PRESET_2FSK_2KHZ] = {.modem = {0x67, 0x83, 0x04, 0x02, 0x00},
+                                 .modulation = CC1101_MOD_2FSK,
+                                 .deviation = 0x04,
+                                 .fifo_threshold = 0x07,
+                                 .packet_control = 0x04,
+                                 .foc = 0x16,
+                                 .agc_target = 0x07,
+                                 .agc_control = 0x91,
+                                 .frontend = 0x56,
+                                 .bit_sync = 0x6C},
+    [CC1101_PRESET_2FSK_47KHZ] = {.modem = {0x67, 0x83, 0x04, 0x02, 0x00},
+                                  .modulation = CC1101_MOD_2FSK,
+                                  .deviation = 0x47,
+                                  .fifo_threshold = 0x07,
+                                  .packet_control = 0x04,
+                                  .foc = 0x16,
+                                  .agc_target = 0x07,
+                                  .agc_control = 0x91,
+                                  .frontend = 0x56,
+                                  .bit_sync = 0x6C},
+    /* Existing High Boy extensions, not Flipper standard presets. */
+    [CC1101_PRESET_2FSK_95KHZ] = {.modem = {0x27, 0x83, 0x00, 0x02, 0xF8},
+                                  .modulation = CC1101_MOD_2FSK,
+                                  .deviation = 0x57,
+                                  .fifo_threshold = 0x07,
+                                  .packet_control = 0x00,
+                                  .foc = 0x16,
+                                  .agc_target = 0xC7,
+                                  .agc_control = 0x91,
+                                  .frontend = 0x56,
+                                  .bit_sync = 0x1C},
+    [CC1101_PRESET_OOK_800KHZ] = {.modem = {0x07, 0x83, 0x30, 0x02, 0xF8},
+                                  .modulation = CC1101_MOD_ASK,
+                                  .deviation = 0x47,
+                                  .fifo_threshold = 0x07,
+                                  .packet_control = 0x00,
+                                  .foc = 0x14,
+                                  .agc_target = 0x07,
+                                  .agc_control = 0x91,
+                                  .frontend = 0xB6,
+                                  .bit_sync = 0x1C},
+};
+
 static const char *TAG = "CC1101_DRIVER";
 static spi_device_handle_t s_cc1101_spi = NULL;
+static _Atomic(TaskHandle_t) s_scan_bus_owner;
 
 static uint32_t s_current_freq_hz = CC1101_DEFAULT_FREQ_HZ;
 static bool s_is_tuned;
@@ -130,9 +206,9 @@ static const uint8_t PA_TABLE_315[CC1101_PA_TABLE_SIZE] = {
 static const uint8_t PA_TABLE_433[CC1101_PA_TABLE_SIZE] = {
     0x12, 0x0E, 0x1D, 0x34, 0x60, 0x84, 0xC8, 0xC0}; // 387 - 464 MHz
 static const uint8_t PA_TABLE_868[CC1101_PA_TABLE_SIZE] = {
-    0x03, 0x17, 0x1D, 0x26, 0x37, 0x50, 0x86, 0xCD}; // 779 - 899 MHz
+    0x03, 0x17, 0x1D, 0x26, 0x50, 0x86, 0xCD, 0xC5}; // -30/-20/-15/-10/0/5/7/10 dBm
 static const uint8_t PA_TABLE_915[CC1101_PA_TABLE_SIZE] = {
-    0x03, 0x0E, 0x1E, 0x27, 0x38, 0x8E, 0x84, 0xCC}; // 900 - 928 MHz
+    0x03, 0x0E, 0x1E, 0x27, 0x8E, 0x84, 0xCC, 0xC3}; // TI SWRS061I table 37
 
 static esp_err_t write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len);
 static esp_err_t write_reg_impl(uint8_t reg, uint8_t val);
@@ -440,8 +516,7 @@ static esp_err_t enter_idle(void) {
   return wait_for_state(CC1101_MARCSTATE_IDLE);
 }
 
-static esp_err_t
-configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, float deviation_khz) {
+static esp_err_t configure_sniffer(uint32_t freq_hz, const cc1101_async_profile_t *profile) {
   if (cc1101_rf_path_for_frequency(freq_hz) == CC1101_RF_PATH_NONE)
     return ESP_ERR_INVALID_ARG;
   s_is_tuned = false;
@@ -455,18 +530,11 @@ configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, flo
       {CC1101_IOCFG0, CC1101_GDO_ASYNC_DATA},
       {CC1101_IOCFG2, CC1101_GDO_HIGH_IMPEDANCE},
       {CC1101_PKTCTRL0, CC1101_PKT_ASYNC},
-      {CC1101_PKTCTRL1, 0x00},
       {CC1101_PKTLEN, 0x00},
       {CC1101_CHANNR, 0x00},
-      {CC1101_MDMCFG2, 0x00}, // Async data must not require a sync word.
-      {CC1101_MDMCFG1, 0x02},
-      {CC1101_MDMCFG0, 0xF8},
       {CC1101_MCSM0, 0x18},
-      {CC1101_BSCFG, 0x1C},
-      {CC1101_AGCCTRL2, 0xC7},
       {CC1101_AGCCTRL1, 0x00},
-      {CC1101_AGCCTRL0, 0x91},
-      {CC1101_FREND1, 0x56},
+      {CC1101_WORCTRL, 0xFB},
       {CC1101_FSCAL3, 0xE9},
       {CC1101_FSCAL2, 0x2A},
       {CC1101_FSCAL1, 0x00},
@@ -477,12 +545,20 @@ configure_sniffer(uint32_t freq_hz, uint8_t modulation, float bandwidth_khz, flo
   };
   for (size_t i = 0; i < sizeof(ASYNC_REGISTERS) / sizeof(ASYNC_REGISTERS[0]); ++i)
     CC1101_RETURN_ON_ERROR(write_reg_impl(ASYNC_REGISTERS[i][0], ASYNC_REGISTERS[i][1]));
-  uint8_t foc = modulation == CC1101_MOD_ASK ? CC1101_FOC_OOK : CC1101_FOC_FSK;
-  CC1101_RETURN_ON_ERROR(write_reg_impl(CC1101_FOCCFG, foc));
-  CC1101_RETURN_ON_ERROR(set_rx_bandwidth_impl(bandwidth_khz));
-  CC1101_RETURN_ON_ERROR(set_data_rate_impl(CC1101_DEFAULT_RATE_BAUD));
-  CC1101_RETURN_ON_ERROR(set_deviation_impl(deviation_khz));
-  CC1101_RETURN_ON_ERROR(set_modulation_impl(modulation));
+  CC1101_RETURN_ON_ERROR(write_burst_impl(CC1101_MDMCFG4, profile->modem, sizeof(profile->modem)));
+  const uint8_t registers[][2] = {
+      {CC1101_DEVIATN, profile->deviation},
+      {CC1101_FIFOTHR, profile->fifo_threshold},
+      {CC1101_PKTCTRL1, profile->packet_control},
+      {CC1101_FOCCFG, profile->foc},
+      {CC1101_AGCCTRL2, profile->agc_target},
+      {CC1101_AGCCTRL0, profile->agc_control},
+      {CC1101_FREND1, profile->frontend},
+      {CC1101_BSCFG, profile->bit_sync},
+  };
+  for (size_t i = 0; i < sizeof(registers) / sizeof(registers[0]); ++i)
+    CC1101_RETURN_ON_ERROR(write_reg_impl(registers[i][0], registers[i][1]));
+  CC1101_RETURN_ON_ERROR(set_modulation_impl(profile->modulation));
   CC1101_RETURN_ON_ERROR(set_frequency_impl(freq_hz));
   esp_err_t error = enter_rx_mode_impl();
   if (error != ESP_OK)
@@ -522,18 +598,51 @@ static esp_err_t cc1101_txn(spi_transaction_t *t) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+  bool is_scan_owner = atomic_load(&s_scan_bus_owner) == xTaskGetCurrentTaskHandle();
+  if (!is_scan_owner && !spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
     ESP_LOGE(TAG, "SPI3 bus lock timeout");
     cc1101_lease_record_error(ESP_ERR_TIMEOUT);
     return ESP_ERR_TIMEOUT;
   }
 
-  esp_err_t err = spi_device_transmit(s_cc1101_spi, t);
-  spi_bus_lock_give();
+  esp_err_t err = is_scan_owner ? spi_device_polling_transmit(s_cc1101_spi, t)
+                                : spi_device_transmit(s_cc1101_spi, t);
+  if (!is_scan_owner)
+    spi_bus_lock_give();
   if (err != ESP_OK)
     ESP_LOGE(TAG, "SPI transaction failed: %s", esp_err_to_name(err));
   cc1101_lease_record_error(err);
   return err;
+}
+
+esp_err_t cc1101_scan_rssi(uint32_t freq_hz, float *out_dbm) {
+  if (out_dbm == NULL || cc1101_rf_path_for_frequency(freq_hz) == CC1101_RF_PATH_NONE)
+    return ESP_ERR_INVALID_ARG;
+  if (!cc1101_lease_enter())
+    return ESP_ERR_INVALID_STATE;
+  if (!spi_bus_lock_take(CC1101_BUS_LOCK_TIMEOUT_MS)) {
+    cc1101_lease_record_error(ESP_ERR_TIMEOUT);
+    cc1101_lease_leave();
+    return ESP_ERR_TIMEOUT;
+  }
+  // One bounded bus reservation per point. Display DMA cannot interleave between
+  // every register transaction; other tasks still wait on the normal bus lock.
+  atomic_store(&s_scan_bus_owner, xTaskGetCurrentTaskHandle());
+  esp_err_t error = set_frequency_impl(freq_hz);
+  if (error == ESP_OK)
+    error = enter_rx_mode_impl();
+  uint8_t raw = 0;
+  if (error == ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(2));
+    error = get_register_impl(CC1101_RSSI | CC1101_STATUS_READ, &raw);
+  }
+  atomic_store(&s_scan_bus_owner, NULL);
+  spi_bus_lock_give();
+  if (error == ESP_OK)
+    *out_dbm = cc1101_convert_rssi(raw);
+  cc1101_lease_record_error(error);
+  cc1101_lease_leave();
+  return error;
 }
 
 static esp_err_t write_burst_impl(uint8_t reg, const uint8_t *buf, uint8_t len) {
@@ -1053,13 +1162,14 @@ static esp_err_t recover_impl(void) {
 }
 
 static esp_err_t enable_async_mode_impl(uint32_t freq_hz) {
-  return configure_sniffer(
-      freq_hz, CC1101_MOD_ASK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
+  return configure_sniffer(freq_hz, &ASYNC_PROFILES[CC1101_PRESET_OOK_800KHZ]);
 }
 
 static esp_err_t enable_fsk_mode_impl(uint32_t freq_hz) {
-  return configure_sniffer(
-      freq_hz, CC1101_MOD_2FSK, CC1101_DEFAULT_BANDWIDTH_KHZ, CC1101_DEFAULT_DEVIATION_KHZ);
+  cc1101_async_profile_t profile = ASYNC_PROFILES[CC1101_PRESET_2FSK_95KHZ];
+  profile.modem[0] = ASYNC_PROFILES[CC1101_PRESET_OOK_800KHZ].modem[0];
+  profile.deviation = ASYNC_PROFILES[CC1101_PRESET_2FSK_47KHZ].deviation;
+  return configure_sniffer(freq_hz, &profile);
 }
 
 static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
@@ -1070,13 +1180,7 @@ static esp_err_t set_preset_impl(cc1101_preset_t preset, uint32_t freq_hz) {
     s_active_preset_id = CC1101_PRESET_IDLE;
     return ESP_OK;
   }
-  static const float PRESET_BANDWIDTH_KHZ[CC1101_PRESET_COUNT] = {0, 270, 650, 58, 270, 540, 812};
-  static const float PRESET_DEVIATION_KHZ[CC1101_PRESET_COUNT] = {
-      0, 47, 47, 2.38f, 47.6f, 95.2f, 47};
-  bool is_fsk = preset >= CC1101_PRESET_2FSK_2KHZ && preset <= CC1101_PRESET_2FSK_95KHZ;
-  uint8_t modulation = is_fsk ? CC1101_MOD_2FSK : CC1101_MOD_ASK;
-  esp_err_t error = configure_sniffer(
-      freq_hz, modulation, PRESET_BANDWIDTH_KHZ[preset], PRESET_DEVIATION_KHZ[preset]);
+  esp_err_t error = configure_sniffer(freq_hz, &ASYNC_PROFILES[preset]);
   CC1101_RETURN_ON_ERROR(error);
   s_active_preset_id = (uint8_t)preset;
   return ESP_OK;

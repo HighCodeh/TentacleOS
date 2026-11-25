@@ -83,7 +83,7 @@ Sleep acknowledgements and control readback are not RF spectrum measurements. P4
 | SX1262 | 868.1, 915 | CW | -9 dBm, 1 s |
 | SX1262 | 868.1, 915 | synthetic LoRa packets | -9 dBm, 5 s; SF7/BW125/CR4-5 |
 
-CC defaults RF1 for 315/433 and RF2 for 868/915 from unit 0201891B comparisons; these are not universal antenna optima. All four branches remain selectable. Existing receive, SF/BW/CR, duration, interval and power controls remain available. Preset selection never starts TX.
+CC defaults RF1/315, RF2/433, RF4/868 and RF2/915. The 433/868 paths follow the 20-Nov-2026 unit 02018913 bench comparison; 315/915 retain the earlier unit 0201891B choices. These are not universal antenna optima. All four branches remain selectable. Existing receive, SF/BW/CR, duration, interval and power controls remain available. Preset selection never starts TX.
 
 ## Verification
 

@@ -155,6 +155,10 @@ esp_err_t cc1101_recover(void);
  * @return ESP_OK on success; errors are also recorded for the task-owned lease.
  */
 esp_err_t cc1101_set_frequency(uint32_t freq_hz);
+/** Checked tune/calibrate/RX/2 ms settle/RSSI under one SPI bus reservation.
+ * Caller owns the radio and has configured a receiver preset. No transmission.
+ * Output is unchanged on error; the bus reservation is always released. */
+esp_err_t cc1101_scan_rssi(uint32_t freq_hz, float *out_dbm);
 
 /**
  * @brief Configure a preset in IDLE and enter RX after successful calibration.

@@ -32,12 +32,12 @@ int gpio_set_direction(int pin,int mode) { directions[pin]=mode; return 0; }
 int gpio_set_level(int pin,int level) { pins[pin]=level; return 0; }
 int gpio_input_enable(int pin) {(void)pin;return 0;}
 int gpio_get_level(int pin) { return pins[pin]; }
-void cc1101_init(void) {}
+esp_err_t cc1101_init(void) { return ESP_OK; }
 bool cc1101_is_initialized(void) { return true; }
 int cc1101_lease_take_error(void) { int e=error;error=0;return e; }
-void cc1101_write_reg(uint8_t reg,uint8_t value) {
+esp_err_t cc1101_write_reg(uint8_t reg,uint8_t value) {
   assert(reg!=CC1101_FSTEST && reg!=CC1101_PTEST && reg!=CC1101_AGCTEST);
-  regs[reg]=value; ++writes;
+  regs[reg]=value; ++writes; return ESP_OK;
 }
 uint8_t cc1101_read_reg(uint8_t reg) {
   if (reg==(CC1101_MARCSTATE|0x40)) {
@@ -50,11 +50,12 @@ uint8_t cc1101_read_reg(uint8_t reg) {
   if (bad_read && reg==CC1101_IOCFG0) return regs[reg]^1;
   return regs[reg&0x3f];
 }
-void cc1101_write_burst(uint8_t reg,const uint8_t *data,uint8_t len) {
+esp_err_t cc1101_write_burst(uint8_t reg,const uint8_t *data,uint8_t len) {
   if (reg==CC1101_PATABLE) memcpy(pa,data,len);
   else if (reg==CC1101_TXFIFO) {memcpy(fifo,data,len);regs[CC1101_TXBYTES]=len;}
   else memcpy(regs+reg,data,len);
   ++writes;
+  return ESP_OK;
 }
 void cc1101_read_burst(uint8_t reg,uint8_t *data,uint8_t len) {
   if (reg==CC1101_PATABLE) memcpy(data,pa,len);
@@ -62,7 +63,7 @@ void cc1101_read_burst(uint8_t reg,uint8_t *data,uint8_t len) {
   else memcpy(data,regs+reg,len);
 }
 static bool completed_before_poll, dropped_stx, fifo_underflow;
-void cc1101_strobe(uint8_t command) {
+esp_err_t cc1101_strobe(uint8_t command) {
   if (command==CC1101_SIDLE || command==CC1101_SCAL) regs[CC1101_MARCSTATE]=1;
   if (command==CC1101_SRX) regs[CC1101_MARCSTATE]=13;
   if (command==CC1101_STX && !dropped_stx) {regs[CC1101_MARCSTATE]=19;tx_start=now;cw=regs[CC1101_PKTCTRL0]==0x32;
@@ -71,6 +72,7 @@ void cc1101_strobe(uint8_t command) {
   }
   if (command==CC1101_SFRX) regs[CC1101_RXBYTES]=0;
   if (command==CC1101_SFTX) regs[CC1101_TXBYTES]=0;
+  return ESP_OK;
 }
 int main(void) {
   rf_chamber_config_t c={.radio=RF_CHAMBER_CC,.mode=RF_CHAMBER_CW,.frequency_hz=433920000,
