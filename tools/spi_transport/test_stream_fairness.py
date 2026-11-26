@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 src=(ROOT/'firmware_p4/components/Service/spi_bridge/spi_bridge.c').read_text()
 a=src.index('static void stream_task(void *arg) {')
-function=src[a:src.index('\nstatic esp_err_t retain_failure(',a)]
+function=src[a:src.index('\nstatic esp_err_t',a)]
 fixture=r"""
 #include <assert.h>
 #include <stdint.h>

@@ -18,6 +18,7 @@
 import subprocess
 import tempfile
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[2]
 source = (ROOT / "firmware_p4/components/Service/spi_bridge/spi_bridge.c").read_text()
@@ -25,15 +26,16 @@ header = (ROOT / "firmware_p4/components/Service/spi_bridge/include/spi_bridge.h
 start = header.index("typedef enum {\n  SPI_BRIDGE_PHASE_LOCAL")
 end = header.index("/** Read retained", start)
 types = header[start:end]
-def function(signature):
-    start = source.index(signature)
-    return source[start:source.index("\n}", start) + 2]
+def function(name):
+    match = re.search(r"(?:static\s+)?esp_err_t\s+" + name + r"\([^;{]*\{.*?\n}", source, re.S)
+    assert match, name
+    return match.group()
 
 production = """static spi_bridge_failure_t s_failures[SPI_BRIDGE_FAILURE_COUNT];
 static portMUX_TYPE s_failure_lock = portMUX_INITIALIZER_UNLOCKED;
 """
-production += function("static esp_err_t retain_failure(spi_id_t command, spi_bridge_phase_t phase,\n                                int64_t started, esp_err_t error) {")
-production += function("esp_err_t spi_bridge_get_failures(")
+production += function("retain_failure")
+production += function("spi_bridge_get_failures")
 fixture = r"""
 #include <assert.h>
 #include <stdbool.h>

@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 src = (ROOT / "firmware_p4/components/Drivers/usb_ethernet/usb_ethernet.c").read_text()
 def extract(name):
-    m = re.search(r"static [^\n]+ " + name + r"\(.*?\n}", src, re.S)
+    m = re.search(r"static\s+\w+\s+" + name + r"\([^;{]*\{.*?\n}", src, re.S)
     assert m, name
     return m.group()
 defines = "\n".join(line for line in src.splitlines() if line.startswith("#define "))
