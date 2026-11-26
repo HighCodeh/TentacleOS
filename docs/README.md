@@ -54,6 +54,7 @@ below; in-tree READMEs point to it.
 | `drv2605l` | [README.md](drv2605l/README.md) - TI DRV2605L haptic motor driver |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
+| `sdmmc` | [README.md](sdmmc/README.md) - checked multi-sector writes |
 | `fatfs` | [README.md](fatfs/README.md) - exFAT integration and filesystem validation |
 | `firmware_crypto` | [README.md](crypto/README.md) - shared public PSA cryptography |
 | `gameboy` | [README.md](gameboy/README.md) - Game Boy emulator application |

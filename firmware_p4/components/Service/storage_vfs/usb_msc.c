@@ -213,13 +213,7 @@ transfer(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t size
     return 0;
   esp_err_t err = ESP_OK;
   if (is_write) {
-    // IDF 6.1 multi-block error recovery can replace the write error with CMD22 success.
-    for (uint32_t done = 0; done < size; done += sector_size) {
-      err = sdmmc_write_sectors(
-          s_card, (const uint8_t *)buffer + done, (address + done) / sector_size, 1);
-      if (err != ESP_OK)
-        break;
-    }
+    err = sdmmc_write_sectors(s_card, buffer, address / sector_size, size / sector_size);
   } else {
     err = sdmmc_read_sectors(s_card, buffer, address / sector_size, size / sector_size);
   }

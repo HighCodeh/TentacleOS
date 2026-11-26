@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "idf_version": "v6.1",
+  "sdk_version_sha256": "09228291a5c5ee860c432c782a79bb2abd24e6989254d5d5614de7a8d822b747",
+  "files": {
+    "CMakeLists.txt": "ef64ddfcf086c054eeac18c5eb8d4fc637847fd53f10c065533d7516785dbeff",
+    "Kconfig": "606b7781102f9a380b6b0f8dd749c2e88416ca4f24b1804ece3d2e71dd3cdc0f",
+    "README.md": "a494a846ae3cb5833d8f6aa5c90ded0bbbfeb9763cacc600c208db3139822fe5",
+    "include/esp_private/sdmmc_common.h": "354daa4c52af56fe81c2ca895c7a7033079fd1472435d4e639e4e922ec64d9a3",
+    "include/sd_protocol_defs.h": "518a6d9f8276d4be53f2ba842bcf301ed6c6aa400dce448f771bd63859559110",
+    "include/sd_protocol_types.h": "edfed713ff670fac43958f2102e4c0bd852ea41239194cb2ec6c4b4e66da21a9",
+    "include/sd_pwr_ctrl.h": "70fff9dc05c7a01b1f2165bffd45b1d28f1baffc390a4ebb55c692f96742cd6f",
+    "include/sd_pwr_ctrl_by_on_chip_ldo.h": "61fd0239547203c457e42b6a3baaff137cf57bfdd07413a2058fb96eab5ad0a6",
+    "include/sd_pwr_ctrl_interface.h": "0ad1bc7d0f192139ba35bde3a8d60112b0e7c3a8ff5b2b1f88fc1800b2389931",
+    "include/sdmmc_cmd.h": "64d47da9fdbf9bca071c89c0b844c3e9b9fa3da5c5dfdd3517cb1aaf4990c407",
+    "sd_pwr_ctrl/sd_pwr_ctrl.c": "3d6b0c0f43dc9bf2f32d31f4e3926c21b7ef32f8f467778a03c262fbfd12acf7",
+    "sd_pwr_ctrl/sd_pwr_ctrl_by_on_chip_ldo.c": "2da64c9cee25917d543b3207aff446716b899d600327f48532d660e15b149f72",
+    "sdmmc_blockdev.c": "e7b3b4ea1910fa7493d02483969066f1be844a4c493f944fed621abce1d5d123",
+    "sdmmc_cmd.c": "a0f91ab61bb9e34f8820b76521446dc9e07d63c279897459d48efabd8fafd85b",
+    "sdmmc_common.c": "dcba1e118448893385151be4a6ffe79fec96e3b97b975309b512776011ebe5df",
+    "sdmmc_init.c": "f0017f5c343d7a6d31159acbec66cf02e4f052cf15d48c5bbb4e7b7d308337c2",
+    "sdmmc_io.c": "ac02a1ce82b1989481ae5b36afc179b282adb8f1820a437b65eddec488d8d79f",
+    "sdmmc_mmc.c": "dbe3e483a9daa74bda830958199abf439442efa74a3f76441c6a37acb2d1f8ce",
+    "sdmmc_sd.c": "a9319a4a65904164e4e9b14c854401e2dcaeeb58d01822d06da0aca2216a6d02",
+    "test_apps/.build-test-rules.yml": "26efef9b81d4bdb4a51be8b2c8b390378482739ccb8a08cd4cd7e7112ce32779",
+    "test_apps/CMakeLists.txt": "341fc6894de88c56eeec3a0b5e1e8c82a4b26cc8b40b443fa8f2e004abd191c9",
+    "test_apps/README.md": "aa4fae07f32bf33bcbdfdaed2b3f0f6bc9e38feba2e8277c43df71db915f0be3",
+    "test_apps/main/CMakeLists.txt": "4f87204b9843b906b2e56a5e202d0593d61d8a1f717c999142fec5bb29f43773",
+    "test_apps/main/test_sdmmc_app.c": "c4650f790996b8aabf90edb7de2ca5d0a494bb4dce8dd25cdbf6c4fb8d1cc824",
+    "test_apps/pytest_sdmmc_extra.py": "b7927dbe985a9fb7940b9608a2f1c5bc7aa1cf6cbc4f80734c0d137eb2b1ae1e",
+    "test_apps/sdkconfig.ci.default": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test_apps/sdkconfig.defaults": "c8a4eb75e10f4566f2f7285541841daea1a8663d127fe30bc4048f2335e1336c"
+  },
+  "patch_sha256": "8754371946f6a195a47dbb88f96e5c11680655a30e428d66e05dc37085339804",
+  "patched_files": {
+    "sdmmc_cmd.c": "f978554bd93f292a3b562510e38613fe951a1da986b3df2aa311ef4effa22ad9"
+  }
+}

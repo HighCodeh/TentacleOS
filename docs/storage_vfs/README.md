@@ -592,21 +592,23 @@ deferred writes before their SD result is known. Read/write callbacks now
 complete SDMMC I/O before returning success and propagate failures as SCSI
 medium errors. The first read/write failure latches the LUN unavailable until
 exit; subsequent host requests do not flood the failed card with more I/O.
-Writes use one SD sector per command because IDF 6.1 multi-block error recovery
-can overwrite the original error with the result of CMD22. This favors correct
-error reporting over multi-block write throughput; the bus remains at 40 MHz.
+Writes submit multiple sectors per command through the reviewed
+[SDMMC override](../sdmmc/README.md), which preserves the original write error
+even when the diagnostic written-block-count query succeeds. Initial status-query
+failures also propagate. Partial writes are never acknowledged as success or
+blindly retried; the bus remains at 40 MHz.
 Address arithmetic is 64-bit, checks capacity and sector
 alignment, and includes the callback offset. The TinyUSB endpoint buffer is
 32 KiB, the current esp_tinyusb Kconfig maximum for P4: up to 64 whole 512-byte
-sectors per USB callback. Reads submit the whole block to SDMMC; writes retain
-the checked single-sector loop above. Partial-sector requests are rejected.
+sectors per USB callback. Reads and writes submit the whole block to SDMMC.
+Partial-sector requests are rejected.
 
 The endpoint buffer is static internal DRAM with the alignment/cache maintenance
 required by TinyUSB's P4 DWC2 DMA implementation, not PSRAM. Increasing it from
 1 KiB reserves an additional 31 KiB of internal RAM even outside Storage mode.
 No esp_tinyusb storage-wrapper buffer is allocated by our direct-callback path.
-The larger buffer reduces USB callback overhead and enables larger SD reads;
-it does not establish measured throughput or remove the write-side limitation.
+The larger buffer reduces USB callback overhead and enables larger SD reads
+and writes; it does not establish measured throughput.
 Actual performance depends on the card, USB host and negotiated link speed.
 SYNCHRONIZE CACHE checks card status after preceding synchronous writes. Eject
 marks the LUN unavailable without mounting it inside the USB callback.

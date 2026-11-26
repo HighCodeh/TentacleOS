@@ -121,6 +121,13 @@ jobs:
           source "$IDF_PATH/export.sh" >/dev/null
           python tools/fatfs/test_fatfs.py --idf "$IDF_PATH"
 
+      - name: Test checked SDMMC multi-sector writes
+        if: matrix.target == 'p4'
+        shell: bash
+        run: |
+          source "$IDF_PATH/export.sh" >/dev/null
+          python tools/sdmmc/test_sdmmc.py --idf "$IDF_PATH"
+
       - name: Test public PSA crypto with the pinned SDK source
         if: matrix.target == 'p4'
         shell: bash
