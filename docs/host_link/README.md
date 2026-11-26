@@ -41,6 +41,23 @@ the component READMEs, and the byte-level wire format lives in the protocol spec
 - P4 component reference: the [`# P4`](#p4) section below.
 - C5 component reference: the [`# C5`](#c5) section below.
 
+## P4 queue memory
+
+The log relay queue (24 entries) and incoming command queue (64 entries) allocate
+payload storage explicitly in PSRAM, with no internal-memory fallback. Their
+`StaticQueue_t` controls and task stacks remain internal. Both queues are used
+only from task context with the cache enabled. The command worker can access
+flash, so its stack must remain internal.
+
+Storage is allocated on first use and retained with the existing persistent
+workers; closing the Companion screen does not destroy an authenticated session.
+Initialization failures release queue storage before a retry where no worker
+owns it. This moves approximately 10.6 KiB of payload storage out of internal
+RAM without reducing queue depths. Build verification does not establish runtime
+heap headroom; measure with USB Ethernet and the authenticated BLE relay active.
+`python3 tools/host_link/test_queue_memory.py` exercises PSRAM allocation failure,
+queue/task creation failure, cleanup, retries and idempotent initialization.
+
 ## The model
 
 ```
@@ -114,6 +131,13 @@ Both chips tee their `ESP_LOGx` (without losing the local dev console). P4 logs
 are emitted directly; C5 logs stream to the P4 (`SPI_ID_SYSTEM_LOG`) and are
 re-emitted. Each `LOG` frame carries a `source` byte (P4 / C5) so the app renders
 two separate consoles. Console-exec output is delivered as console LOG frames.
+
+The P4 relay recursion guard is task-local: a frame writer keeps its transport
+logs on UART without feeding them back into the relay. Concurrent tasks still
+enqueue their logs while Bluetooth/SPI is transmitting, including Ethernet
+errors. The bounded queue can drop older entries under sustained overload.
+`python3 tools/host_link/test_log_concurrency.py` checks concurrent logging and
+recursive UART logging using host threads; hardware capture remains necessary.
 
 ## Toggles (NVS, default on)
 
@@ -368,3 +392,13 @@ mode. The host-link command worker is not started solely for USB Storage.
 After leaving MSC, normal native companion initialization starts that worker
 if needed. Open `/dev/cu.usbmodem*` on macOS to inspect storage errors while the
 USB mux hides the UART bridge. This diagnostic stream is not the console REPL.
+
+## Native USB role changes
+
+CDC is a restartable transport. USB host acquisition drains device callbacks and
+uninstalls TinyUSB before running registered CDC cleanup. Cleanup invalidates the
+companion session, stops its connection watchdog and deinitializes ACM. The shared
+core/log worker remains available to other transports. CDC TX and watchdog reads
+use device I/O leases; they skip access while the role is unavailable. Returning to
+a native USB device function reinstalls TinyUSB and registers fresh CDC callbacks.
+See [role ownership](../tusb_desc/README.md#explicit-ethernet-host-ownership).

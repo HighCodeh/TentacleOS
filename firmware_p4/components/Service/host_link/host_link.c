@@ -20,6 +20,7 @@
 
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
@@ -57,7 +58,7 @@ static const char *TAG = "HOST_LINK";
 
 static host_link_writer_t s_writer = NULL;
 static host_link_writer_t s_ble_writer = NULL; // identifies the BLE transport
-static volatile bool s_emitting = false;       // true while a frame is being written out
+static __thread bool s_is_emitting = false;
 // Host framing is CPU-only and does not require DMA-capable internal RAM.
 // Keep both 4 KB staging buffers in PSRAM so USB/BLE transport support does
 // not permanently consume the radio/display heap.
@@ -84,6 +85,8 @@ typedef struct {
   uint8_t data[HOST_LINK_RX_CHUNK];
 } rx_item_t;
 static QueueHandle_t s_rx_queue = NULL;
+static StaticQueue_t s_rx_queue_control;
+static uint8_t *s_rx_queue_storage;
 static bool s_initialized = false;
 static bool s_started = false;
 static void host_link_worker(void *arg);
@@ -150,8 +153,19 @@ esp_err_t host_link_start_worker(void) {
     return ESP_OK;
   }
   if (s_rx_queue == NULL) {
-    s_rx_queue = xQueueCreate(HOST_LINK_RX_DEPTH, sizeof(rx_item_t));
+    s_rx_queue_storage = heap_caps_malloc(HOST_LINK_RX_DEPTH * sizeof(rx_item_t),
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_rx_queue_storage == NULL) {
+      ESP_LOGE(TAG, "Cannot allocate RX queue in PSRAM");
+      xSemaphoreGiveRecursive(s_lock);
+      return ESP_ERR_NO_MEM;
+    }
+    s_rx_queue = xQueueCreateStatic(
+        HOST_LINK_RX_DEPTH, sizeof(rx_item_t), s_rx_queue_storage, &s_rx_queue_control);
     if (s_rx_queue == NULL) {
+      heap_caps_free(s_rx_queue_storage);
+      s_rx_queue_storage = NULL;
+      ESP_LOGE(TAG, "Cannot create RX queue");
       xSemaphoreGiveRecursive(s_lock);
       return ESP_ERR_NO_MEM;
     }
@@ -164,6 +178,11 @@ esp_err_t host_link_start_worker(void) {
                                                   SYS_PRIO_SERVICE_HI,
                                                   &s_worker,
                                                   SYS_CORE_RADIO) != pdPASS) {
+    ESP_LOGE(TAG, "Cannot create command worker");
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+    heap_caps_free(s_rx_queue_storage);
+    s_rx_queue_storage = NULL;
     xSemaphoreGiveRecursive(s_lock);
     return ESP_ERR_NO_MEM;
   }
@@ -349,7 +368,7 @@ bool host_link_test_pump(void) {
 #endif
 
 bool host_link_is_emitting(void) {
-  return __atomic_load_n(&s_emitting, __ATOMIC_ACQUIRE);
+  return s_is_emitting;
 }
 
 static void parse_bytes(const uint8_t *data, size_t len) {
@@ -637,7 +656,7 @@ static void emit_frame(uint32_t generation,
     host_link_session_release_generation(writer, generation);
     return;
   }
-  __atomic_store_n(&s_emitting, true, __ATOMIC_RELEASE); // gate recursive log tee
+  s_is_emitting = true;
   uint32_t counter = s_tx_counter++;
 
   frame[0] = HOST_LINK_MAGIC0;
@@ -658,14 +677,14 @@ static void emit_frame(uint32_t generation,
 
   // MAC covers [VER .. end of BODY) and is appended after the body.
   if (authed && !host_link_sec_sign_outbound(frame + 2, span - 2, frame + span)) {
-    __atomic_store_n(&s_emitting, false, __ATOMIC_RELEASE);
+    s_is_emitting = false;
     xSemaphoreGiveRecursive(s_lock);
     return;
   }
 
   if (host_link_generation_matches(writer, generation))
     writer(generation, frame, out_len);
-  __atomic_store_n(&s_emitting, false, __ATOMIC_RELEASE);
+  s_is_emitting = false;
   xSemaphoreGiveRecursive(s_lock);
 }
 

@@ -146,11 +146,9 @@ bool host_link_test_pump(void);
 void host_link_reset_rx(void);
 
 /**
- * @brief True while a device → app frame is being written out. The log tee uses
- *        this to skip capturing logs emitted during a forward: that forward runs
- *        blocking SPI which can log (e.g. timeouts), and re-entering the tee on
- *        the forwarder's stack overflows it and amplifies (forwarded log → more
- *        SPI → more timeout logs).
+ * @brief True while the calling task writes a device-to-app frame.
+ * The log tee preserves UART output but skips relaying this task's transport
+ * logs to avoid feedback. Other tasks can still enqueue their diagnostics.
  */
 bool host_link_is_emitting(void);
 

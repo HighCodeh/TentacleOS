@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -47,6 +48,8 @@ typedef struct {
 } log_line_t;
 
 static QueueHandle_t s_log_queue = NULL;
+static StaticQueue_t s_log_queue_control;
+static uint8_t *s_log_queue_storage;
 static TaskHandle_t s_log_task = NULL;
 static vprintf_like_t s_prev_vprintf = NULL;
 static volatile uint32_t s_dropped = 0;
@@ -131,13 +134,6 @@ static int log_vprintf(const char *fmt, va_list args) {
   if (in_hook)
     return 0;
 
-  // A frame is being forwarded right now: the forward runs blocking SPI that can
-  // log (timeouts), which would re-enter this hook on the forwarder's stack
-  // (overflow) and amplify (forwarded log -> more SPI -> more timeout logs).
-  // Suppress entirely until the forward completes.
-  if (host_link_is_emitting())
-    return 0;
-
   in_hook = true;
 
   // 1. Preserve the local dev console with an untouched copy of the args.
@@ -153,7 +149,8 @@ static int log_vprintf(const char *fmt, va_list args) {
   // authenticated. Skipping this keeps this frame tiny on the common path (no
   // companion): the render buffers below would otherwise be reserved on entry
   // and overflow small driver tasks (TinyUSB / wifi_status) just by logging.
-  if (s_log_queue != NULL && (host_link_output_generation() != 0 || busb_msc_is_exposed()))
+  if (!host_link_is_emitting() && s_log_queue != NULL &&
+      (host_link_output_generation() != 0 || busb_msc_is_exposed()))
     queue_relay_line(fmt, args);
 
   in_hook = false;
@@ -166,10 +163,13 @@ static void log_task(void *arg) {
   for (;;) {
     if (xQueueReceive(s_log_queue, &line, portMAX_DELAY) == pdTRUE) {
       if (busb_msc_is_exposed()) {
-        if (tud_cdc_n_connected(0)) {
-          tud_cdc_n_write(0, line.text, line.len);
-          tud_cdc_n_write(0, "\r\n", 2);
-          tud_cdc_n_write_flush(0);
+        if (busb_device_acquire()) {
+          if (tud_cdc_n_connected(0)) {
+            tud_cdc_n_write(0, line.text, line.len);
+            tud_cdc_n_write(0, "\r\n", 2);
+            tud_cdc_n_write_flush(0);
+          }
+          busb_device_release();
         }
         continue;
       }
@@ -183,9 +183,18 @@ esp_err_t host_link_log_init(void) {
   if (s_log_queue != NULL)
     return ESP_OK; // already installed
 
-  s_log_queue = xQueueCreate(HOST_LOG_QUEUE_DEPTH, sizeof(log_line_t));
+  s_log_queue_storage = heap_caps_malloc(HOST_LOG_QUEUE_DEPTH * sizeof(log_line_t),
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (s_log_queue_storage == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate log queue in PSRAM");
+    return ESP_ERR_NO_MEM;
+  }
+  s_log_queue = xQueueCreateStatic(
+      HOST_LOG_QUEUE_DEPTH, sizeof(log_line_t), s_log_queue_storage, &s_log_queue_control);
   if (s_log_queue == NULL) {
-    ESP_LOGE(TAG, "Cannot allocate log queue");
+    heap_caps_free(s_log_queue_storage);
+    s_log_queue_storage = NULL;
+    ESP_LOGE(TAG, "Cannot create log queue");
     return ESP_ERR_NO_MEM;
   }
 
@@ -199,6 +208,8 @@ esp_err_t host_link_log_init(void) {
     ESP_LOGE(TAG, "Cannot create log worker");
     vQueueDelete(s_log_queue);
     s_log_queue = NULL;
+    heap_caps_free(s_log_queue_storage);
+    s_log_queue_storage = NULL;
     return ESP_FAIL;
   }
 
