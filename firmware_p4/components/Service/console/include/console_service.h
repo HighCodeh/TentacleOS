@@ -30,7 +30,7 @@ extern "C" {
 esp_err_t console_service_init(void);
 
 /**
- * @brief Start the console REPL task.
+ * @brief Release the first prompt after boot/OTA checks; safe before console init.
  */
 void console_service_start(void);
 

@@ -85,7 +85,8 @@ def main():
         subprocess.run([*command, '-o', str(fixed)], check=True)
         for speed in ('fast', 'slow'):
             for name, data, expected in cases:
-                result = subprocess.run([str(fixed), data.hex(), expected.hex(), speed])
+                result = subprocess.run([str(fixed), data.hex(), expected.hex(), speed],
+                                        env={**os.environ, "CHECK_COLOR": "1"})
                 if result.returncode:
                     raise SystemExit(f'Console regression: {name}, {speed}, exit {result.returncode}')
         # A changed SDK must stop configuration rather than silently bypass the fix.

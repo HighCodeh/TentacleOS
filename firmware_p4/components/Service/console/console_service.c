@@ -14,6 +14,9 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "console_service.h"
+#include "console_editor.h"
+#include "console_banner.h"
+#include <stdatomic.h>
 
 #include <dirent.h>
 #include <stdio.h>
@@ -26,6 +29,8 @@
 #include "esp_sleep.h"
 #include "linenoise/linenoise.h"
 #include "sdkconfig.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "CONSOLE";
 
@@ -37,6 +42,12 @@ static const char *TAG = "CONSOLE";
 #define CONSOLE_TASK_STACK_SIZE 8192
 
 static esp_console_repl_t *s_repl = NULL;
+static atomic_bool s_boot_complete;
+#define BOOT_WAIT_MS 20
+
+void console_service_start(void) {
+  atomic_store(&s_boot_complete, true);
+}
 
 esp_err_t console_service_init(void) {
   esp_console_repl_t *repl = NULL;
@@ -98,6 +109,13 @@ esp_err_t console_service_init(void) {
     return ret;
   }
 
+  while (!atomic_load(&s_boot_complete))
+    vTaskDelay(pdMS_TO_TICKS(BOOT_WAIT_MS));
+  console_editor_init();
+  bool is_color = !linenoiseIsDumbMode();
+  fputs(is_color ? "\n\033[95mHIGH BOY / CONSOLE\033[0m\n" : "\nHIGH BOY / CONSOLE\n", stdout);
+  fputs(is_color ? CONSOLE_OCTOBIT_COLOR : CONSOLE_OCTOBIT_PLAIN, stdout);
+  fflush(stdout);
   ret = esp_console_start_repl(repl);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "console REPL start failed: %s", esp_err_to_name(ret));
@@ -117,7 +135,7 @@ esp_err_t console_service_init(void) {
   }
 #endif
 
-  ESP_LOGI(TAG, "Console started. Type 'help' for commands.");
+  ESP_LOGD(TAG, "Console ready");
   return ESP_OK;
 }
 

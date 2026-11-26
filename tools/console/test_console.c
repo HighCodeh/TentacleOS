@@ -32,6 +32,7 @@ static size_t s_input_size;
 static size_t s_input_offset;
 static uint32_t s_clock_ms;
 static uint32_t s_key_delay_ms;
+static bool s_purple, s_cyan;
 
 static ssize_t test_read(int fd, void *buffer, size_t size) {
   (void)fd;
@@ -44,7 +45,11 @@ static ssize_t test_read(int fd, void *buffer, size_t size) {
 
 static ssize_t test_write(int fd, const void *buffer, size_t size) {
   (void)fd;
-  (void)buffer;
+  const char *bytes = buffer;
+  for (size_t i = 0; i + 5 <= size; ++i) {
+    if (memcmp(bytes + i, "\033[95m", 5) == 0) s_purple = true;
+    if (memcmp(bytes + i, "\033[96m", 5) == 0) s_cyan = true;
+  }
   return (ssize_t)size;
 }
 
@@ -81,6 +86,10 @@ static size_t decode_hex(const char *hex, uint8_t *out, size_t capacity) {
   return size;
 }
 
+static char *test_hint(const char *line, int *color, int *bold) {
+  (void)line; (void)color; (void)bold; return NULL;
+}
+
 int main(int argc, char **argv) {
   assert(argc == 4);
   const char query_responses[] = "\x1b[1;1R\x1b[1;80R";
@@ -91,9 +100,11 @@ int main(int argc, char **argv) {
   size_t expected_size = decode_hex(argv[2], expected, sizeof(expected));
   s_key_delay_ms = strcmp(argv[3], "slow") == 0 ? TEST_SLOW_KEY_MS : 0;
   linenoiseSetReadFunction(test_read);
+  if (getenv("CHECK_COLOR") != NULL) linenoiseSetHintsCallback(test_hint);
   char line[TEST_LINE_CAPACITY];
   int size = linenoiseEdit(line, sizeof(line), "highboy> ");
   bool matches = size == (int)expected_size && memcmp(line, expected, expected_size) == 0;
+  if (getenv("CHECK_COLOR") != NULL) assert(s_purple && s_cyan);
   linenoiseHistoryFree();
   return matches ? 0 : 1;
 }

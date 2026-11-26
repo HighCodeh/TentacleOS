@@ -23,13 +23,35 @@ SOURCE_SHA256 = '07a402902a665eb49e65140db116438ed3c69191ccfc8ae469853690c1a7f6a
 ORIGINAL = b'if ( (getMillis() - t1) < LINENOISE_PASTE_KEY_DELAY && c != ENTER) {'
 CORRECTED = b'''if ((getMillis() - t1) < LINENOISE_PASTE_KEY_DELAY &&
             (unsigned char)c >= ' ' && (unsigned char)c != BACKSPACE &&
-            l.pos == l.len) {'''
+            l.pos == l.len && !hintsCallback) {'''
 
 
 def patched_source(source):
     if hashlib.sha256(source).hexdigest() != SOURCE_SHA256 or source.count(ORIGINAL) != 1:
         raise ValueError('Unreviewed linenoise source; expected the pinned ESP-IDF v6.1 file')
-    return source.replace(ORIGINAL, CORRECTED)
+    result = source.replace(ORIGINAL, CORRECTED)
+    # Rendering only: ANSI bytes never enter the editable command or its cursor length.
+    helper = br"""
+static void highboyAppendInput(struct abuf *ab, struct linenoiseState *l,
+                                const char *buf, size_t len) {
+    size_t command_end = strcspn(l->buf, " ");
+    size_t offset = (size_t)(buf - l->buf);
+    size_t command_len = offset < command_end ? command_end - offset : 0;
+    if (command_len > len) command_len = len;
+    abAppend(ab, "\033[96m", 5);
+    abAppend(ab, buf, command_len);
+    abAppend(ab, "\033[0m", 4);
+    abAppend(ab, buf + command_len, len - command_len);
+}
+"""
+    marker = b'/* Helper of refreshSingleLine()'
+    result = result.replace(marker, helper + b'\n' + marker, 1)
+    result = result.replace(b'abAppend(&ab,buf,len);', b'highboyAppendInput(&ab,l,buf,len);')
+    result = result.replace(b'abAppend(&ab,l->buf,l->len);', b'highboyAppendInput(&ab,l,l->buf,l->len);')
+    # Only the ANSI editor uses color; the dumb terminal path stays plain.
+    result = result.replace(b'    l.prompt = prompt;',
+        b'    if (strstr(prompt, "highboy>") != NULL) prompt = "\\033[95mhighboy> \\033[0m";\n    l.prompt = prompt;')
+    return result
 
 
 def main():

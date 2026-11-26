@@ -21,6 +21,36 @@ The Console Service provides an interactive command-line interface (CLI) for the
 
 It is built on top of the ESP-IDF `esp_console` component and uses `linenoise` for line editing and `argtable3` for argument parsing.
 
+## Interactive presentation
+
+The P4 prints the Octobit after kernel boot and the OTA post-boot check, before
+starting the first REPL prompt. The flash tool's `mascot_lines()` remains the
+single artwork source; `tools/console/generate_banner.py` generates a header in
+`build/highboy_console` during configuration. No SD asset is required. This is a
+boot banner, not a host monitor reconnect banner. Recovery releases the prompt
+as well if the console was initialized. Terminal capability probing retains the
+SDK fallback: unsupported terminals get plain artwork and plain input.
+
+ANSI mode uses a purple `highboy>` prompt, cyan command text, normal argument
+text and gray completion/usage hints. Display colors never enter the command
+buffer or change cursor offsets. Up/Down retains session history. Tab cycles
+command names and supported subcommands (including `c5 spiclock`, battery charge,
+Wi-Fi, hostlink, LED and SD). Unique prefixes show the remaining text in gray;
+Tab accepts it. Existing `help [command]` remains the detailed usage reference.
+
+Tab also completes unquoted paths for `ls`, `cd`, `cat` and `apprun`, relative
+to the console directory or absolute (including `/sdcard/`). Directory entries
+get a trailing slash; `cd` filters files. Completion examines at most 256 entries
+and returns at most 32 candidates. Paths containing spaces/quotes must still be
+typed using the command's normal quoting. Directory I/O occurs only on Tab,
+never for per-keystroke hints; completion performs no writes or radio actions.
+Background logs remain enabled and can still interrupt the visual input line.
+
+Validation: `tools/console/test_editor.py` exercises production callbacks under
+ASan/UBSan; `test_console.py` exercises the actual patched SDK editor, with ANSI
+output isolated from returned input. The P4 build installs the generated art and
+editor. Physical terminal rendering and boot timing still need device validation.
+
 ## Ethernet sharing diagnostics
 
 `ethernet` reads the P4-local synchronized sharing snapshot: state, stage, error,

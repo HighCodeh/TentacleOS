@@ -44,3 +44,15 @@ if(NOT HIGHBOY_CONSOLE_PATCH_COUNT EQUAL 1)
 endif()
 set_property(TARGET ${HIGHBOY_CONSOLE_LIB} PROPERTY SOURCES "${HIGHBOY_CONSOLE_FIXED_SOURCES}")
 target_include_directories(${HIGHBOY_CONSOLE_LIB} PRIVATE "${HIGHBOY_CONSOLE_DIR}/linenoise")
+
+set(HIGHBOY_BANNER "${CMAKE_BINARY_DIR}/highboy_console/console_banner.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/../console/generate_banner.py"
+    "${CMAKE_CURRENT_LIST_DIR}/../highboy/flash_visual.py")
+execute_process(COMMAND "${PYTHON}" "${CMAKE_CURRENT_LIST_DIR}/../console/generate_banner.py"
+    "${HIGHBOY_BANNER}" RESULT_VARIABLE HIGHBOY_BANNER_STATUS)
+if(NOT HIGHBOY_BANNER_STATUS EQUAL 0)
+    message(FATAL_ERROR "Console artwork generation failed")
+endif()
+idf_component_get_property(HIGHBOY_SERVICE_LIB Service COMPONENT_LIB)
+target_include_directories(${HIGHBOY_SERVICE_LIB} PRIVATE "${CMAKE_BINARY_DIR}/highboy_console")

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "console_service.h"
+#include "console_editor.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -34,6 +35,10 @@ static const char *TAG = "CMD_FS";
 #define FS_ENTRY_PATH_CAPACITY 1024
 
 static char s_cwd[FS_PATH_CAPACITY] = "/assets";
+
+const char *console_editor_cwd(void) {
+  return s_cwd;
+}
 
 static esp_err_t resolve_path(const char *input, char *out_path, size_t capacity) {
   if (input == NULL || input[0] == '\0')
