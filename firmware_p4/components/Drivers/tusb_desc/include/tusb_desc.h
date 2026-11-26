@@ -61,6 +61,19 @@ extern "C" {
  *   - ESP_FAIL if the TinyUSB driver installation fails
  */
 esp_err_t busb_init(void);
+// Worker-only role transition; active HID/MSC/audio sessions must finish first.
+bool busb_host_claim(void);
+// Nonblocking I/O lease: never use from TinyUSB callbacks or an ISR.
+bool busb_device_acquire(void);
+// Drain device callbacks if installed; safe across an ongoing role transition.
+esp_err_t busb_device_quiesce(void);
+void busb_device_release(void);
+typedef esp_err_t (*busb_device_cleanup_cb_t)(void);
+// Register with a device lease held; callback runs after USB task teardown.
+void busb_set_device_cleanup_cb(busb_device_cleanup_cb_t callback);
+void busb_host_release(void);
+bool busb_host_owned(void);
+esp_err_t usb_mux_set_host(bool enabled);
 
 // Explicit HID sessions only; ordinary native USB exposes CDC without a keyboard.
 esp_err_t busb_set_hid_exposed(bool exposed);

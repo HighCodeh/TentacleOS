@@ -69,6 +69,7 @@ int vfs_sdcard_reattach_after_msc(void *raw) {
   owned = false; return ESP_OK;
 }
 void busb_set_msc_exposed(bool value) { exposed = value; }
+int busb_device_quiesce(void) { in_flight = false; return ESP_OK; }
 int usb_mux_set_native(bool value) { return value ? mux_error : ESP_OK; }
 int host_link_cdc_init(void) { return ESP_OK; }
 int sdmmc_get_status(sdmmc_card_t *raw) { assert(raw == &card && owned); return io_error; }

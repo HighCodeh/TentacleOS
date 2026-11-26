@@ -25,6 +25,8 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "device/usbd_pvt.h"
 #include "pin_def.h"
 #include "soc/usb_dwc_struct.h"
 #include "tinyusb.h"
@@ -346,19 +348,146 @@ static void force_hs_otg_session_valid(void) {
   USB_DWC_HS.gotgctl_reg = otg;
 }
 
-static bool s_installed = false;
+#define USB_ROLE_WAIT_MS    1000
+#define USB_QUIESCE_STEP_MS 10
+#define USB_OWNER_FREE      0
+#define USB_OWNER_DEVICE    1
+#define USB_OWNER_HOST      2
 
-esp_err_t busb_init(void) {
+static bool s_installed, s_teardown_failed;
+static atomic_int s_phy_owner;
+static StaticSemaphore_t s_role_storage;
+static SemaphoreHandle_t s_role_mutex;
+static portMUX_TYPE s_role_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static busb_device_cleanup_cb_t s_cleanup_cb;
+static uint32_t s_barrier_generation;
+static atomic_uint s_completed_barrier;
+
+static bool role_lock(TickType_t timeout) {
+  if (xPortInIsrContext())
+    return false;
+  portENTER_CRITICAL(&s_role_init_lock);
+  if (s_role_mutex == NULL)
+    s_role_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_role_storage);
+  portEXIT_CRITICAL(&s_role_init_lock);
+  return s_role_mutex != NULL && xSemaphoreTakeRecursive(s_role_mutex, timeout) == pdTRUE;
+}
+static void role_unlock(void) {
+  xSemaphoreGiveRecursive(s_role_mutex);
+}
+static void quiesced(void *arg) {
+  atomic_store(&s_completed_barrier, (uint32_t)(uintptr_t)arg);
+}
+esp_err_t busb_device_quiesce(void) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t ret = ESP_OK;
+  if (s_teardown_failed)
+    ret = ESP_ERR_INVALID_STATE;
+  else if (s_installed) {
+    uint32_t generation = ++s_barrier_generation;
+    usbd_defer_func(quiesced, (void *)(uintptr_t)generation, false);
+    unsigned elapsed = 0;
+    while (atomic_load(&s_completed_barrier) != generation && elapsed < USB_ROLE_WAIT_MS) {
+      vTaskDelay(pdMS_TO_TICKS(USB_QUIESCE_STEP_MS));
+      elapsed += USB_QUIESCE_STEP_MS;
+    }
+    if (atomic_load(&s_completed_barrier) != generation)
+      ret = ESP_ERR_TIMEOUT;
+  }
+  role_unlock();
+  return ret;
+}
+bool busb_device_acquire(void) {
+  if (!role_lock(0))
+    return false;
+  if (!s_installed || s_teardown_failed || atomic_load(&s_phy_owner) != USB_OWNER_DEVICE) {
+    role_unlock();
+    return false;
+  }
+  return true;
+}
+void busb_device_release(void) {
+  role_unlock();
+}
+void busb_set_device_cleanup_cb(busb_device_cleanup_cb_t callback) {
+  // Registration is made while holding a device I/O lease.
+  s_cleanup_cb = callback;
+}
+bool busb_host_claim(void) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return false;
+  bool claimed = false;
+  if (busb_host_owned() || s_teardown_failed || s_hid_exposed || s_msc_exposed ||
+      busb_voice_is_exposed())
+    goto done;
+  if (s_installed) {
+    tud_disconnect();
+    if (busb_device_quiesce() != ESP_OK) {
+      tud_connect();
+      goto done;
+    }
+    esp_err_t ret = tinyusb_driver_uninstall();
+    if (ret != ESP_OK) {
+      // SDK uninstall can fail after deleting its task: never expose a half-live PHY.
+      s_teardown_failed = true;
+      ESP_LOGE(TAG, "USB device teardown failed: %s", esp_err_to_name(ret));
+      goto done;
+    }
+    s_installed = false;
+    tud_umount_cb();
+    usb_dwc_gotgctl_reg_t otg = USB_DWC_HS.gotgctl_reg;
+    otg.vbvalidoven = 0;
+    otg.vbvalidovval = 0;
+    otg.bvalidoven = 0;
+    otg.bvalidovval = 0;
+    USB_DWC_HS.gotgctl_reg = otg;
+  }
+  if (s_cleanup_cb != NULL) {
+    esp_err_t ret = s_cleanup_cb();
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "USB consumer teardown failed: %s", esp_err_to_name(ret));
+      goto done;
+    }
+    s_cleanup_cb = NULL;
+  }
+  atomic_store(&s_phy_owner, USB_OWNER_HOST);
+  claimed = true;
+done:
+  role_unlock();
+  return claimed;
+}
+void busb_host_release(void) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return;
+  int expected = USB_OWNER_HOST;
+  (void)atomic_compare_exchange_strong(&s_phy_owner, &expected, USB_OWNER_FREE);
+  role_unlock();
+}
+bool busb_host_owned(void) {
+  return atomic_load(&s_phy_owner) == USB_OWNER_HOST;
+}
+
+static esp_err_t init_locked(void) {
   // HID (BadUSB) and CDC (companion) share one TinyUSB install — whoever calls
   // first brings the composite up; later calls are no-ops.
   if (s_installed) {
     return ESP_OK;
   }
 
+  if (s_cleanup_cb != NULL) {
+    esp_err_t ret = s_cleanup_cb();
+    if (ret != ESP_OK)
+      return ret;
+    s_cleanup_cb = NULL;
+  }
+  atomic_store(&s_phy_owner, USB_OWNER_DEVICE);
   uint8_t mac[6];
   esp_err_t mac_err = esp_efuse_mac_get_default(mac);
-  if (mac_err != ESP_OK)
+  if (mac_err != ESP_OK) {
+    atomic_store(&s_phy_owner, 0);
     return mac_err;
+  }
   snprintf(s_serial,
            sizeof(s_serial),
            "%02X%02X%02X%02X%02X%02X",
@@ -404,6 +533,7 @@ esp_err_t busb_init(void) {
 
   esp_err_t err = tinyusb_driver_install(&tusb_cfg);
   if (err != ESP_OK) {
+    atomic_store(&s_phy_owner, 0);
     ESP_LOGE(TAG, "Failed to install TinyUSB driver: %s", esp_err_to_name(err));
     return err;
   }
@@ -415,7 +545,7 @@ esp_err_t busb_init(void) {
   return ESP_OK;
 }
 
-esp_err_t busb_set_hid_exposed(bool exposed) {
+static esp_err_t set_hid_exposed_locked(bool exposed) {
   if (exposed && (s_msc_exposed || busb_voice_is_exposed()))
     return ESP_ERR_INVALID_STATE;
   if (s_hid_exposed == exposed)
@@ -430,7 +560,7 @@ esp_err_t busb_set_hid_exposed(bool exposed) {
   return ESP_OK;
 }
 
-void busb_set_msc_exposed(bool exposed) {
+static void set_msc_exposed_locked(bool exposed) {
 #if CFG_TUD_MSC
 #if HB_GROK_USB_AUDIO_ENABLED
   // Storage wins a race with voice teardown. Never advertise both layouts.
@@ -472,7 +602,7 @@ bool busb_voice_is_exposed(void) {
 #endif
 }
 
-esp_err_t busb_set_voice_exposed(bool exposed) {
+static esp_err_t set_voice_exposed_locked(bool exposed) {
 #if HB_GROK_USB_AUDIO_ENABLED
   if (exposed && s_msc_exposed)
     return ESP_ERR_INVALID_STATE;
@@ -507,3 +637,37 @@ uint32_t tud_msc_inquiry2_cb(uint8_t lun, scsi_inquiry_resp_t *response, uint32_
   return sizeof(*response);
 }
 #endif
+
+esp_err_t busb_init(void) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t ret = (busb_host_owned() || s_teardown_failed) ? ESP_ERR_INVALID_STATE : init_locked();
+  role_unlock();
+  return ret;
+}
+
+esp_err_t busb_set_hid_exposed(bool exposed) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t ret = (busb_host_owned() || s_teardown_failed) ? ESP_ERR_INVALID_STATE
+                                                           : set_hid_exposed_locked(exposed);
+  role_unlock();
+  return ret;
+}
+
+esp_err_t busb_set_voice_exposed(bool exposed) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return ESP_ERR_TIMEOUT;
+  esp_err_t ret = (busb_host_owned() || s_teardown_failed) ? ESP_ERR_INVALID_STATE
+                                                           : set_voice_exposed_locked(exposed);
+  role_unlock();
+  return ret;
+}
+
+void busb_set_msc_exposed(bool exposed) {
+  if (!role_lock(pdMS_TO_TICKS(USB_ROLE_WAIT_MS)))
+    return;
+  if (!busb_host_owned() && !s_teardown_failed)
+    set_msc_exposed_locked(exposed);
+  role_unlock();
+}

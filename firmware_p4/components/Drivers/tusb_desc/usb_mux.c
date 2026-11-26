@@ -40,6 +40,7 @@ static atomic_int s_result = ESP_ERR_INVALID_STATE;
 static uint64_t s_epoch;
 static portMUX_TYPE s_epoch_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_pending, s_requested, s_restore;
+static bool s_host_route;
 
 static esp_err_t switch_route(bool native);
 static void worker(void *arg);
@@ -72,6 +73,8 @@ void usb_mux_init(void) {
 }
 
 esp_err_t usb_mux_request_native(bool native) {
+  if (busb_host_owned())
+    return ESP_ERR_INVALID_STATE;
   if (xPortInIsrContext() || s_mutex == NULL)
     return ESP_ERR_INVALID_STATE;
   if (!native) {
@@ -98,6 +101,8 @@ esp_err_t usb_mux_request_native(bool native) {
 
 // Blocking worker API: serializes the entire disconnect/select/reconnect sequence.
 esp_err_t usb_mux_set_native(bool native) {
+  if (busb_host_owned())
+    return ESP_ERR_INVALID_STATE;
   if (xPortInIsrContext() || s_mutex == NULL)
     return ESP_ERR_INVALID_STATE;
   if (xSemaphoreTake(s_mutex, 0) != pdTRUE)
@@ -107,6 +112,20 @@ esp_err_t usb_mux_set_native(bool native) {
     return ESP_ERR_INVALID_STATE;
   }
   esp_err_t ret = switch_route(native);
+  atomic_store(&s_result, ret);
+  xSemaphoreGive(s_mutex);
+  return ret;
+}
+
+esp_err_t usb_mux_set_host(bool enabled) {
+  if (!busb_host_owned() || s_mutex == NULL || xSemaphoreTake(s_mutex, 0) != pdTRUE)
+    return ESP_ERR_INVALID_STATE;
+  if (s_pending) {
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_host_route = enabled;
+  esp_err_t ret = switch_route(enabled);
   atomic_store(&s_result, ret);
   xSemaphoreGive(s_mutex);
   return ret;
@@ -128,7 +147,7 @@ bool usb_mux_is_native(void) {
 
 static esp_err_t switch_route(bool native) {
   uint64_t epoch = 0;
-  esp_err_t ret = native ? busb_init() : ESP_OK;
+  esp_err_t ret = native && !s_host_route ? busb_init() : ESP_OK;
   if (ret != ESP_OK)
     return ret;
   ret = board_control_apply(s_controls, BOARD_CONTROL_USB, false, &epoch);

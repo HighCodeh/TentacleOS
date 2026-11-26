@@ -131,13 +131,23 @@ void bad_usb_wait_for_connection(void) {
 static void send_keyboard_report(uint8_t keycode, uint8_t modifier) {
   uint8_t keycode_array[6] = {0};
   keycode_array[0] = keycode;
+  if (!busb_device_acquire())
+    return;
   tud_hid_keyboard_report(HID_REPORT_ID_KEYBOARD, modifier, keycode_array);
+  busb_device_release();
 }
 
 static void send_mouse_report(int8_t x, int8_t y, uint8_t buttons, int8_t wheel) {
+  if (!busb_device_acquire())
+    return;
   tud_hid_mouse_report(HID_REPORT_ID_MOUSE, buttons, x, y, wheel, 0);
+  busb_device_release();
 }
 
 static bool hid_report_ready(void) {
-  return tud_hid_ready();
+  if (!busb_device_acquire())
+    return false;
+  bool ready = tud_hid_ready();
+  busb_device_release();
+  return ready;
 }

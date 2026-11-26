@@ -20,6 +20,8 @@
 #include "host_link.h"
 #include "host_link_sec.h"
 
+#include <stdatomic.h>
+
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -38,6 +40,9 @@ static const char *TAG = "HOST_LINK_CDC";
 #define HOST_LINK_CDC_MAX_STALLS 4 // give up a write after this many full-buffer stalls
 
 static TaskHandle_t s_worker = NULL;
+static bool s_cdc_up;
+static atomic_bool s_stop, s_worker_done;
+static esp_err_t cleanup(void);
 static void cdc_write(uint32_t generation, const uint8_t *frame, size_t len);
 
 static void cdc_rx_cb(int itf, cdcacm_event_t *event) {
@@ -78,7 +83,7 @@ static void cdc_line_state_cb(int itf, cdcacm_event_t *event) {
   }
 }
 
-static void cdc_write(uint32_t generation, const uint8_t *frame, size_t len) {
+static void write_locked(uint32_t generation, const uint8_t *frame, size_t len) {
   // Drop when no app has the port open. Logs are pushed regardless of a
   // connection, so without this guard the write loop would spin forever.
   if (busb_msc_is_exposed() || !tud_cdc_n_connected(HOST_LINK_CDC_ITF) ||
@@ -117,20 +122,32 @@ static void cdc_write(uint32_t generation, const uint8_t *frame, size_t len) {
     tud_cdc_n_write_clear(HOST_LINK_CDC_ITF);
 }
 
-static void host_link_worker(void *arg) {
-  (void)arg;
-  for (;;) {
-    // Cable removal/unmount and mux changes need not produce a DTR callback.
-    // Invalidate within 100 ms; this task never parses bytes or tears down SPI.
-    uint32_t generation = host_link_session_generation(cdc_write);
-    if (!usb_mux_is_native() || !tud_cdc_n_connected(HOST_LINK_CDC_ITF))
-      host_link_session_release_generation(cdc_write, generation);
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
+static void cdc_write(uint32_t generation, const uint8_t *frame, size_t len) {
+  if (!busb_device_acquire())
+    return;
+  if (s_cdc_up)
+    write_locked(generation, frame, len);
+  busb_device_release();
 }
 
-esp_err_t host_link_cdc_init(void) {
-  static bool s_cdc_up = false;
+static void host_link_worker(void *arg) {
+  (void)arg;
+  while (!atomic_load(&s_stop)) {
+    // Cable removal/unmount and mux changes need not produce a DTR callback.
+    // Invalidate within 100 ms; this task never parses bytes or tears down SPI.
+    if (busb_device_acquire()) {
+      uint32_t generation = host_link_session_generation(cdc_write);
+      if (!usb_mux_is_native() || !tud_cdc_n_connected(HOST_LINK_CDC_ITF))
+        host_link_session_release_generation(cdc_write, generation);
+      busb_device_release();
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  atomic_store(&s_worker_done, true);
+  vTaskDelete(NULL);
+}
+
+static esp_err_t init_locked(void) {
   if (s_cdc_up) {
     return busb_msc_is_exposed() ? ESP_OK : host_link_start_worker();
   }
@@ -167,6 +184,8 @@ esp_err_t host_link_cdc_init(void) {
 
   // The session is claimed on DTR (port open) in cdc_line_state_cb, not here.
 
+  atomic_store(&s_stop, false);
+  atomic_store(&s_worker_done, false);
   if (xTaskCreatePinnedToCore(host_link_worker,
                               "hl_cdc_state",
                               HOST_LINK_CDC_TASK_STK,
@@ -174,6 +193,7 @@ esp_err_t host_link_cdc_init(void) {
                               SYS_PRIO_SERVICE_HI,
                               &s_worker,
                               SYS_CORE_RADIO) != pdPASS) {
+    atomic_store(&s_worker_done, true);
     ESP_LOGE(TAG, "Failed to create host_link worker task");
     host_link_session_release(cdc_write);
     tinyusb_cdcacm_deinit(HOST_LINK_CDC_ITF);
@@ -181,6 +201,40 @@ esp_err_t host_link_cdc_init(void) {
   }
 
   s_cdc_up = true;
+  busb_set_device_cleanup_cb(cleanup);
   ESP_LOGI(TAG, "Host link CDC transport up");
   return ESP_OK;
+}
+
+static esp_err_t cleanup(void) {
+  atomic_store(&s_stop, true);
+  if (s_worker != NULL) {
+    while (!atomic_load(&s_worker_done))
+      vTaskDelay(pdMS_TO_TICKS(10));
+    s_worker = NULL;
+  }
+  host_link_session_release(cdc_write);
+  if (s_cdc_up) {
+    esp_err_t ret = tinyusb_cdcacm_deinit(HOST_LINK_CDC_ITF);
+    if (ret != ESP_OK)
+      return ret;
+    s_cdc_up = false;
+  }
+  ESP_LOGI(TAG, "CDC transport released for USB host");
+  return ESP_OK;
+}
+
+esp_err_t host_link_cdc_init(void) {
+  if (busb_host_owned())
+    return ESP_ERR_INVALID_STATE;
+  if (!usb_mux_is_native())
+    return ESP_OK;
+  esp_err_t ret = busb_init();
+  if (ret != ESP_OK)
+    return ret;
+  if (!busb_device_acquire())
+    return ESP_ERR_INVALID_STATE;
+  ret = init_locked();
+  busb_device_release();
+  return ret;
 }

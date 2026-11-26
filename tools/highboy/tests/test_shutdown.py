@@ -25,6 +25,12 @@ ROOT = Path(__file__).resolve().parents[3]
 DRIVER = ROOT / "firmware_p4/components/Drivers/bq25896"
 NOTICE = (DRIVER / "bq25896.c").read_text().split("#include", 1)[0]
 MOCKS = {
+    "husb320.h": """#pragma once
+#include "esp_err.h"
+static bool test_host_mode, test_host_attached;
+static inline bool husb320_host_mode(void) { return test_host_mode; }
+static inline esp_err_t husb320_host_attached(bool *out) { *out=test_host_attached; return ESP_OK; }
+""",
     "esp_err.h": """#pragma once
 #include <stddef.h>
 #include <stdint.h>

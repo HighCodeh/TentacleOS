@@ -40,12 +40,10 @@ static const char *TAG = "USB_MSC";
 #define USB_MSC_SYNCHRONIZE_CACHE 0x35
 
 static _Atomic usb_msc_state_t s_state = USB_MSC_IDLE;
-static atomic_bool s_quiesced = false;
 static sdmmc_card_t *s_card = NULL;
 static atomic_bool s_ejected = false;
 static bool s_io_failed = false;
 
-static void quiesce(void *arg);
 static bool restore_sd(void);
 static int32_t
 transfer(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t size, bool is_write);
@@ -113,11 +111,11 @@ void usb_msc_exit(void) {
     return;
   }
   busb_set_msc_exposed(false);
-  if (tud_inited()) {
-    atomic_store(&s_quiesced, false);
-    usbd_defer_func(quiesce, NULL, false);
-    while (!atomic_load(&s_quiesced))
-      vTaskDelay(pdMS_TO_TICKS(USB_MSC_WAIT_MS));
+  esp_err_t drained = busb_device_quiesce();
+  if (drained != ESP_OK) {
+    ESP_LOGE(TAG, "USB callbacks still busy: %s", esp_err_to_name(drained));
+    atomic_store(&s_state, USB_MSC_ACTIVE);
+    return;
   }
   esp_err_t err = usb_mux_set_native(false);
   if (err != ESP_OK)
@@ -230,12 +228,6 @@ transfer(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t size
     return -1;
   }
   return size;
-}
-
-static void quiesce(void *arg) {
-  (void)arg;
-  // The USB task has completed every synchronous SD operation preceding this barrier.
-  atomic_store(&s_quiesced, true);
 }
 
 static bool restore_sd(void) {

@@ -179,6 +179,14 @@ CC current only after checking sink role, enable, attachment, VBUS, orientation,
 TYPE and consistent STATUS reads (tables 29–30). The device handle and mutex
 live until reboot; retries reuse them. Boot and the USB power worker serialize
 initialization. Invalid or incomplete samples never report a high-current source.
+Host attachment polling re-reads the complete role/status/type/status sample once
+after `ESP_ERR_TIMEOUT`, releasing its mutex and yielding one tick between
+attempts. It rechecks host ownership after acquiring the mutex. Two timeouts,
+role loss, NACK and inconsistent samples remain failures; a newly observed detach
+returns detached. No register writes or previously successful sample are replayed
+to manufacture a valid result. Ethernet sharing samples attachment every 50 ms
+instead of once per packet-loop iteration; a due check must succeed before more
+packets are forwarded. Per-lock/per-transfer timeouts remain 15 ms.
 A failed initialization preserves its actual error for later reads; failed samples
 include the last accessed register, rather than replacing every error with
 `ESP_ERR_INVALID_STATE`. The register identifies the last transaction, not an
@@ -200,6 +208,8 @@ code with fault injection, including GPIO failure, lost/late acknowledgement,
 reboot during detach, readback mismatch and every I²C transaction failure. The
 HUSB320 mock checks on-wire address bytes independently of the driver constant
 and rejects the former `0x42` seven-bit configuration with NACK.
+Host-read tests inject a timeout at each register, persistent timeouts, mutex
+contention, detach and role loss during recovery, and non-timeout failures.
 
 ## TinyUSB Callbacks
 
@@ -260,3 +270,27 @@ CDC and storage use new PIDs so hosts do not reuse the old keyboard-containing
 layouts. The descriptor test checks HID absence in both profiles, FS/HS endpoint
 sizes, Other Speed descriptors and identity. Hardware validation requires a
 reflash and reconnect, then entry/exit of storage and explicit HID sessions.
+
+## Explicit Ethernet host ownership
+
+The [Ethernet sharing service](../ethernet_share/README.md) exclusively claims the
+native PHY before changing the mux. It bypasses TinyUSB device initialization for
+that route. Device requests are rejected while host owns the PHY. Idle TinyUSB installations
+are now fully uninstalled during host claim; previous use does not require reboot.
+The role mutex covers installation, descriptor exposure, I/O leases and teardown.
+CDC TX/watchdog and storage-log writes use nonblocking device leases, so they cannot
+access FIFOs while the USB task/PHY is being removed. CDC transport cleanup runs
+after the USB task is stopped, invalidates the session, waits for its watchdog to
+exit, deinitializes ACM and resets its init state. Device use reinstalls on demand.
+The MSC callback barrier is serialized with role changes and has a bounded timeout.
+Active HID/MSC/audio exposure blocks host claim until its normal stop hook finishes.
+Uninstall failures retain an isolated error state; only confirmed teardown releases
+the PHY. The explicit HS device VBUS/session overrides are cleared for host use.
+
+`tools/highboy/tests/test_usb_roles.py` tests production arbitration with SDK fakes:
+100 role cycles, active consumers, I/O contention, callback timeout, cleanup retry
+and partial-uninstall isolation. `tools/highboy/tests/test_usb_cdc_lifecycle.py` additionally exercises 100 CDC
+init/cleanup cycles, callback registration and allocation-failure retries.
+Descriptor and MSC host tests cover their respective contracts. These are not physical cable/enumeration or sustained-transfer tests. HUSB320 remains sink-only at
+boot; only this session may disable it, select source/default Rp, read back and
+re-enable detection. Failure retains host ownership until sink restoration.
