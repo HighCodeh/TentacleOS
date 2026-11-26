@@ -880,3 +880,18 @@ The lab capture update requires matching C5 and P4 applications. The P4 writer
 queue remains responsible for SD persistence. Hardware acceptance compares
 repeated reconnections on an owned AP against fixed-channel capture, then repeats
 with APs on different channels; inspect saved EAPOL frames and P4 queue losses.
+
+## Ethernet-backed hotspot
+
+Hotspot includes **Share USB Ethernet**, opening the
+[Ethernet sharing screen](../ethernet_share/README.md). It waits for adapter/link
+and DHCP before starting the AP shown in the Hotspot preset. Wi-Fi must be off
+before entry; sharing applies that preset, reserves the radio and stops on Back.
+Opening the Wi-Fi menu does not start the radio or persist an enabled preference.
+The Connections setting and Home/main-menu quick switch remain available to turn
+it off before following this menu path.
+
+The Hotspot screen and USB Ethernet sharing use the shared firmware preset in
+`firmware_p4/components/Service/wifi/include/wifi_hotspot_preset.h`. Its current
+values are `HighBoy_AP`, open authentication, `192.168.4.1` and eight clients.
+See [Ethernet sharing](../ethernet_share/README.md) for application and persistence.

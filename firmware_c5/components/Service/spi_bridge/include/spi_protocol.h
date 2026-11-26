@@ -41,10 +41,10 @@ extern "C" {
 #define SPI_MAX_PAYLOAD      255
 #define SPI_RESP_STATUS_SIZE 1
 
-// Wire-protocol version. Bump on ANY change to the contract below (an id, a
-// struct, or the header layout). The P4 reads the C5's value at bridge init via
-// SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies of this
-// header that drifted are caught at boot instead of silently misparsing frames.
+// Wire-protocol version. Bump for incompatible framing/structure changes.
+// Additive Ethernet whole-packet operations are explicitly capability-gated. The P4 reads the C5's
+// value at bridge init via SPI_ID_SYSTEM_PROTO_VERSION and flags a mismatch loudly, so two copies
+// of this header that drifted are caught at boot instead of silently misparsing frames.
 #define SPI_PROTOCOL_VERSION 2
 
 #define SPI_BT_SPAM_ITEM_LEN          32
@@ -149,11 +149,12 @@ typedef enum {
   SPI_CAT_LORACFG = 0x0D,  // P4-native LoRa radio config; companion host-link only
   SPI_CAT_LORACHAT = 0x0E, // P4-native LoRa chat; companion host-link only
   // Category 0x0F is reserved and must not be reused.
-  SPI_CAT_GROK = 0x10, // Explicitly started, paired TLS LAN voice transport
-  SPI_CAT_MUSE = 0x11, // Existing integrated Muse RPC category
-  SPI_CAT_NFC = 0x12,  // P4-local companion NFC capture
-  SPI_CAT_RFID = 0x13, // P4-local companion LF RFID capture
-  SPI_CAT_MQTT = 0x14, // C5-owned on-demand MQTT network bridge
+  SPI_CAT_GROK = 0x10,     // Explicitly started, paired TLS LAN voice transport
+  SPI_CAT_MUSE = 0x11,     // Existing integrated Muse RPC category
+  SPI_CAT_NFC = 0x12,      // P4-local companion NFC capture
+  SPI_CAT_RFID = 0x13,     // P4-local companion LF RFID capture
+  SPI_CAT_MQTT = 0x14,     // C5-owned on-demand MQTT network bridge
+  SPI_CAT_ETHERNET = 0x15, // USB Ethernet uplink carried by the P4
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -170,6 +171,13 @@ typedef enum {
  * Each value packs its category (high byte) and op (low byte) via SPI_CMD().
  */
 typedef enum {
+  SPI_ID_ETHERNET_START = SPI_CMD(SPI_CAT_ETHERNET, 0x01),
+  SPI_ID_ETHERNET_STOP = SPI_CMD(SPI_CAT_ETHERNET, 0x02),
+  SPI_ID_ETHERNET_STATUS = SPI_CMD(SPI_CAT_ETHERNET, 0x03),
+  SPI_ID_ETHERNET_RX = SPI_CMD(SPI_CAT_ETHERNET, 0x04),
+  SPI_ID_ETHERNET_TX = SPI_CMD(SPI_CAT_ETHERNET, 0x05),
+  SPI_ID_ETHERNET_CAPABILITIES = SPI_CMD(SPI_CAT_ETHERNET, 0x06),
+  SPI_ID_ETHERNET_EXCHANGE = SPI_CMD(SPI_CAT_ETHERNET, 0x07),
   SPI_ID_MQTT_CONFIG = SPI_CMD(SPI_CAT_MQTT, 0x01),
   SPI_ID_MQTT_START = SPI_CMD(SPI_CAT_MQTT, 0x02),
   SPI_ID_MQTT_STOP = SPI_CMD(SPI_CAT_MQTT, 0x03),
@@ -795,6 +803,37 @@ static inline void spi_header_set_cmd(spi_header_t *h, uint16_t cmd) {
   h->op = SPI_CMD_OP(cmd);
 }
 
+#define SPI_ETHERNET_MTU               1514
+#define SPI_ETHERNET_HEADER_SIZE       14
+#define SPI_ETHERNET_CAP_PACKET        UINT32_C(1)
+#define SPI_ETHERNET_REQUEST_META_SIZE 4
+#define SPI_ETHERNET_REPLY_META_SIZE   5
+#define SPI_ETHERNET_CHUNK             240
+#define SPI_ETHERNET_MAC_SIZE          6
+#define SPI_ETHERNET_SSID_SIZE         33
+#define SPI_ETHERNET_STATE_DHCP        1
+#define SPI_ETHERNET_STATE_SHARING     2
+#define SPI_ETHERNET_STATE_ERROR       3
+
+typedef struct __attribute__((packed)) {
+  uint32_t token;
+  uint8_t mac[SPI_ETHERNET_MAC_SIZE];
+} spi_ethernet_start_t;
+typedef struct __attribute__((packed)) {
+  uint32_t token;
+  uint16_t sequence;
+  uint16_t offset;
+  uint16_t total;
+} spi_ethernet_fragment_t;
+typedef struct __attribute__((packed)) {
+  uint32_t token;
+  uint8_t state;
+  int32_t error;
+  uint32_t ip, mask, gateway;
+  uint32_t dropped;
+  char ssid[SPI_ETHERNET_SSID_SIZE];
+} spi_ethernet_status_t;
+
 // Frame integrity (CRC-16/CCITT via the ROM implementation). The CRC covers the
 // header's [type,category,op,length] plus the `data_len` data bytes that follow
 // the header in the frame buffer; the sync byte (framing marker) and the crc
@@ -938,12 +977,14 @@ typedef struct __attribute__((packed)) {
   uint8_t is_authorized; // upsert/remove exact MAC; RAM-only, max 32 entries
 } spi_wifi_quick_whitelist_req_t;
 
-// Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
+// Larger fixed transfer size used by Ethernet EXCHANGE and SYSTEM_STREAM, which
 // batches many stream records into one transfer to amortize per-frame overhead.
-// The command/response path keeps using SPI_FRAME_SIZE. Must be a multiple of 4
-// for SPI DMA. Stream frame layout (after the 7-byte header, type = STREAM):
+// Other commands keep SPI_FRAME_SIZE. Both sizes are multiples of 4 for SPI DMA.
+// SYSTEM_STREAM layout (after the 7-byte header, type = STREAM):
 //   [u16 batch_len][record]... where each record = [u16 op][u8 len][len bytes]
 // and `record` data is exactly what session_manager queued (meta + payload).
+// EXCHANGE instead uses [u16 body_len][u32 token][packet] in CMD requests and
+// [u16 body_len][u32 token][u8 RX status][packet] in STREAM replies, short length=0.
 #define SPI_STREAM_FRAME_SIZE 2048
 
 // SPI-only envelope. USB/BLE retain spi_header_t and their existing framing.

@@ -171,6 +171,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   size_t out_capacity,
                                   uint32_t timeout_ms);
 
+typedef struct {
+  uint32_t token;
+  const uint8_t *tx_data;
+  size_t tx_length;
+  uint8_t *rx_data;
+  size_t rx_capacity;
+  size_t rx_length;
+  bool tx_accepted;
+} spi_bridge_ethernet_exchange_t;
+
+// Requires SPI_ETHERNET_CAP_PACKET from the peer. Caller retains both packet buffers.
+esp_err_t spi_bridge_ethernet_exchange(spi_bridge_ethernet_exchange_t *exchange,
+                                       uint32_t timeout_ms);
+
 /**
  * @brief Acquire the bridge transaction lock, waiting up to @p timeout_ms for any
  *        in-flight command to finish. While held, no command runs. Intended for a
@@ -181,6 +195,35 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
  * @return ESP_OK if acquired, ESP_ERR_TIMEOUT otherwise.
  */
 esp_err_t spi_bridge_lock(uint32_t timeout_ms);
+
+typedef enum {
+  SPI_BRIDGE_PHASE_LOCAL,
+  SPI_BRIDGE_PHASE_LOCK,
+  SPI_BRIDGE_PHASE_SEND,
+  SPI_BRIDGE_PHASE_RECEIVE,
+  SPI_BRIDGE_PHASE_VALIDATE,
+  SPI_BRIDGE_PHASE_PEER,
+  SPI_BRIDGE_PHASE_COUNT
+} spi_bridge_phase_t;
+
+typedef enum {
+  SPI_BRIDGE_FAILURE_BOARD,
+  SPI_BRIDGE_FAILURE_ETHERNET,
+  SPI_BRIDGE_FAILURE_OTHER,
+  SPI_BRIDGE_FAILURE_COUNT
+} spi_bridge_failure_group_t;
+
+typedef struct {
+  spi_id_t command;
+  spi_bridge_phase_t phase;
+  esp_err_t error;
+  int64_t time_us;
+  int64_t elapsed_us;
+  uint32_t count;
+} spi_bridge_failure_t;
+
+/** Read retained failures without accessing C5; clear before a diagnostic test. */
+esp_err_t spi_bridge_get_failures(spi_bridge_failure_t *out_failures, bool is_clear);
 
 /** @brief Release the bridge transaction lock taken with spi_bridge_lock. */
 void spi_bridge_unlock(void);

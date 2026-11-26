@@ -23,7 +23,8 @@ int critical, is_isr, task_fail, locked;
 static int64_t now;
 static board_control_status_t remote;
 static int events[64], count, fail_event, busb_fail;
-static bool stall, reboot_during_delay;
+static bool stall, reboot_during_delay, host_owned;
+bool busb_host_owned(void) { return host_owned; }
 static unsigned select_level;
 
 int64_t esp_timer_get_time(void) { return now; }
@@ -53,6 +54,7 @@ static void reset(void) {
   remote=(board_control_status_t){.is_compatible=true,.epoch=9,.capabilities=1U<<BOARD_CONTROL_USB};
   remote.outputs[BOARD_CONTROL_USB].is_known=true;
   remote.outputs[BOARD_CONTROL_USB].confirmed=true;
+  host_owned=false; s_host_route=false;
   count=0; fail_event=0; busb_fail=0; stall=false;
   atomic_store(&s_native,false); s_restore=false; s_pending=false;
   select_level=0;
@@ -89,5 +91,13 @@ int main(void) {
   reset(); remote.capabilities=0;
   assert(usb_mux_set_native(true)==ESP_ERR_NOT_SUPPORTED);
   reset(); is_isr=1; assert(usb_mux_set_native(true)==ESP_ERR_INVALID_STATE); is_isr=0;
+  reset(); assert(usb_mux_set_host(true)==ESP_ERR_INVALID_STATE);
+  host_owned=true; busb_fail=1;
+  assert(usb_mux_request_native(true)==ESP_ERR_INVALID_STATE);
+  assert(usb_mux_set_native(false)==ESP_ERR_INVALID_STATE);
+  assert(usb_mux_set_host(true)==ESP_OK && usb_mux_is_native());
+  assert(usb_mux_set_host(false)==ESP_OK && select_level==0);
+  reset(); host_owned=true; reboot_during_delay=true;
+  assert(usb_mux_set_host(true)==ESP_ERR_INVALID_STATE && select_level==0);
   return 0;
 }

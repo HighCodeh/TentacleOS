@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_service.h"
+#include "ethernet_router.h"
 
 #include <stdbool.h>
 #include <stdatomic.h>
@@ -885,7 +886,7 @@ void wifi_service_promiscuous_stop(void) {
 }
 
 bool wifi_service_is_busy(void) {
-  return s_promiscuous_active;
+  return s_promiscuous_active || ethernet_router_is_active();
 }
 
 void wifi_service_set_power_save(bool deep) {

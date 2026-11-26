@@ -28,12 +28,10 @@
 #include "ui_chrome.h"
 #include "ui_manager.h"
 #include "wifi_service.h"
+#include "wifi_hotspot_preset.h"
 
-#define AP_NAME            "HighBoy_AP"
-#define AP_IP              "192.168.4.1"
-#define AP_MAX_CONNECTIONS 8
-#define TASK_STACK_SIZE    4096
-#define REFRESH_MS         250
+#define TASK_STACK_SIZE 4096
+#define REFRESH_MS      250
 
 static const char *TAG = "HOTSPOT_UI";
 static lv_obj_t *s_screen;
@@ -49,9 +47,12 @@ static void apply_task(void *unused) {
     portENTER_CRITICAL(&s_lock);
     bool requested = s_requested;
     portEXIT_CRITICAL(&s_lock);
-    esp_err_t error =
-        requested ? wifi_service_save_ap_config(AP_NAME, NULL, AP_MAX_CONNECTIONS, AP_IP, true)
-                  : wifi_service_set_enabled(false);
+    esp_err_t error = requested ? wifi_service_save_ap_config(WIFI_HOTSPOT_PRESET_SSID,
+                                                              WIFI_HOTSPOT_PRESET_PASSWORD,
+                                                              WIFI_HOTSPOT_PRESET_MAX_CLIENTS,
+                                                              WIFI_HOTSPOT_PRESET_IP,
+                                                              true)
+                                : wifi_service_set_enabled(false);
     portENTER_CRITICAL(&s_lock);
     s_error = error;
     if (error == ESP_OK)
@@ -152,6 +153,10 @@ static void input(const input_event_t *event, void *context) {
     if (!busy && s_timer != NULL)
       request(enabled);
   }
+  if (event->button == INPUT_BTN_OK && press && menu_component_get_selected(&s_menu) == 5) {
+    ui_switch_screen(SCREEN_WIFI_ETHERNET);
+    return;
+  }
   refresh(NULL);
 }
 
@@ -164,9 +169,11 @@ void ui_wifi_hotspot_open(void) {
   s_menu = menu_component_create(s_screen, "Hotspot", "/assets/icons/wifi_tethering.bin");
   menu_component_add_selector(&s_menu, NULL, "Hotspot", "Start");
   menu_component_add_selector(&s_menu, NULL, "Status", "Offline");
-  menu_component_add_selector(&s_menu, NULL, "Network", AP_NAME);
-  menu_component_add_selector(&s_menu, NULL, "Security", "Open");
-  menu_component_add_selector(&s_menu, NULL, "Gateway", AP_IP);
+  menu_component_add_selector(&s_menu, NULL, "Network", WIFI_HOTSPOT_PRESET_SSID);
+  menu_component_add_selector(
+      &s_menu, NULL, "Security", WIFI_HOTSPOT_PRESET_PASSWORD[0] ? "WPA2-PSK" : "Open");
+  menu_component_add_selector(&s_menu, NULL, "Gateway", WIFI_HOTSPOT_PRESET_IP);
+  menu_component_add_selector(&s_menu, NULL, "Share USB Ethernet", "Open");
   menu_component_select(&s_menu, 0);
   s_timer = lv_timer_create(refresh, REFRESH_MS, NULL);
   if (s_timer == NULL) {

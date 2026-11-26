@@ -70,7 +70,8 @@ static uint32_t ulTaskNotifyTake(int clear,unsigned timeout) {
 static int spi_slave_disable(int host){assert(host==2 && spi_enabled && holds==1);if(disable_fail)return ESP_FAIL;spi_enabled=false;return ESP_OK;}
 static int spi_slave_enable(int host){assert(host==2 && !spi_enabled);if(enable_fail)return ESP_FAIL;spi_enabled=true;return ESP_OK;}
 /* DRIVER */
-static bool active[9];
+static bool active[10];
+static bool ethernet_router_is_active(void){return active[9];}
 static uint8_t ota_state;
 static bool wifi_service_is_active(void){return active[0];}
 static bool wifi_service_is_busy(void){return active[1];}
@@ -90,7 +91,7 @@ int main(void) {
   configure_fail=false;holds=0;s_wake_held=false;
   assert(init_sleep()==ESP_OK && holds==1 && spi_slave_driver_sleep_ready());
   assert(!power_manager_can_sleep());power_manager_set_ready();assert(power_manager_can_sleep());
-  for(unsigned i=0;i<9;i++){active[i]=true;assert(!power_manager_can_sleep());active[i]=false;}
+  for(unsigned i=0;i<10;i++){active[i]=true;assert(!power_manager_can_sleep());active[i]=false;}
   for(ota_state=SPI_OTA_STATE_ERASING;ota_state<=SPI_OTA_STATE_ERROR;ota_state++)assert(!power_manager_can_sleep());
   ota_state=SPI_OTA_STATE_IDLE;
   spi_slave_transaction_t transaction;

@@ -21,6 +21,8 @@ file(GLOB_RECURSE RF_FRONTEND_SRCS "rf_frontend/*.c")
 
 
 idf_component_register(SRCS
+  "usb_ethernet/usb_ethernet.c"
+  "usb_ethernet/usb_ethernet_ntb.c"
   "pins/board_pins.c"
   "pins/board_control.c"
   "husb320/husb320.c"
@@ -52,6 +54,7 @@ idf_component_register(SRCS
   ${RF_FRONTEND_SRCS}
 
   INCLUDE_DIRS
+  "usb_ethernet/include"
   "sys_prio/include"
   "input_manager/include"
   "bq25896/include"
@@ -94,6 +97,8 @@ idf_component_register(SRCS
   PRIV_REQUIRES
   efuse
   esp_timer
+  usb
+  usb_host_cdc_acm
   esp_tinyusb
   soc
   "led_strip")

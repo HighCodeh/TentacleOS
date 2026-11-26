@@ -25,6 +25,9 @@ run_test() {
   printf 'FAILED host test group: %s\n' "$*" >&2
   test_failures=$((test_failures + 1))
 }
+run_test python3 "$repo/tools/highboy/tests/test_flash_ports.py"
+run_test python3 "$repo/tools/highboy/tests/test_flash_both.py"
+run_test python3 "$repo/tools/highboy/tests/test_flash_visual.py"
 run_test python3 "$repo/tools/ci/test_host_test_runner.py"
 run_test python3 "$repo/tools/console/test_paths.py"
 run_test python3 "$repo/tools/storage_ui/test_storage_ui.py"
@@ -45,6 +48,9 @@ run_test python3 "$repo/tools/highboy/tests/test_ap_capture.py"
 run_test python3 "$repo/tools/highboy/tests/test_capture_queue.py"
 run_test python3 "$repo/tools/bluetooth/test_device_catalog.py"
 run_test python3 "$repo/tools/spi_transport/test_transport.py"
+run_test python3 "$repo/tools/spi_transport/test_stream_fairness.py"
+run_test python3 "$repo/tools/usb_ethernet/test_packet_exchange.py"
+run_test python3 "$repo/tools/usb_ethernet/test_forwarding.py"
 run_test python3 "$repo/tools/spi_transport/test_recovery.py"
 run_test python3 "$repo/tools/spi_transport/test_supervisor.py"
 run_test python3 "$repo/tools/spi_transport/test_config_cache.py"

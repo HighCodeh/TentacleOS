@@ -58,6 +58,7 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=array-bounds" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 
 project(TentacleOS_P4)
+include("${CMAKE_CURRENT_LIST_DIR}/components/Drivers/usb_ethernet/cdc_compat.cmake")
 
 # IDF 6 no longer supplies heap declarations through the SPI driver headers.
 idf_component_get_property(LED_STRIP_LIB espressif__led_strip COMPONENT_LIB)

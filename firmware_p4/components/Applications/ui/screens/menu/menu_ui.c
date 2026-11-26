@@ -23,27 +23,20 @@
 #include "lvgl.h"
 #include "draw/lv_image_decoder_private.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
 #include "assets_manager.h"
 #include "bluetooth_service.h"
 #include "favorites.h"
 #include "header_ui.h"
 #include "home_ui.h"
 #include "lv_port_indev.h"
-#include "notify_ui.h"
 #include "page_dots_ui.h"
 #include "st7789.h"
-#include "sys_prio.h"
 #include "tos_config.h"
-#include "tos_storage_paths.h"
 #include "haptic.h"
 #include "ui_feedback.h"
 #include "ui_manager.h"
 #include "ui_theme.h"
 #include "ui_metrics.h"
-#include "wifi_service.h"
 
 static const char *TAG = "UI_MENU";
 
@@ -652,25 +645,8 @@ cleanup:
   release_preload();
 }
 
-static void wifi_enable_task(void *arg) {
-  (void)arg;
-  wifi_service_start();
-  vTaskDelete(NULL);
-}
-
-static void ensure_radio_on(screen_id_t target) {
-  if (target == SCREEN_WIFI_MENU && !wifi_service_is_active()) {
-    g_config_wifi.enabled = true;
-    tos_config_save(TOS_PATH_CONFIG_WIFI, "wifi");
-    xTaskCreatePinnedToCore(
-        wifi_enable_task, "wifi_on", 4096, NULL, SYS_PRIO_SERVICE_LO, NULL, SYS_CORE_RADIO);
-    notify(NOTIFY_INFO, "Wi-Fi on");
-  }
-}
-
 static void menu_open_selected(void) {
   screen_id_t target = s_menu_data[s_selected].target;
-  ensure_radio_on(target);
   ui_switch_screen(target);
 }
 

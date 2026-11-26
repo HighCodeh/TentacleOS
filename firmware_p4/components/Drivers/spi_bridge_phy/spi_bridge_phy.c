@@ -32,7 +32,7 @@
 
 static const char *TAG = "SPI_BRIDGE_PHY";
 
-#define BRIDGE_CLOCK_HZ   (4 * 1000 * 1000)
+#define BRIDGE_CLOCK_HZ   (10 * 1000 * 1000)
 #define BRIDGE_SPI_MODE   0
 #define BRIDGE_QUEUE_SIZE 7
 #define BRIDGE_CS_IDLE_US 100

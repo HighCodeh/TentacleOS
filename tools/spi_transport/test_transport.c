@@ -31,6 +31,8 @@
 #define SPI_POLL_FAST_TRIES 4
 #define SPI_POLL_FAST_US 150
 #define SPI_POLL_PREWAIT_US 400
+#define SPI_CACHED_REQUEST_RETRY_US 20000
+#define SPI_CACHED_REQUEST_RETRY_LIMIT 3
 #define SPI_BRIDGE_MODE_IRQ 1
 static int s_bridge_mode;
 static unsigned last_wrong_id, stream_pops;
@@ -45,7 +47,7 @@ static uint32_t peer_seq;
 static unsigned executions, commands_sent, syncs;
 static unsigned wake_clocks;
 static size_t peer_cached_size;
-static uint8_t peer_cache[SPI_TRANSPORT_FRAME_SIZE], peer_response[SPI_TRANSPORT_STREAM_SIZE];
+static uint8_t peer_cache[SPI_TRANSPORT_STREAM_SIZE], peer_response[SPI_TRANSPORT_STREAM_SIZE];
 static bool pending, drop_request, corrupt_reply, stale_reply, suppress_peer, recover_reply;
 static int64_t esp_timer_get_time(void) {return clock_us;}
 static void esp_fill_random(void *out,size_t n) {assert(n==8);random_value++;memcpy(out,&random_value,n);}
@@ -95,9 +97,9 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
     pending=false;
     return ESP_OK;
   }
-  if(n!=SPI_TRANSPORT_FRAME_SIZE)return ESP_OK;
+  if(n!=SPI_TRANSPORT_FRAME_SIZE && n!=SPI_TRANSPORT_STREAM_SIZE)return ESP_OK;
   spi_transport_header_t request;
-  spi_transport_action_t action=transport_classify(tx,peer_master,peer_boot,peer_seq,
+  spi_transport_action_t action=transport_classify(tx,n,peer_master,peer_boot,peer_seq,
                                                    peer_cache,peer_cached_size,&request);
   if(action==SPI_TRANSPORT_DROP)return ESP_OK;
   if(action==SPI_TRANSPORT_CACHED){cache_fetches++;pending=true;return ESP_OK;}
@@ -107,7 +109,7 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
     executions++;
   } else {peer_master=request.master_session;syncs++;}
   peer_seq=request.sequence;
-  memcpy(peer_cache,tx,SPI_TRANSPORT_FRAME_SIZE);
+  memcpy(peer_cache,tx,request.frame_size+SPI_TRANSPORT_HEADER_SIZE);
   peer_cached_size=SPI_FRAME_SIZE;
   memset(peer_response,0,sizeof(peer_response));
   memcpy(peer_response+SPI_TRANSPORT_HEADER_SIZE,tx+SPI_TRANSPORT_HEADER_SIZE,SPI_FRAME_SIZE);
@@ -115,6 +117,22 @@ static esp_err_t spi_bridge_phy_transmit(const uint8_t *tx,uint8_t *rx,size_t n)
   reply->type=SPI_TYPE_RESP;reply->length=1;
   peer_response[SPI_TRANSPORT_HEADER_SIZE+sizeof(*reply)]=0;
   spi_frame_seal(reply,1);
+  if(request.frame_size==SPI_STREAM_FRAME_SIZE && action==SPI_TRANSPORT_EXECUTE) {
+    uint16_t length;
+    const uint8_t *input=tx+SPI_TRANSPORT_HEADER_SIZE+sizeof(*reply);
+    memcpy(&length,input,sizeof(length));
+    assert(length>=SPI_ETHERNET_REQUEST_META_SIZE);
+    uint16_t response_length=length+1;
+    reply->type=SPI_TYPE_STREAM;reply->length=0;
+    uint8_t *output=(uint8_t *)reply+sizeof(*reply);
+    memcpy(output,&response_length,sizeof(response_length));output+=sizeof(response_length);
+    memcpy(output,input+sizeof(length),SPI_ETHERNET_REQUEST_META_SIZE);
+    output[SPI_ETHERNET_REQUEST_META_SIZE]=SPI_STATUS_OK;
+    memcpy(output+SPI_ETHERNET_REPLY_META_SIZE,input+sizeof(length)+SPI_ETHERNET_REQUEST_META_SIZE,
+           length-SPI_ETHERNET_REQUEST_META_SIZE);
+    spi_frame_seal(reply,sizeof(response_length)+response_length);
+    peer_cached_size=SPI_STREAM_FRAME_SIZE;
+  }
   if(stream_reply && action==SPI_TRANSPORT_EXECUTE) {
     produce_stream(peer_response+SPI_TRANSPORT_HEADER_SIZE);
     peer_cached_size=SPI_STREAM_FRAME_SIZE;
@@ -156,7 +174,7 @@ int main(void) {
   assert(spi_transport_valid(saved,sizeof(saved),&h));
   saved[SPI_TRANSPORT_HEADER_SIZE+3]^=1;
   spi_transport_seal(saved,SPI_FRAME_SIZE,SPI_TRANSPORT_REQUEST,h.master_session,h.slave_session,h.sequence);
-  assert(transport_classify(saved,peer_master,peer_boot,peer_seq,peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
+  assert(transport_classify(saved,sizeof(saved),peer_master,peer_boot,peer_seq,peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
   // Restarting the C5 rejects the old session before any side effects.
   peer_boot++;peer_master=0;peer_seq=0;peer_cached_size=0;pending=false;
   assert(transport_send(frame,clock_us+100000)==ESP_OK);transport_read(reply,sizeof(reply));
@@ -240,7 +258,7 @@ int main(void) {
   // An older HELLO cannot rewind this master's duplicate protection.
   memcpy(saved,peer_cache,sizeof(saved));
   spi_transport_seal(saved,SPI_FRAME_SIZE,SPI_TRANSPORT_HELLO,peer_master,0,peer_seq-1);
-  assert(transport_classify(saved,peer_master,peer_boot,peer_seq,peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
+  assert(transport_classify(saved,sizeof(saved),peer_master,peer_boot,peer_seq,peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
   // A sync can drain a pending response, including a truncated stream frame.
   peer_cached_size=SPI_STREAM_FRAME_SIZE;pending=true;s_transport_ready=false;
   assert(transport_send(frame,clock_us+100000)==ESP_OK);transport_read(reply,sizeof(reply));
@@ -268,6 +286,112 @@ int main(void) {
   assert(transport_send(frame,deadline)==ESP_ERR_TIMEOUT);
   assert(clock_us<deadline+3000 && commands_sent==before);
   assert(transport_send(frame,clock_us)==ESP_ERR_TIMEOUT);
+  // Lost requests, delayed responses and peer reboot for every protected command.
+  const spi_id_t retry_commands[] = {SPI_ID_ETHERNET_START, SPI_ID_ETHERNET_STOP,
+    SPI_ID_ETHERNET_STATUS, SPI_ID_ETHERNET_RX, SPI_ID_ETHERNET_TX,
+    SPI_ID_BOARD_NEGOTIATE, SPI_ID_BOARD_STATE, SPI_ID_BOARD_SET,
+    SPI_ID_HOST_TX, SPI_ID_HOST_STATUS};
+  for (size_t i=0;i<sizeof(retry_commands)/sizeof(retry_commands[0]);++i) {
+    spi_id_t id=retry_commands[i];
+    suppress_peer=false;s_transport_ready=false;s_peer_may_sleep=false;
+    command(frame);
+    spi_header_t *eth=(spi_header_t*)frame;
+    eth->category=SPI_CMD_CAT(id);eth->op=SPI_CMD_OP(id);
+    spi_frame_seal(eth,0);
+    drop_request=true;once=executions;
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);
+    uint32_t retry_sequence=s_transaction;
+    uint8_t dummy[SPI_FRAME_SIZE];
+    assert(recv_frame(dummy,reply,sizeof(reply),id,true,clock_us+100000)==ESP_OK);
+    assert(executions==once+1 && s_transaction==retry_sequence);
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);once=executions;
+    blank_reads=20;
+    assert(recv_frame(dummy,reply,sizeof(reply),id,true,clock_us+100000)==ESP_OK);
+    assert(executions==once);
+    // No retry may execute in a different peer session.
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);once=executions;
+    pending=false;peer_boot++;peer_master=0;peer_seq=0;peer_cached_size=0;
+    deadline=clock_us+100000;
+    assert(recv_frame(dummy,reply,sizeof(reply),id,true,deadline)==ESP_ERR_TIMEOUT);
+    assert(executions==once && clock_us<deadline+3000);
+  }
+  // Sustained mixed data/control traffic with deterministic delivery/response faults.
+  suppress_peer=false;s_transport_ready=false;s_peer_may_sleep=false;
+  for (unsigned i=0;i<5000;i++) {
+    spi_id_t id=retry_commands[i%(sizeof(retry_commands)/sizeof(retry_commands[0]))];
+    command(frame);
+    spi_header_t *h=(spi_header_t*)frame;
+    h->category=SPI_CMD_CAT(id);h->op=SPI_CMD_OP(id);spi_frame_seal(h,0);
+    drop_request=(i%31)==0;corrupt_reply=(i%17)==0;
+    once=executions;
+    int64_t started=clock_us;
+    assert(transport_send(frame,started+250000)==ESP_OK);
+    if(i%103==0)blank_reads=20;
+    uint8_t dummy[SPI_FRAME_SIZE];
+    assert(recv_frame(dummy,reply,sizeof(reply),id,true,started+250000)==ESP_OK);
+    assert(executions==once+1 && clock_us<started+250000);
+  }
+  // Whole Ethernet packets share cache/deadline semantics with normal commands.
+  uint8_t packet[SPI_STREAM_FRAME_SIZE], packet_reply[SPI_STREAM_FRAME_SIZE];
+  uint8_t bulk_saved[SPI_TRANSPORT_STREAM_SIZE];
+  const uint16_t sizes[]={0,14,64,SPI_ETHERNET_MTU};
+  for(unsigned i=0;i<1000;i++) {
+    memset(packet,0,sizeof(packet));
+    spi_header_t *ph=(spi_header_t*)packet;
+    *ph=(spi_header_t){.sync=SPI_SYNC_BYTE,.type=SPI_TYPE_CMD,
+       .category=SPI_CAT_ETHERNET,.op=SPI_CMD_OP(SPI_ID_ETHERNET_EXCHANGE)};
+    uint16_t length=SPI_ETHERNET_REQUEST_META_SIZE+sizes[i%4];
+    uint32_t token=0x12345678;
+    memcpy(packet+sizeof(*ph),&length,sizeof(length));
+    memcpy(packet+sizeof(*ph)+sizeof(length),&token,sizeof(token));
+    for(unsigned j=0;j<sizes[i%4];j++)packet[sizeof(*ph)+sizeof(length)+sizeof(token)+j]=(uint8_t)(i+j);
+    spi_frame_seal(ph,sizeof(length)+length);
+    once=executions;drop_request=i%31==0;corrupt_reply=i%17==0;
+    deadline=clock_us+250000;
+    assert(transport_send_frame(packet,sizeof(packet),deadline)==ESP_OK);
+    if(i%103==0)blank_reads=20;
+    assert(recv_frame(stream_tx,packet_reply,sizeof(packet_reply),SPI_ID_ETHERNET_EXCHANGE,true,deadline)==ESP_OK);
+    assert(executions==once+1 && clock_us<deadline);
+    assert(!memcmp(packet_reply+sizeof(*ph)+2,&(uint32_t){0x12345678},4));
+    for(unsigned j=0;j<sizes[i%4];j++)
+      assert(packet_reply[sizeof(*ph)+2+SPI_ETHERNET_REPLY_META_SIZE+j]==(uint8_t)(i+j));
+    memcpy(bulk_saved,peer_cache,sizeof(bulk_saved));
+    assert(transport_classify(bulk_saved,sizeof(bulk_saved),peer_master,peer_boot,peer_seq,
+      peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_CACHED);
+    assert(transport_classify(bulk_saved,SPI_TRANSPORT_FRAME_SIZE,peer_master,peer_boot,peer_seq,
+      peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
+    // Corrupted inner bounds stay invalid even after the envelope is resealed.
+    bulk_saved[SPI_TRANSPORT_HEADER_SIZE+sizeof(*ph)]=0xff;
+    bulk_saved[SPI_TRANSPORT_HEADER_SIZE+sizeof(*ph)+1]=0xff;
+    spi_transport_seal(bulk_saved,SPI_STREAM_FRAME_SIZE,SPI_TRANSPORT_REQUEST,
+                       peer_master,peer_boot,peer_seq+1);
+    assert(transport_classify(bulk_saved,sizeof(bulk_saved),peer_master,peer_boot,peer_seq,
+      peer_cache,peer_cached_size,&h)==SPI_TRANSPORT_DROP);
+    if(i%29==0) {
+      assert(transport_send_frame(packet,sizeof(packet),clock_us+100000)==ESP_OK);
+      once=executions;pending=false;peer_boot++;peer_master=0;peer_seq=0;peer_cached_size=0;
+      deadline=clock_us+100000;
+      assert(recv_frame(stream_tx,packet_reply,sizeof(packet_reply),SPI_ID_ETHERNET_EXCHANGE,true,deadline)==ESP_ERR_TIMEOUT);
+      assert(executions==once && clock_us<deadline+3000);s_transport_ready=false;
+    }
+    // Alternate a short control request after each long transaction.
+    command(frame);assert(transport_send(frame,clock_us+100000)==ESP_OK);
+    assert(recv_frame(stream_tx,reply,sizeof(reply),SPI_ID_SYSTEM_PING,true,clock_us+100000)==ESP_OK);
+    // Companion records must survive switching between bulk Ethernet and stream replies.
+    spi_header_t *sh=(spi_header_t *)frame;
+    sh->op=SPI_CMD_OP(SPI_ID_SYSTEM_STREAM);spi_frame_seal(sh,0);
+    stream_reply=true;stream_bytes=i%2?SPI_MESH_CHUNK_PAYLOAD_MAX:0;
+    pops=stream_pops;once=executions;corrupt_reply=i%11==0;
+    assert(transport_send(frame,clock_us+100000)==ESP_OK);
+    if(i%13==0)blank_reads=1;
+    assert(recv_frame(stream_tx,stream_rx,sizeof(stream_rx),SPI_ID_SYSTEM_STREAM,true,clock_us+100000)==ESP_OK);
+    assert(executions==once+1 && stream_pops==pops+(stream_bytes?1:0));
+    uint16_t received_bytes;
+    memcpy(&received_bytes,stream_rx+sizeof(*sh),sizeof(received_bytes));
+    assert(received_bytes==stream_bytes);
+    for(unsigned j=0;j<stream_bytes;j++)assert(stream_rx[sizeof(*sh)+2+j]==0x42);
+    stream_reply=false;stream_bytes=0;
+  }
   puts("PASS: actual SPI codec/master helpers/slave admission; late replies, duplicates, restarts, wrap, CRC, bounds and bounded resync");
   return 0;
 }

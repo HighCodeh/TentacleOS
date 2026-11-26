@@ -59,6 +59,7 @@ set(SCRIPT_ENGINE_SRCS
     ${SCRIPT_LUA_SRCS} ${SCRIPT_JS_SRCS})
 
 idf_component_register(SRCS
+    "ethernet_share/ethernet_share.c"
   "frequency_analyzer/frequency_waterfall.c"
   "frequency_analyzer/frequency_waterfall_plan.c"
   "frequency_analyzer/frequency_waterfall_color.c"
@@ -142,6 +143,7 @@ idf_component_register(SRCS
   "boot_sound/include"
   "muse"
   "sys_time/include"
+  "ethernet_share/include"
   "power_manager/include"
   "ir/include"
   "haptic/include"

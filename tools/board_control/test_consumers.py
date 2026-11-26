@@ -41,6 +41,7 @@ static inline void vSemaphoreDelete(SemaphoreHandle_t h) { (void)h; }
 """
         mocks["tusb_desc.h"] = """#include "board_control.h"
 esp_err_t busb_init(void);
+bool busb_host_owned(void);
 bool usb_mux_is_native(void);
 """
         mocks["driver/gpio.h"] = """#include "esp_err.h"

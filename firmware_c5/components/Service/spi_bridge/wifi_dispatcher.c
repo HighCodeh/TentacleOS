@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_dispatcher.h"
+#include "ethernet_router.h"
 
 #include <string.h>
 
@@ -461,6 +462,8 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
                                      uint8_t *out_resp_len) {
   (void)TAG;
   *out_resp_len = 0;
+  if (ethernet_router_is_active())
+    return SPI_STATUS_BUSY;
 
   // Voice owns the current STA channel while its TLS worker is alive. Do not
   // retune it for scans/captures or replace its network behind the user's back.

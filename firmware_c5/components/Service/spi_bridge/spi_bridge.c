@@ -15,6 +15,7 @@
 
 #include "spi_bridge.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -50,6 +51,7 @@
 #include "signal_monitor.h"
 #include "spi_slave_driver.h"
 #include "wifi_dispatcher.h"
+#include "ethernet_router.h"
 #include "wifi_quick_scan.h"
 #include "wifi_service.h"
 #include "wifi_sniffer.h"
@@ -380,20 +382,42 @@ typedef enum {
 } spi_transport_action_t;
 
 static spi_transport_action_t transport_classify(const uint8_t *packet,
+                                                 size_t available,
                                                  uint64_t master,
                                                  uint64_t slave,
                                                  uint32_t sequence,
                                                  const uint8_t *cached_request,
                                                  size_t cached_size,
                                                  spi_transport_header_t *out_request) {
-  if (!spi_transport_valid(packet, SPI_TRANSPORT_FRAME_SIZE, out_request) ||
-      out_request->frame_size != SPI_FRAME_SIZE)
+  if (!spi_transport_valid(packet, available, out_request))
     return SPI_TRANSPORT_DROP;
+  // Long reads may land on RX. Only short FETCH packets arm the cached response.
+  if (available == SPI_TRANSPORT_STREAM_SIZE && out_request->kind != SPI_TRANSPORT_REQUEST)
+    return SPI_TRANSPORT_DROP;
+  if (out_request->kind == SPI_TRANSPORT_REQUEST &&
+      available != out_request->frame_size + SPI_TRANSPORT_HEADER_SIZE)
+    return SPI_TRANSPORT_DROP;
+  if (out_request->frame_size == SPI_STREAM_FRAME_SIZE) {
+    const spi_header_t *inner = (const spi_header_t *)(packet + SPI_TRANSPORT_HEADER_SIZE);
+    uint16_t length = 0;
+    memcpy(&length, (const uint8_t *)inner + sizeof(*inner), sizeof(length));
+    if (out_request->kind != SPI_TRANSPORT_REQUEST || inner->sync != SPI_SYNC_BYTE ||
+        inner->type != SPI_TYPE_CMD || inner->length != 0 ||
+        spi_header_cmd(inner) != SPI_ID_ETHERNET_EXCHANGE ||
+        length < SPI_ETHERNET_REQUEST_META_SIZE ||
+        length > SPI_ETHERNET_REQUEST_META_SIZE + SPI_ETHERNET_MTU ||
+        !spi_frame_valid(inner, sizeof(length) + length))
+      return SPI_TRANSPORT_DROP;
+  }
   if (cached_size && out_request->kind == SPI_TRANSPORT_FETCH &&
       out_request->master_session == master && out_request->slave_session == slave &&
       out_request->sequence == sequence)
     return SPI_TRANSPORT_CACHED;
-  if (cached_size && !memcmp(cached_request, packet, SPI_TRANSPORT_FRAME_SIZE))
+  spi_transport_header_t cached_header = {0};
+  if (cached_size)
+    memcpy(&cached_header, cached_request, sizeof(cached_header));
+  if (cached_size && cached_header.frame_size == out_request->frame_size &&
+      !memcmp(cached_request, packet, out_request->frame_size + SPI_TRANSPORT_HEADER_SIZE))
     return SPI_TRANSPORT_CACHED;
   if (out_request->kind == SPI_TRANSPORT_HELLO && !out_request->slave_session &&
       (out_request->master_session != master || out_request->sequence > sequence))
@@ -406,13 +430,15 @@ static spi_transport_action_t transport_classify(const uint8_t *packet,
 
 static void bridge_task(void *pvParameters) {
   // Static (this is the only task touching them) so the larger stream TX buffer
-  // does not blow the task stack. RX/command stays at SPI_FRAME_SIZE; only the
-  // stream response uses the larger SPI_STREAM_FRAME_SIZE buffer.
-  static DMA_ATTR uint8_t rx_wire[SPI_TRANSPORT_FRAME_SIZE];
+  // does not blow the task stack. C5 SPI DMA requires internal RAM; RX accepts
+  // both command and whole-packet envelopes, validated by actual received length.
+  static DMA_ATTR uint8_t rx_wire[SPI_TRANSPORT_STREAM_SIZE];
   uint8_t *rx_buf = rx_wire + SPI_TRANSPORT_HEADER_SIZE;
   static DMA_ATTR uint8_t tx_wire[SPI_TRANSPORT_STREAM_SIZE];
   uint8_t *tx_buf = tx_wire + SPI_TRANSPORT_HEADER_SIZE;
-  static uint8_t last_request[SPI_TRANSPORT_FRAME_SIZE];
+  static uint8_t command_cache[SPI_TRANSPORT_FRAME_SIZE];
+  static uint8_t *packet_cache;
+  uint8_t *last_request = command_cache;
   uint64_t master_session = 0, slave_session;
   uint32_t last_sequence = 0;
   size_t cached_size = 0;
@@ -437,7 +463,7 @@ static void bridge_task(void *pvParameters) {
   // Hardware still needs its completion ISR between transfers; this is not a
   // guarantee against electrical corruption or an arbitrarily delayed ISR.
   memset(rx_wire, 0, sizeof(rx_wire));
-  esp_err_t transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
+  esp_err_t transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, sizeof(rx_wire));
   if (transfer != ESP_OK) {
     fault_stage = "initial_rx";
     goto recover_transport;
@@ -447,6 +473,9 @@ static void bridge_task(void *pvParameters) {
   while (1) {
     uint32_t sleep_ms = 0;
     transfer = spi_slave_driver_wait_for(&rx_trans);
+    if (transfer == ESP_ERR_INVALID_SIZE &&
+        rx_trans.trans_len == SPI_TRANSPORT_FRAME_SIZE * CHAR_BIT)
+      transfer = ESP_OK;
     if (transfer == ESP_ERR_INVALID_SIZE) {
       // No command was executed. Discard a short/overlong receive safely,
       // unlike a short response whose payload may already have been consumed.
@@ -462,7 +491,7 @@ static void bridge_task(void *pvParameters) {
         next_bad_log_us = now + 1000000;
       }
       memset(rx_wire, 0, sizeof(rx_wire));
-      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
+      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, sizeof(rx_wire));
       if (transfer != ESP_OK) {
         fault_stage = "short_rx_rearm";
         goto recover_transport;
@@ -475,8 +504,17 @@ static void bridge_task(void *pvParameters) {
     }
 
     spi_transport_header_t request;
-    spi_transport_action_t action = transport_classify(
-        rx_wire, master_session, slave_session, last_sequence, last_request, cached_size, &request);
+    size_t received = rx_trans.trans_len / CHAR_BIT;
+    spi_transport_action_t action = SPI_TRANSPORT_DROP;
+    if (received == SPI_TRANSPORT_FRAME_SIZE || packet_cache != NULL)
+      action = transport_classify(rx_wire,
+                                  received,
+                                  master_session,
+                                  slave_session,
+                                  last_sequence,
+                                  last_request,
+                                  cached_size,
+                                  &request);
     spi_status_t status = SPI_STATUS_OK;
     uint16_t cmd = 0;
     bool trace = false;
@@ -498,8 +536,9 @@ static void bridge_task(void *pvParameters) {
     // Drop framing-invalid or bus-corrupted commands: bad sync/type, or a CRC
     // mismatch. Dropping (rather than acting) means the master gets no response
     // and its command times out, so a corrupted op/payload is never executed.
+    bool is_packet = action == SPI_TRANSPORT_EXECUTE && request.frame_size == SPI_STREAM_FRAME_SIZE;
     if (action != SPI_TRANSPORT_EXECUTE || header->sync != SPI_SYNC_BYTE ||
-        header->type != SPI_TYPE_CMD || !spi_frame_valid(header, header->length)) {
+        header->type != SPI_TYPE_CMD || (!is_packet && !spi_frame_valid(header, header->length))) {
       bool dummy = true;
       for (size_t i = 0; i < sizeof(rx_wire); ++i) {
         if (rx_wire[i]) {
@@ -526,7 +565,7 @@ static void bridge_task(void *pvParameters) {
         }
       }
       memset(rx_wire, 0, sizeof(rx_wire));
-      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
+      transfer = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, sizeof(rx_wire));
       if (transfer != ESP_OK) {
         fault_stage = "invalid_rx_rearm";
         goto recover_transport;
@@ -772,6 +811,41 @@ static void bridge_task(void *pvParameters) {
           status = mqtt_bridge_execute(&request);
           break;
         }
+        case SPI_CAT_ETHERNET:
+          if (cmd == SPI_ID_ETHERNET_CAPABILITIES && header->length == 0) {
+            if (packet_cache == NULL)
+              packet_cache = heap_caps_malloc(SPI_TRANSPORT_STREAM_SIZE, MALLOC_CAP_SPIRAM);
+            if (packet_cache == NULL) {
+              ESP_LOGE(TAG, "Ethernet request cache allocation failed");
+              status = SPI_STATUS_ERROR;
+            } else {
+              uint32_t capabilities = SPI_ETHERNET_CAP_PACKET;
+              memcpy(resp_payload, &capabilities, sizeof(capabilities));
+              resp_len = sizeof(capabilities);
+            }
+          } else if (cmd == SPI_ID_ETHERNET_EXCHANGE && is_packet) {
+            memset(tx_buf, 0, SPI_STREAM_FRAME_SIZE);
+            uint16_t length = 0, reply_length = 0;
+            memcpy(&length, cmd_payload, sizeof(length));
+            uint8_t *body = tx_buf + sizeof(spi_header_t) + sizeof(uint16_t);
+            status =
+                ethernet_router_exchange(cmd_payload + sizeof(length), length, body, &reply_length);
+            if (status == SPI_STATUS_OK) {
+              spi_header_t reply = {.sync = SPI_SYNC_BYTE,
+                                    .type = SPI_TYPE_STREAM,
+                                    .category = SPI_CAT_ETHERNET,
+                                    .op = SPI_CMD_OP(SPI_ID_ETHERNET_EXCHANGE)};
+              memcpy(tx_buf, &reply, sizeof(reply));
+              memcpy(tx_buf + sizeof(reply), &reply_length, sizeof(reply_length));
+              spi_frame_seal((spi_header_t *)tx_buf, sizeof(reply_length) + reply_length);
+              tx_size = SPI_STREAM_FRAME_SIZE;
+              tx_ready = true;
+            }
+          } else {
+            status =
+                ethernet_router_execute(cmd, cmd_payload, header->length, resp_payload, &resp_len);
+          }
+          break;
         case SPI_CAT_WIFI:
           status =
               wifi_dispatcher_execute(cmd, cmd_payload, header->length, resp_payload, &resp_len);
@@ -825,7 +899,8 @@ static void bridge_task(void *pvParameters) {
     }
 
 publish_response:
-    memcpy(last_request, rx_wire, sizeof(last_request));
+    last_request = request.frame_size == SPI_STREAM_FRAME_SIZE ? packet_cache : command_cache;
+    memcpy(last_request, rx_wire, request.frame_size + SPI_TRANSPORT_HEADER_SIZE);
     cached_size = tx_size;
     spi_transport_seal(tx_wire,
                        (uint16_t)tx_size,
@@ -848,7 +923,7 @@ queue_response:
                                                              tx_size + SPI_TRANSPORT_HEADER_SIZE,
                                                              &rx_trans,
                                                              rx_wire,
-                                                             SPI_TRANSPORT_FRAME_SIZE);
+                                                             sizeof(rx_wire));
     }
     if (transfer != ESP_OK) {
       fault_stage = "queue_pair";
@@ -866,8 +941,7 @@ queue_response:
           goto recover_transport;
         }
       }
-      esp_err_t rearmed =
-          spi_slave_driver_queue(&rx_trans, NULL, rx_wire, SPI_TRANSPORT_FRAME_SIZE);
+      esp_err_t rearmed = spi_slave_driver_queue(&rx_trans, NULL, rx_wire, sizeof(rx_wire));
       if (rearmed != ESP_OK) {
         transfer = rearmed;
         fault_stage = "wake_rearm";

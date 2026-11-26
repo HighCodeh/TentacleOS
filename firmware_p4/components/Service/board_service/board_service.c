@@ -29,8 +29,9 @@
 #include "power_manager.h"
 #include "sys_prio.h"
 
-#define BOARD_POLL_MS    500
-#define BOARD_RPC_MS     250
+#define BOARD_POLL_MS 500
+// Includes waiting behind one bounded 500 ms Ethernet transaction.
+#define BOARD_RPC_MS     750
 #define BOARD_FRESH_MS   1500
 #define BOARD_STACK_SIZE 4096
 #define BOARD_US_PER_MS  1000

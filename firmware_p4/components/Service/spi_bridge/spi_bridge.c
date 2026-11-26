@@ -54,7 +54,9 @@ static const char *TAG = "SPI_BRIDGE_P4";
 // its RX and TX transactions (a longer window for payload-carrying commands like
 // OTA_DATA) desyncs it, and the response is then read as garbage for the whole
 // timeout - which was making the C5 OTA fall back to slow per-chunk resyncs.
-#define SPI_POLL_PREWAIT_US 400
+#define SPI_POLL_PREWAIT_US            400
+#define SPI_CACHED_REQUEST_RETRY_US    20000
+#define SPI_CACHED_REQUEST_RETRY_LIMIT 3
 
 // All transport state and DMA scratch are owned by the bridge mutex.
 static uint64_t s_master_session;
@@ -65,6 +67,9 @@ static bool s_peer_may_sleep;
 static int64_t s_recovery_quiet_until;
 static EXT_RAM_BSS_ATTR uint8_t s_wire_tx[SPI_TRANSPORT_STREAM_SIZE];
 static EXT_RAM_BSS_ATTR uint8_t s_wire_rx[SPI_TRANSPORT_STREAM_SIZE];
+static EXT_RAM_BSS_ATTR uint8_t s_cached_request[SPI_TRANSPORT_STREAM_SIZE];
+static bool s_can_retry_request;
+static size_t s_cached_request_size;
 
 static uint64_t new_session(void) {
   uint64_t session;
@@ -131,7 +136,8 @@ static esp_err_t transport_sync(int64_t deadline) {
   return ESP_ERR_TIMEOUT;
 }
 
-static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
+static esp_err_t transport_send_frame(const uint8_t *frame, size_t frame_size, int64_t deadline) {
+  s_can_retry_request = false;
   if (s_peer_may_sleep) {
     // HELLO is retryable and wakes CS. No application command is sent until acknowledged.
     s_transport_ready = false;
@@ -147,21 +153,32 @@ static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
     return ESP_ERR_INVALID_STATE;
   }
   ++s_transaction;
-  memcpy(s_wire_tx + SPI_TRANSPORT_HEADER_SIZE, frame, SPI_FRAME_SIZE);
+  memcpy(s_wire_tx + SPI_TRANSPORT_HEADER_SIZE, frame, frame_size);
   spi_transport_seal(s_wire_tx,
-                     SPI_FRAME_SIZE,
+                     (uint16_t)frame_size,
                      SPI_TRANSPORT_REQUEST,
                      s_master_session,
                      s_slave_session,
                      s_transaction);
   const spi_header_t *header = (const spi_header_t *)frame;
+  spi_id_t command = spi_header_cmd(header);
+  s_can_retry_request = SPI_CMD_CAT(command) == SPI_CAT_ETHERNET || command == SPI_ID_HOST_TX ||
+                        command == SPI_ID_HOST_STATUS || command == SPI_ID_BOARD_NEGOTIATE ||
+                        command == SPI_ID_BOARD_STATE || command == SPI_ID_BOARD_SET;
+  s_cached_request_size = frame_size + SPI_TRANSPORT_HEADER_SIZE;
+  if (s_can_retry_request)
+    memcpy(s_cached_request, s_wire_tx, s_cached_request_size);
   if (spi_header_cmd(header) == SPI_ID_SYSTEM_POWER_STATE &&
       header->length == SPI_POWER_REQUEST_SIZE && frame[sizeof(*header)] != SPI_POWER_ACTIVE)
     s_peer_may_sleep = true;
-  ret = spi_bridge_phy_transmit(s_wire_tx, NULL, SPI_TRANSPORT_FRAME_SIZE);
+  ret = spi_bridge_phy_transmit(s_wire_tx, NULL, frame_size + SPI_TRANSPORT_HEADER_SIZE);
   if (ret != ESP_OK)
     s_transport_ready = false;
   return ret;
+}
+
+static esp_err_t transport_send(const uint8_t *frame, int64_t deadline) {
+  return transport_send_frame(frame, SPI_FRAME_SIZE, deadline);
 }
 
 static esp_err_t transport_read(uint8_t *out_frame, size_t frame_size) {
@@ -225,6 +242,10 @@ static bool recovery_allows_command(spi_id_t id) {
          id == SPI_ID_SYSTEM_PROTO_VERSION || id == SPI_ID_BOARD_NEGOTIATE ||
          id == SPI_ID_BOARD_STATE;
 }
+
+// Small diagnostic control records survive transport loss; no packet payloads are stored.
+static spi_bridge_failure_t s_failures[SPI_BRIDGE_FAILURE_COUNT];
+static portMUX_TYPE s_failure_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static atomic_uint s_stream_epoch;
 static portMUX_TYPE s_stream_cb_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -335,6 +356,8 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
                             uint16_t expect_cmd,
                             bool match_cmd,
                             int64_t deadline);
+static esp_err_t
+retain_failure(spi_id_t command, spi_bridge_phase_t phase, int64_t started, esp_err_t error);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -439,6 +462,8 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
   // POLL mode.
   esp_rom_delay_us(SPI_POLL_PREWAIT_US); // let the slave arm its response first
   uint32_t tries = 0;
+  uint32_t cached_retries = 0;
+  int64_t next_cached_retry = diag.started + SPI_CACHED_REQUEST_RETRY_US;
   while (esp_timer_get_time() < deadline) {
     memset(rx_buf, 0, frame_size);
     diag.polls++;
@@ -512,6 +537,19 @@ static esp_err_t recv_frame(uint8_t *tx_buf,
         log_rx_failure(&diag, expect_cmd, ret);
         return ret;
       }
+    }
+    int64_t now = esp_timer_get_time();
+    if (match_cmd && s_can_retry_request && cached_retries < SPI_CACHED_REQUEST_RETRY_LIMIT &&
+        now >= next_cached_retry && now < deadline) {
+      // The locked session/sequence stays identical: C5 returns its cache without redispatch.
+      ret = spi_bridge_phy_transmit(s_cached_request, NULL, s_cached_request_size);
+      if (ret != ESP_OK) {
+        s_transport_ready = false;
+        log_rx_failure(&diag, expect_cmd, ret);
+        return ret;
+      }
+      ++cached_retries;
+      next_cached_retry = now + SPI_CACHED_REQUEST_RETRY_US;
     }
     if (tries++ < SPI_POLL_FAST_TRIES) {
       esp_rom_delay_us(SPI_POLL_FAST_US);
@@ -765,6 +803,17 @@ spi_bridge_run_scan(spi_id_t scan_id, spi_id_t status_id, const uint8_t *payload
   return ESP_ERR_TIMEOUT;
 }
 
+esp_err_t spi_bridge_get_failures(spi_bridge_failure_t *out_failures, bool is_clear) {
+  if (out_failures == NULL)
+    return ESP_ERR_INVALID_ARG;
+  portENTER_CRITICAL(&s_failure_lock);
+  memcpy(out_failures, s_failures, sizeof(s_failures));
+  if (is_clear)
+    memset(s_failures, 0, sizeof(s_failures));
+  portEXIT_CRITICAL(&s_failure_lock);
+  return ESP_OK;
+}
+
 esp_err_t spi_bridge_send_command(spi_id_t id,
                                   const uint8_t *payload,
                                   uint8_t len,
@@ -772,9 +821,11 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   uint8_t *out_payload,
                                   size_t out_capacity,
                                   uint32_t timeout_ms) {
-  const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  const int64_t started = esp_timer_get_time();
+  const int64_t deadline = started + (int64_t)timeout_ms * 1000;
+  spi_bridge_phase_t phase = SPI_BRIDGE_PHASE_LOCAL;
   if ((!payload && len) || !timeout_ms)
-    return ESP_ERR_INVALID_ARG;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_ARG);
   if (s_suspended || !recovery_allows_command(id) ||
       (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
        atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
@@ -784,18 +835,20 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                s_suspended,
                atomic_load(&s_bridge_alive),
                recovery_allows_command(id));
-    return ESP_ERR_INVALID_STATE;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_STATE);
   }
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
   if (!s_spi_mutex)
-    return ESP_ERR_NO_MEM;
+    return retain_failure(id, phase, started, ESP_ERR_NO_MEM);
+  phase = SPI_BRIDGE_PHASE_LOCK;
   int64_t remaining = deadline - esp_timer_get_time();
   if (remaining <= 0 ||
       xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS((uint32_t)(remaining / 1000))) != pdTRUE) {
-    return ESP_ERR_TIMEOUT;
+    return retain_failure(id, phase, started, ESP_ERR_TIMEOUT);
   }
+  phase = SPI_BRIDGE_PHASE_LOCAL;
   if (s_suspended || !recovery_allows_command(id) ||
       (!s_bridge_alive && id != SPI_ID_SYSTEM_PING &&
        atomic_load(&s_recovery_owner) != xTaskGetCurrentTaskHandle())) {
@@ -806,8 +859,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                atomic_load(&s_bridge_alive),
                recovery_allows_command(id));
     xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_STATE;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_STATE);
   }
+  phase = SPI_BRIDGE_PHASE_SEND;
   s_is_command_in_flight = true;
 
   spi_header_t header = {.sync = SPI_SYNC_BYTE,
@@ -834,9 +888,10 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                s_transport_ready);
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ret;
+    return retain_failure(id, phase, started, ret);
   }
 
+  phase = SPI_BRIDGE_PHASE_RECEIVE;
   ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, deadline);
   if (ret != ESP_OK) {
     s_transport_ready = false;
@@ -844,9 +899,10 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ret;
+    return retain_failure(id, phase, started, ret);
   }
 
+  phase = SPI_BRIDGE_PHASE_VALIDATE;
   spi_header_t *resp = (spi_header_t *)rx_buf;
 
   if (resp->sync != SPI_SYNC_BYTE) {
@@ -854,7 +910,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     led_signal_error();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_RESPONSE;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_RESPONSE);
   }
 
   // Integrity: reject a bus-corrupted frame instead of trusting its fields. The
@@ -866,7 +922,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_CRC;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_CRC);
   }
 
   if (resp->type != SPI_TYPE_RESP) {
@@ -874,7 +930,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     led_signal_error();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_RESPONSE;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_RESPONSE);
   }
 
   if (spi_header_cmd(resp) != id) {
@@ -887,7 +943,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     led_signal_warning();
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
-    return ESP_ERR_INVALID_RESPONSE;
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_RESPONSE);
   }
 
   spi_status_t status = SPI_STATUS_ERROR;
@@ -916,10 +972,110 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   if (id == SPI_ID_SYSTEM_POWER_STATE && resp->length >= SPI_RESP_STATUS_SIZE &&
       status != SPI_STATUS_OK)
     s_peer_may_sleep = false;
+  phase = SPI_BRIDGE_PHASE_PEER;
   esp_err_t out = status_to_err(status);
   s_is_command_in_flight = false;
   xSemaphoreGive(s_spi_mutex);
-  return out;
+  return retain_failure(id, phase, started, out);
+}
+
+static esp_err_t decode_ethernet_reply(const uint8_t *frame,
+                                       spi_bridge_ethernet_exchange_t *exchange) {
+  const spi_header_t *header = (const spi_header_t *)frame;
+  if (header->sync != SPI_SYNC_BYTE || spi_header_cmd(header) != SPI_ID_ETHERNET_EXCHANGE)
+    return ESP_ERR_INVALID_RESPONSE;
+  if (header->type == SPI_TYPE_RESP) {
+    if (header->length != SPI_RESP_STATUS_SIZE || !spi_frame_valid(header, header->length))
+      return ESP_ERR_INVALID_RESPONSE;
+    spi_status_t status = (spi_status_t)frame[sizeof(*header)];
+    if (status == SPI_STATUS_BUSY)
+      return ESP_ERR_NOT_FINISHED;
+    return status == SPI_STATUS_OK ? ESP_ERR_INVALID_RESPONSE : status_to_err(status);
+  }
+  if (header->type != SPI_TYPE_STREAM || header->length != 0)
+    return ESP_ERR_INVALID_RESPONSE;
+  uint16_t length;
+  memcpy(&length, frame + sizeof(*header), sizeof(length));
+  if (length < SPI_ETHERNET_REPLY_META_SIZE ||
+      length > SPI_ETHERNET_REPLY_META_SIZE + SPI_ETHERNET_MTU ||
+      !spi_frame_valid(header, sizeof(length) + length))
+    return ESP_ERR_INVALID_RESPONSE;
+  const uint8_t *body = frame + sizeof(*header) + sizeof(length);
+  uint32_t token;
+  memcpy(&token, body, sizeof(token));
+  uint8_t status = body[sizeof(token)];
+  size_t bytes = length - SPI_ETHERNET_REPLY_META_SIZE;
+  if (token != exchange->token || (status != SPI_STATUS_OK && status != SPI_STATUS_BUSY) ||
+      (bytes != 0 && bytes < SPI_ETHERNET_HEADER_SIZE) || bytes > exchange->rx_capacity)
+    return ESP_ERR_INVALID_RESPONSE;
+  if (bytes != 0)
+    memcpy(exchange->rx_data, body + SPI_ETHERNET_REPLY_META_SIZE, bytes);
+  exchange->rx_length = bytes;
+  exchange->tx_accepted = status == SPI_STATUS_OK;
+  return ESP_OK;
+}
+
+esp_err_t spi_bridge_ethernet_exchange(spi_bridge_ethernet_exchange_t *exchange,
+                                       uint32_t timeout_ms) {
+  const spi_id_t id = SPI_ID_ETHERNET_EXCHANGE;
+  const int64_t started = esp_timer_get_time();
+  const int64_t deadline = started + (int64_t)timeout_ms * 1000;
+  spi_bridge_phase_t phase = SPI_BRIDGE_PHASE_LOCAL;
+  if (exchange == NULL)
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_ARG);
+  exchange->rx_length = 0;
+  exchange->tx_accepted = false;
+  if (timeout_ms == 0 || exchange->token == 0 || exchange->rx_data == NULL ||
+      exchange->tx_length > SPI_ETHERNET_MTU ||
+      (exchange->tx_length != 0 &&
+       (exchange->tx_data == NULL || exchange->tx_length < SPI_ETHERNET_HEADER_SIZE)))
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_ARG);
+  if (s_suspended || !recovery_allows_command(id) || !s_bridge_alive)
+    return retain_failure(id, phase, started, ESP_ERR_INVALID_STATE);
+  phase = SPI_BRIDGE_PHASE_LOCK;
+  int64_t remaining = deadline - esp_timer_get_time();
+  esp_err_t ret = remaining > 0 ? spi_bridge_lock((uint32_t)(remaining / 1000)) : ESP_ERR_TIMEOUT;
+  if (ret != ESP_OK)
+    return retain_failure(id, phase, started, ret);
+  phase = SPI_BRIDGE_PHASE_LOCAL;
+  if (s_suspended || !recovery_allows_command(id) || !s_bridge_alive) {
+    ret = ESP_ERR_INVALID_STATE;
+    goto cleanup;
+  }
+  // Serialized by the bridge mutex; bulk buffers never consume the caller's internal stack.
+  static EXT_RAM_BSS_ATTR uint8_t s_packet_tx[SPI_STREAM_FRAME_SIZE];
+  static EXT_RAM_BSS_ATTR uint8_t s_packet_rx[SPI_STREAM_FRAME_SIZE];
+  memset(s_packet_tx, 0, sizeof(s_packet_tx));
+  spi_header_t header = {.sync = SPI_SYNC_BYTE,
+                         .type = SPI_TYPE_CMD,
+                         .category = SPI_CMD_CAT(id),
+                         .op = SPI_CMD_OP(id)};
+  uint16_t length = SPI_ETHERNET_REQUEST_META_SIZE + exchange->tx_length;
+  memcpy(s_packet_tx, &header, sizeof(header));
+  memcpy(s_packet_tx + sizeof(header), &length, sizeof(length));
+  uint8_t *body = s_packet_tx + sizeof(header) + sizeof(length);
+  memcpy(body, &exchange->token, sizeof(exchange->token));
+  if (exchange->tx_length != 0)
+    memcpy(body + SPI_ETHERNET_REQUEST_META_SIZE, exchange->tx_data, exchange->tx_length);
+  spi_frame_seal((spi_header_t *)s_packet_tx, sizeof(length) + length);
+  s_is_command_in_flight = true;
+  phase = SPI_BRIDGE_PHASE_SEND;
+  ret = transport_send_frame(s_packet_tx, sizeof(s_packet_tx), deadline);
+  if (ret != ESP_OK)
+    goto cleanup;
+  phase = SPI_BRIDGE_PHASE_RECEIVE;
+  ret = recv_frame(s_packet_tx, s_packet_rx, sizeof(s_packet_rx), id, true, deadline);
+  if (ret != ESP_OK) {
+    s_transport_ready = false;
+    goto cleanup;
+  }
+  phase = SPI_BRIDGE_PHASE_VALIDATE;
+  ret = decode_ethernet_reply(s_packet_rx, exchange);
+cleanup:
+  s_is_command_in_flight = false;
+  xSemaphoreGive(s_spi_mutex);
+  // Explicit peer congestion is packet loss, not a link failure.
+  return ret == ESP_ERR_NOT_FINISHED ? ret : retain_failure(id, phase, started, ret);
 }
 
 esp_err_t spi_bridge_lock(uint32_t timeout_ms) {
@@ -1039,11 +1195,7 @@ static void stream_task(void *arg) {
       continue;
     }
 
-    if (s_is_command_in_flight) {
-      vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_POLL_MS));
-      continue;
-    }
-
+    // Queue behind an active packet instead of repeatedly missing its short idle gap.
     if (xSemaphoreTake(s_spi_mutex, pdMS_TO_TICKS(SPI_MUTEX_TIMEOUT_MS)) != pdTRUE) {
       vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_POLL_MS));
       continue;
@@ -1076,4 +1228,33 @@ static void stream_task(void *arg) {
     }
     vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_YIELD_MS));
   }
+}
+
+static esp_err_t
+retain_failure(spi_id_t command, spi_bridge_phase_t phase, int64_t started, esp_err_t error) {
+  if (error == ESP_OK || (phase == SPI_BRIDGE_PHASE_PEER && error == ESP_ERR_INVALID_STATE))
+    return error;
+  spi_bridge_failure_group_t group = SPI_BRIDGE_FAILURE_OTHER;
+  if (command == SPI_ID_BOARD_NEGOTIATE || command == SPI_ID_BOARD_STATE ||
+      command == SPI_ID_BOARD_SET)
+    group = SPI_BRIDGE_FAILURE_BOARD;
+  else if (SPI_CMD_CAT(command) == SPI_CAT_ETHERNET) {
+    if (command == SPI_ID_ETHERNET_STOP)
+      return error;
+    group = SPI_BRIDGE_FAILURE_ETHERNET;
+  }
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL(&s_failure_lock);
+  uint32_t count = s_failures[group].count;
+  if (count < UINT32_MAX)
+    ++count;
+  if (s_failures[group].count == 0)
+    s_failures[group] = (spi_bridge_failure_t){.command = command,
+                                               .phase = phase,
+                                               .error = error,
+                                               .time_us = now,
+                                               .elapsed_us = now - started};
+  s_failures[group].count = count;
+  portEXIT_CRITICAL(&s_failure_lock);
+  return error;
 }

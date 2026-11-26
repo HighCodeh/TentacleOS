@@ -78,7 +78,12 @@ lost acknowledgement can be reconciled through STATE. A C5 restart or expired
 lease invalidates old epochs. Commands from the preceding session cannot enable
 outputs in the new session.
 
-The P4 polls every 500 ms with a 250 ms RPC budget. After reconciliation, the
+The P4 polls every 500 ms with a 750 ms RPC budget, including admission behind
+one bounded 500 ms Ethernet transaction. Ethernet yields between commands;
+board RPCs retain their original absolute deadline, and the 1500 ms snapshot
+freshness and 5000 ms peer lease are unchanged. The transport may retransmit
+an identical board request within that deadline; the peer duplicate cache
+prevents a second SET execution. After reconciliation, the
 worker can request guarded companion sleep through [power management](../power_manager/README.md);
 polling and control requests wake the C5 through transport HELLO before dispatch. Snapshots expire after 1500 ms.
 The C5 renews its lease only after a successful board command. A 100 ms software

@@ -27,7 +27,7 @@ def main():
     manager = (ROOT / "firmware_p4/components/Service/bridge_manager/bridge_manager.c").read_text()
     bridge = (ROOT / "firmware_p4/components/Service/spi_bridge/spi_bridge.c").read_text()
     policy = manager[manager.index("#define VERSION_BUF_SIZE"):]
-    gate = bridge[bridge.index("#define SPI_RECOVERY_BOOT_GRACE_MS"):bridge.index("static atomic_uint s_stream_epoch;")]
+    gate = bridge[bridge.index("#define SPI_RECOVERY_BOOT_GRACE_MS"):bridge.index("// Small diagnostic control records")]
     gate += bridge[bridge.index("void spi_bridge_recovery_disable(void)"):bridge.index("void spi_bridge_suspend(bool suspended)")]
     flasher = (ROOT / "firmware_p4/components/Service/c5_flasher/c5_flasher.c").read_text()
     flasher = flasher[flasher.index('static const char *TAG'):]

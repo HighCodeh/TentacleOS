@@ -155,6 +155,7 @@
 #include "lora_securedm_ui.h"
 #include "wifi_handshake_ui.h"
 #include "wifi_hotspot_ui.h"
+#include "wifi_ethernet_ui.h"
 #include "imu_monitor_ui.h"
 #include "sd_health_ui.h"
 #include "usb_mouse_ui.h"
@@ -502,6 +503,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
       return ui_wifi_esp_scan_stop;
     case SCREEN_WIFI_HANDSHAKE:
       return ui_wifi_handshake_stop;
+    case SCREEN_WIFI_ETHERNET:
+      return ui_wifi_ethernet_stop;
     case SCREEN_WIFI_HOTSPOT:
       return ui_wifi_hotspot_stop;
     case SCREEN_SCRIPTS:
@@ -844,6 +847,8 @@ static ui_open_fn_t screen_open_fn(screen_id_t s) {
       return ui_lora_securedm_open;
     case SCREEN_WIFI_HANDSHAKE:
       return ui_wifi_handshake_open;
+    case SCREEN_WIFI_ETHERNET:
+      return ui_wifi_ethernet_open;
     case SCREEN_WIFI_HOTSPOT:
       return ui_wifi_hotspot_open;
     case SCREEN_IMU_MONITOR:
@@ -876,6 +881,7 @@ bool ui_screen_shows_chrome(screen_id_t s) {
     case SCREEN_WIFI_SIGNAL_LOCATOR:
     case SCREEN_WIFI_HANDSHAKE:
     case SCREEN_WIFI_HOTSPOT:
+    case SCREEN_WIFI_ETHERNET:
     case SCREEN_BLE_SCAN:
     case SCREEN_BLE_SPAM:
     case SCREEN_BLE_BEACON_SPAM:

@@ -33,6 +33,7 @@ file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 
 idf_component_register(SRCS
+  "ethernet_router/ethernet_router.c"
   "board_service/board_service.c"
   "power_manager/power_manager.c"
   "ir_remote/ir_remote.c"
@@ -66,6 +67,7 @@ idf_component_register(SRCS
   ${MESHCORE_SRCS}
   ${HOST_LINK_SRCS}
   INCLUDE_DIRS
+  "ethernet_router/include"
   "board_service/include"
   "power_manager/include"
   "ir_remote/include"

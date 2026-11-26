@@ -17,6 +17,21 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 # TentacleOS - P4 ↔ C5 SPI Bridge
 
+## Retained SPI failure diagnostics
+
+`c5 diagnostics clear` reads and clears P4-local diagnostic records before a test.
+`c5 diagnostics` reads them afterward, over UART or a reconnected Companion,
+without sending any SPI command. Each group retains the first failure since clear
+and counts subsequent failures: board controls (0), Ethernet (1), other commands
+(2). Records contain command ID, local/lock/send/receive/validate/peer phase,
+ESP error, P4 uptime in microseconds and elapsed command time. Confirmed peer BUSY
+responses and Ethernet STOP cleanup are excluded. Small synchronized control
+records remain in internal RAM until clear or reboot; packet data and credentials
+are never retained. These diagnostics do not change timeouts, retries or fail-closed
+USB routing. A lock timeout is distinguishable from a sent command whose response
+was lost. Host tests exercise record retention; hardware reproduction is still
+needed to identify the Ethernet failure.
+
 ## V2.03 pin ownership
 
 Bridge pins are unchanged. There is no IRQ connection: C5 defaults to POLL,
@@ -75,7 +90,8 @@ queries do not, and would report zero for that combination. Host admission tests
 model this distinction for both boot/control packets and stream packets.
 A local `ESP_ERR_NO_MEM` can
 therefore be distinguished from a peer timeout; it is not evidence of bad SPI
-wiring. Transfer size, clock and the paired protocol remain unchanged.
+wiring. The paired protocol remains v2; see the Ethernet extension below for
+whole-packet transfers and the current 10 MHz default.
 Session START diagnostics distinguish a validated C5 rejection from a local or
 transport failure. For sniffer START, the bridge additionally reports admission
 state (`suspended`, `alive`, recovery permission) or a failed transport send.
@@ -93,8 +109,8 @@ traffic before attributing an application-start failure to it.
   transaction. Polling therefore recovers a damaged/lost response without
   repeating the command or consuming another stream batch. After an invalid
   long stream read, P4 sends a command-sized FETCH (296 bytes) before the next
-  2080-byte read: C5 has rearmed a 296-byte command RX and rejects oversized
-  transfers before cache lookup. If a delayed response is still armed, this
+  2080-byte read: C5 accepts only short FETCH requests, including when its
+  receive DMA buffer has capacity for a long Ethernet request. If a delayed response is still armed, this
   short transfer can truncate it; C5 retains the cache and subsequent FETCH/read
   cycles recover it without redispatch. The original absolute deadline applies.
 - `RECOVER` asks the P4 to stop clocking for 50 ms and invalidate its session.
@@ -104,6 +120,24 @@ traffic before attributing an application-start failure to it.
   even if a stale response has a valid inner CRC and the same command ID.
   STREAM inner headers also echo `SPI_ID_SYSTEM_STREAM` (`0x0006`), including
   empty batches; a zero command ID is invalid and cannot satisfy that request.
+
+Ethernet commands (`0x15xx`), Companion HOST_TX/HOST_STATUS and board
+NEGOTIATE/STATE/SET have bounded
+transport recovery: while holding
+that same bridge transaction lock and before its original deadline, the master
+can retransmit the byte-identical REQUEST at 20 ms intervals, at most three times.
+The retained 296-byte request lives in PSRAM. Sessions and transaction number never
+change during this recovery. A request lost before admission can execute once;
+a duplicate admitted request returns the existing C5 cache without executing a
+second operation. The C5 classifier already supports this exact-request cache hit.
+A restarted peer rejects the old session; recovery never negotiates a new session
+or resubmits the command after timeout. Other commands retain FETCH-only polling.
+`tools/spi_transport/test_transport.py` tests lost delivery, delayed responses,
+no duplicate execution and peer restart with the production master/classifier.
+The host suite also runs 5000 mixed Ethernet/control transactions with injected
+request loss, response corruption and response delays, checking at-most-once
+execution and the absolute deadline. Hardware reliability under Ethernet traffic
+still requires validation.
 
 The master uses one absolute deadline for command lock acquisition, session
 negotiation and response polling. A synchronous hardware transaction already
@@ -1357,3 +1391,53 @@ including raw SSID bytes, BSSID, RSSI, primary channel and authentication mode.
 Both chips must be updated together for this layout. The C5 keeps a bounded
 compact snapshot instead of duplicating 64 SDK-native AP structures in internal
 RAM; the P4 reconstructs its local AP view and sanitizes names for display.
+
+## Ethernet frame transport
+
+Category `0x15` adds bounded Ethernet frames without changing protocol v2. Both
+chips must be updated together for [Ethernet hotspot sharing](../ethernet_router/README.md#spi-contract).
+CAPABILITIES (`0x1506`) gates the additive whole-packet EXCHANGE (`0x1507`).
+See the [router wire contract](../ethernet_router/README.md#spi-contract).
+Session tokens, packet bounds and a five-second master lease prevent stale
+sessions from retaining the hotspot after P4 loss. Legacy fragment ops remain
+available; an old P4 can still use them with the new C5. A new P4 rejects an old
+C5 before USB startup instead of sending it oversized requests.
+
+EXCHANGE sends/receives 2048-byte inner frames in 2080-byte wire envelopes.
+The C5 RX DMA buffer grows from 296 to 2080 bytes (+1784 internal bytes); actual
+RX length must be exactly 296 or 2080 bytes. A long request must be EXCHANGE with
+a bounded length and valid inner/outer CRCs. The DMA driver remains strict about
+ownership; only the bridge receive boundary accepts a valid short command in
+its larger receive descriptor. TX completion checks remain unchanged.
+C5 keeps the small command duplicate cache and lazily allocates a 2080-byte
+PSRAM packet cache when CAPABILITIES is queried. Allocation failure rejects the
+capability query without taking internal RAM. The cache lives for the bridge's
+lifetime to support late duplicates. P4's enlarged request cache and two 2048-byte
+packet scratch buffers live in PSRAM, serialized by the existing bridge mutex.
+No large packet buffer is added to either caller's internal task stack.
+The high-priority stream poller waits on the bridge mutex even when a command is
+in flight. Skipping the lock and sleeping for 10 ms could repeatedly miss the
+1 ms inter-packet gap and starve Companion RX during sustained Ethernet traffic.
+Mutex priority inheritance hands the next completed transaction to a waiting
+poller; the bounded mutex wait and normal empty-stream delay remain unchanged.
+This removes one potential starvation path; hardware testing still observed
+Companion stalls while forwarding. See the current
+[hardware observations](../ethernet_share/README.md#deployment-and-validation).
+`tools/spi_transport/test_stream_fairness.py` tests this admission path with an
+active command, lock refusal and no registered callbacks.
+
+The default normal clock is **10 MHz**, up from 4 MHz, with the same 100 μs CS-idle
+gap. Legacy recovery remains fixed at 4 MHz. `c5 spiclock 2|4|10` remains a
+volatile diagnostic control. The [Espressif C5 timing guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c5/api-reference/peripherals/spi_slave.html)
+explains why slave CPU response latency and wire clock are separate limits;
+clocks above 10 MHz are not enabled by this change. Validate CRC/timeouts and
+application throughput on the actual board before treating the higher clock as
+qualified.
+
+Host validation: `tools/spi_transport/test_transport.py` exercises 5000 mixed
+control/legacy transactions and 1000 whole-packet exchanges interleaved with
+short commands, injecting lost requests, corrupted/delayed replies and peer
+restart. It checks duplicate suppression, lengths and absolute deadlines under
+ASan/UBSan. `tools/usb_ethernet/test_packet_exchange.py` additionally exercises
+queue congestion, payload integrity, peer token validation and lock cleanup.
+Host tests do not simulate electrical timing or certify network throughput.

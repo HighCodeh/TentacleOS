@@ -21,6 +21,28 @@ The Console Service provides an interactive command-line interface (CLI) for the
 
 It is built on top of the ESP-IDF `esp_console` component and uses `linenoise` for line editing and `argtable3` for argument parsing.
 
+## Ethernet sharing diagnostics
+
+`ethernet` reads the P4-local synchronized sharing snapshot: state, stage, error,
+IP, transferred bytes and retained power-check detail. It performs no SPI or I2C
+operation and works after reconnecting Companion. Errors remain available after
+cleanup, until a new sharing session starts. See [Ethernet sharing](../ethernet_share/README.md).
+
+## Retained SPI failure diagnostics
+
+`c5 diagnostics clear` reads and clears P4-local diagnostic records before a test.
+`c5 diagnostics` reads them afterward, over UART or a reconnected Companion,
+without sending any SPI command. Each group retains the first failure since clear
+and counts subsequent failures: board controls (0), Ethernet (1), other commands
+(2). Records contain command ID, local/lock/send/receive/validate/peer phase,
+ESP error, P4 uptime in microseconds and elapsed command time. Confirmed peer BUSY
+responses and Ethernet STOP cleanup are excluded. Small synchronized control
+records remain in internal RAM until clear or reboot; packet data and credentials
+are never retained. These diagnostics do not change timeouts, retries or fail-closed
+USB routing. A lock timeout is distinguishable from a sent command whose response
+was lost. Host tests exercise record retention; hardware reproduction is still
+needed to identify the Ethernet failure.
+
 ## Accessing the Console
 
 Connect the Highboy to a computer via USB. Use a serial terminal program (e.g., Putty, Screen, minicom) with the following settings:
@@ -54,7 +76,7 @@ it does not change security settings or the C5's separate Muse console.
 
 ```sh
 python3 tools/console/test_console.py --idf "$HIGHBOY_P4_IDF_PATH" \
-  --build firmware_p4/build_highboy
+  --build firmware_p4/build
 ```
 
 The host test first reproduces the unmodified SDK's rapid-DEL failure, then

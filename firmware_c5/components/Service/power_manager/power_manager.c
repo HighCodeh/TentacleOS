@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "power_manager.h"
+#include "ethernet_router.h"
 
 #include <stdatomic.h>
 
@@ -38,10 +39,10 @@ void power_manager_set_ready(void) {
 }
 
 bool power_manager_can_sleep(void) {
-  if (!atomic_load(&s_is_ready) || wifi_service_is_active() || wifi_service_is_busy() ||
-      bluetooth_service_is_initialized() || session_manager_is_active() || grok_wifi_is_active() ||
-      service_esp_now_is_online() || spi_bridge_async_scan_busy() || !ir_remote_can_sleep() ||
-      !board_service_can_sleep())
+  if (ethernet_router_is_active() || !atomic_load(&s_is_ready) || wifi_service_is_active() ||
+      wifi_service_is_busy() || bluetooth_service_is_initialized() || session_manager_is_active() ||
+      grok_wifi_is_active() || service_esp_now_is_online() || spi_bridge_async_scan_busy() ||
+      !ir_remote_can_sleep() || !board_service_can_sleep())
     return false;
   spi_ota_status_t status;
   ota_service_get_status(&status);

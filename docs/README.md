@@ -52,6 +52,9 @@ below; in-tree READMEs point to it.
 | `dns_server` | [README.md](dns_server/README.md)  |
 | `doom` | [README.md](doom/README.md) - DOOM input and internal-DMA strip rendering |
 | `drv2605l` | [README.md](drv2605l/README.md) - TI DRV2605L haptic motor driver |
+| `ethernet_share` | [README.md](ethernet_share/README.md) - P4 USB Ethernet hotspot lifecycle |
+| `ethernet_router` | [README.md](ethernet_router/README.md) - C5 Ethernet uplink and IPv4 NAPT |
+| `usb_ethernet` | [README.md](usb_ethernet/README.md) - CDC-NCM USB host driver |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
 | `sdmmc` | [README.md](sdmmc/README.md) - checked multi-sector writes |
@@ -63,7 +66,7 @@ below; in-tree READMEs point to it.
 | `hle` | [README.md](hle/README.md) - host simulator compatibility and SPI CRC regression tests |
 | `host_link` | [app-guide.md](host_link/app-guide.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
-| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink-only initialization and live CC current advertisement |
+| `husb320` | [Type-C policy](tusb_desc/README.md#type-c-role-and-power) - V2.03 sink initialization, guarded host role and live CC current advertisement |
 | `i2c_init` | [README.md](i2c_init/README.md) - shared I2C bus initialization driver |
 | `imu` | [README.md](imu/README.md) - motion acquisition, calibration and snapshots |
 | `input_manager` | [README.md](input_manager/README.md)  |

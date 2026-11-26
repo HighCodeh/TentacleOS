@@ -286,3 +286,10 @@ failed request leaves application navigation and storage mounted for retry.
 See [charger shutdown](../bq25896/README.md#manual-shutdown) for sequencing and
 host-test scope. The restart/shutdown hook additionally disables new automatic
 C5 recovery. See [bridge manager](../bridge_manager/README.md).
+
+## Ethernet-sharing leases
+
+The [P4 sharing service](../ethernet_share/README.md) retains its no-sleep lease
+until USB power and host resources are released. USB input-budget polling does
+not reinitialize HUSB320 or program sink input limits during host ownership.
+C5 also treats an active Ethernet-router session as a sleep blocker.

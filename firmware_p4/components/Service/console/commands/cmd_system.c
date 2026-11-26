@@ -31,6 +31,7 @@
 #include "nvs.h"
 
 #include "board_pins.h"
+#include "ethernet_share.h"
 #include "c5_flasher.h"
 #include "hb_muse_p4_service.h"
 #include "led_control.h"
@@ -64,9 +65,9 @@ static esp_err_t c5_wait_for_link(uint32_t timeout_ms) {
 }
 
 static void c5_print_usage(void) {
-  printf(
-      "usage: c5 "
-      "<status|ping|linktest|spiclock|info|sync|wait|reboot|boot|ota|rom|passthrough|release>\n");
+  printf("usage: c5 "
+         "<status|diagnostics|ping|linktest|spiclock|info|sync|wait|reboot|boot|ota|rom|"
+         "passthrough|release>\n");
   printf("  status          show bridge state and query the running C5\n");
   printf("  ping            test the running C5 over SPI\n");
   printf("  linktest [n]    read-only PING/version/Grok-status test, 1..100 cycles (default 50)\n");
@@ -183,6 +184,31 @@ static int cmd_c5(int argc, char **argv) {
       return 1;
     }
     return c5_linktest((unsigned)cycles);
+  }
+  if (strcmp(argv[1], "diagnostics") == 0) {
+    bool is_clear = argc == 3 && strcmp(argv[2], "clear") == 0;
+    if (argc > 3 || (argc == 3 && !is_clear))
+      return 1;
+    spi_bridge_failure_t failures[SPI_BRIDGE_FAILURE_COUNT];
+    if (spi_bridge_get_failures(failures, is_clear) != ESP_OK)
+      return 1;
+    static const char *const PHASES[SPI_BRIDGE_PHASE_COUNT] = {
+        "local", "lock", "send", "receive", "validate", "peer"};
+    for (size_t i = 0; i < SPI_BRIDGE_FAILURE_COUNT; ++i) {
+      const spi_bridge_failure_t *failure = &failures[i];
+      ESP_LOGI(
+          TAG,
+          "SPI failure group=%u count=%lu cmd=0x%04X phase=%s error=%s at=%lldus elapsed=%lldus",
+          (unsigned)i,
+          (unsigned long)failure->count,
+          failure->command,
+          PHASES[failure->phase],
+          esp_err_to_name(failure->error),
+          (long long)failure->time_us,
+          (long long)failure->elapsed_us);
+    }
+    led_signal_info();
+    return 0;
   }
   if (strcmp(argv[1], "status") == 0) {
     printf("C5 bridge: %s\n", spi_bridge_is_alive() ? "ALIVE" : "DOWN");
@@ -591,7 +617,38 @@ static int cmd_date(int argc, char **argv) {
   return 1;
 }
 
+static int cmd_ethernet(int argc, char **argv) {
+  (void)argv;
+  if (argc != 1)
+    return 1;
+  ethernet_share_snapshot_t snapshot = {0};
+  ethernet_share_get(&snapshot);
+  const uint8_t *ip = (const uint8_t *)&snapshot.ip;
+  ESP_LOGI(TAG,
+           "Ethernet state=%u stage=%s error=%s IP=%u.%u.%u.%u RX=%lu TX=%lu",
+           (unsigned)snapshot.state,
+           ethernet_share_stage_name(snapshot.stage),
+           esp_err_to_name(snapshot.error),
+           ip[0],
+           ip[1],
+           ip[2],
+           ip[3],
+           (unsigned long)snapshot.received,
+           (unsigned long)snapshot.transmitted);
+  if (snapshot.power_detail[0] != '\0')
+    ESP_LOGI(TAG, "%s", snapshot.power_detail);
+  led_signal_info();
+  return 0;
+}
+
 void register_system_commands(void) {
+  const esp_console_cmd_t cmd_ethernet_def = {
+      .command = "ethernet",
+      .help = "Show local Ethernet sharing state and retained power failure",
+      .func = &cmd_ethernet,
+  };
+  ESP_ERROR_CHECK_WITHOUT_ABORT(esp_console_cmd_register(&cmd_ethernet_def));
+
   const esp_console_cmd_t cmd_tasks_def = {
       .command = "tasks",
       .help = "List running FreeRTOS tasks",

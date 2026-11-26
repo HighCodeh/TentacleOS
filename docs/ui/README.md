@@ -114,8 +114,8 @@ static ui_close_fn_t screen_close_fn(screen_id_t s) {
 This supersedes the old advice of calling `ble_init()` / `ble_deinit()` inside
 `ui_switch_screen`. A plain menu that owns no hardware needs no close hook.
 
-`menu_ui.c`'s `ensure_radio_on()` enables Wi-Fi when entering its area. Opening
-the Bluetooth menu does not enable BLE or save a preference; BLE operations
+Opening the Wi-Fi or Bluetooth menu does not enable its radio or save a
+preference. Wi-Fi stays off along the menu path to Ethernet sharing; BLE operations
 acquire the radio when started and release it through their close hooks.
 **Settings → Connections** contains Wi-Fi and Bluetooth submenus alongside
 USB Native. Each radio submenu holds drafts until Save & apply; name/password
@@ -1072,3 +1072,10 @@ IR file round trips and failed writes, full NFC identity and alias selection, an
 native LVGL saved-signal actions/layout in both orientations and light/dark themes.
 These host tests do not open
 serial devices or transmit over radios.
+
+## Ethernet hotspot screen
+
+`SCREEN_WIFI_ETHERNET` owns a refresh timer and the Ethernet-sharing session.
+Its screen-close hook requests stop before navigation; deletion is an idempotent
+fallback. Theme-based labels use chrome content bounds and wrap in either
+orientation. See [state and lifecycle contract](../ethernet_share/README.md).
