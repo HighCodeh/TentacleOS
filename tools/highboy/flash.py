@@ -35,7 +35,7 @@ BOOT_OFFSET = 0x2000
 SLOT_SIZES = {'p4': 0x310000, 'c5': 0x300000}
 FLASH_SIZE = 0x800000
 BACKUP_CHUNK_SIZE = 0x80000
-TOOL_TIMEOUT_SECONDS = 120
+TOOL_TIMEOUT_SECONDS = 600
 
 
 def require(condition, message):
@@ -99,9 +99,14 @@ def validate_device(flash, expected_table, gen, target='p4'):
 
 
 def run_tool(args, *command, reset=False):
+    after = ('watchdog-reset' if args.target == 'p4' else 'hard-reset') if reset else 'no-reset'
     cmd = [sys.executable, '-u', '-m', 'esptool', '--chip', f'esp32{args.target}',
-           '--port', args.port, '--baud', str(args.baud),
-           '--after', 'hard_reset' if reset else 'no_reset']
+           '--port', args.port, '--baud', str(args.baud), '--after', after]
+    if reset and args.target == 'p4':
+        # Previous operations leave ROM active; do not depend on UART RTS to reconnect.
+        cmd.extend(['--before', 'no-reset'])
+    elif getattr(args, 'before', 'default-reset') == 'no-reset':
+        cmd.extend(['--before', 'no-reset'])
     if args.target == 'c5':
         cmd.append('--no-stub')
     cmd.extend(command)
@@ -119,11 +124,15 @@ def main():
     parser.add_argument('--target', choices=('p4', 'c5'), default='p4')
     parser.add_argument('-p', '--port', required=True, help='Target serial port; never auto-selected')
     parser.add_argument('-b', '--baud', type=int, default=460800)
+    parser.add_argument('--before', choices=('default-reset', 'no-reset'), default='default-reset',
+                        help='Use no-reset after entering the ROM bootloader with p4 boot')
     parser.add_argument('--check', action='store_true', help='Back up and validate only; resets the target')
     parser.add_argument('--idf-path', type=Path, default=os.environ.get('IDF_PATH'))
     args = parser.parse_args()
     require(bool(args.port.strip()), 'An explicit target serial port is required.')
     require(args.baud > 0, 'Baud rate must be positive.')
+    require(args.before != 'no-reset' or args.baud <= 115200,
+            'Use -b 115200 with --before no-reset; each command reconnects at ROM baud.')
     require(args.idf_path is not None, 'An ESP-IDF path is required.')
     sys.path.insert(0, str(args.idf_path / 'components/partition_table'))
     import gen_esp32part as gen

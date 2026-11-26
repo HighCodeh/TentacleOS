@@ -248,6 +248,16 @@ class C5Tests(LayoutFixture, unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_software_boot_skips_uart_reset(self):
+        from types import SimpleNamespace
+        args = SimpleNamespace(target='p4', port='/dev/test', baud=460800, before='no-reset')
+        with patch.object(flash.subprocess, 'run') as tool:
+            tool.return_value = SimpleNamespace(returncode=0, stdout='')
+            flash.run_tool(args, 'flash_id')
+            command = tool.call_args.args[0]
+            self.assertEqual(command[command.index('--before') + 1], 'no-reset')
+            self.assertEqual(command[command.index('--after') + 1], 'no-reset')
+
     def test_chip_and_no_stub_match_target(self):
         from types import SimpleNamespace
         for target in ('p4', 'c5'):
@@ -258,6 +268,23 @@ class TransportTests(unittest.TestCase):
                 command = tool.call_args.args[0]
                 self.assertEqual(command[command.index('--chip') + 1], 'esp32' + target)
                 self.assertEqual('--no-stub' in command, target == 'c5')
+                self.assertEqual(command[command.index('--after') + 1],
+                                 'watchdog-reset' if target == 'p4' else 'hard-reset')
+                if target == 'p4':
+                    self.assertEqual(command[command.index('--before') + 1], 'no-reset')
+                else:
+                    self.assertNotIn('--before', command)
+
+    def test_intermediate_commands_leave_bootloader_active(self):
+        from types import SimpleNamespace
+        for target in ('p4', 'c5'):
+            args = SimpleNamespace(target=target, port='/dev/test', baud=460800)
+            with patch.object(flash.subprocess, 'run') as tool:
+                tool.return_value = SimpleNamespace(returncode=0, stdout='')
+                flash.run_tool(args, 'verify_flash', '0x20000', 'app.bin')
+                command = tool.call_args.args[0]
+                self.assertEqual(command[command.index('--after') + 1], 'no-reset')
+                self.assertNotIn('--before', command)
 
 
 if __name__ == '__main__':

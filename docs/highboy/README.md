@@ -397,7 +397,7 @@ rejects enabled Secure Boot/Flash Encryption, and backs up the entire flash in
 `integration/device_backups/p4_<UTC>/flash.bin` before any write. These ignored,
 private directories can contain device settings; keep the backup locally.
 The reviewed profile requires an 8 MB flash device. Backup reads use 512 KiB
-blocks with progress and a 120-second limit per serial command; a failed or
+blocks with progress and a 600-second limit per serial command; a failed or
 partial backup cannot reach the write step.
 
 The installed partition table must exactly match `build_highboy`, including the
@@ -409,8 +409,33 @@ only the selected app partition, keeping OTA selection, bootloader, partitions,
 assets, NVS and SD unchanged. The adjacent manifest records backup/candidate
 hashes, chosen slot and write/verification status. Interrupted in-place updates
 can require recovery from backup; this is not an automatic rollback mechanism.
-If a check fails, no migration or full restoration is attempted. A failed serial
-operation can leave the device in the ROM loader; reset it to resume normal boot.
+If a check fails, no migration or full restoration is attempted. The final P4
+cleanup reconnects to the already-active ROM with `--before no-reset` and requests
+`--after watchdog-reset`. This uses esptool's P4 watchdog implementation instead
+of depending on UART RTS/DTR wiring to leave download mode. Intermediate backup,
+write and verification commands retain `--after no-reset`; C5 retains its existing
+hard-reset behavior. The pinned esptool 5.6.0 supports this reset method.
+
+When the running P4 console is available, issue `p4 boot`, close the serial
+console, then use `tools/flash.sh p4 -p PORT --before no-reset -b 115200`.
+This skips UART reset throughout backup and flashing while preserving all
+deployment guards. Keep ROM baud for this sequence: separate esptool processes
+otherwise reconnect at 115200 while the stub retains the previous higher baud.
+The command timeout accommodates app writes at this slower rate.
+
+The reviewed `lab/rf` (`edc3182a`) updater also used `hard_reset`; the watchdog
+fallback was in esptool for native P4 USB-OTG, not a lab firmware feature. It is
+explicit here so USB-UART uses it too. Direct esptool invocations need
+`--after watchdog-reset` explicitly; this script change does not alter `idf.py`
+or a command that explicitly chooses `--after no-reset`. Release the physical
+BOOT/LEFT button before resetting. No firmware update is required for this host
+change. Host tests verify reset selection and sequencing. A physical P4 v3.2
+USB-UART update on 2026-11-25 entered download mode with `p4 boot`, backed up
+8 MB, verified the app write and returned to the firmware console using the
+watchdog reset without a cable or battery disconnect. This does not validate
+the firmware's RF behavior or other board revisions.
+If serial communication itself fails, the watchdog command may not reach the
+chip and it can remain in the ROM loader.
 
 **C5 is not embedded or flashed by this integrated P4 build.** The dedicated
 Quick Scan capture backend requires the matching C5 app. Progressive AP discovery, including ESP SCAN, requires matching
