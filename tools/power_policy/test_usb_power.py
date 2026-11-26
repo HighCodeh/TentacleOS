@@ -29,6 +29,7 @@ from test_shutdown import MOCKS, NOTICE
 with tempfile.TemporaryDirectory(prefix="highboy-usb-power-") as directory:
     work = Path(directory)
     mocks = dict(MOCKS)
+    mocks.pop("husb320.h", None)
     mocks["freertos/FreeRTOS.h"] += "#define pdPASS 1\n"
     mocks["freertos/task.h"] += "typedef void *TaskHandle_t;\nint xTaskCreatePinnedToCore(void (*)(void *),const char *,uint32_t,void *,int,void **,int);\n"
     mocks["led_control.h"] = "void led_signal_warning(void);void led_signal_info(void);void led_signal_error(void);\n"

@@ -284,3 +284,23 @@ percentage. These tests do not validate physical
 temperature sensing, battery capacity or processor sleep/wake. The integrated
 processor PM configuration remains disabled pending bench wake/current testing;
 see [power manager](../power_manager/README.md).
+
+## USB Ethernet source exception
+
+`bq25896_host_power()` is a scoped source API for the
+[Ethernet sharing service](../ethernet_share/README.md). It requires HUSB320 host
+ownership and an attached sink, rejects external VBUS and VBAT below 3500 mV,
+then applies 4998 mV boost with register/status verification. The compatibility
+API defaults to 500 mA; `bq25896_host_power_with_limit()` accepts a source budget
+from 500 to 1500 mA, rounded down to the supported BQ25896 step (maximum 1400 mA).
+`bq25896_host_set_current_limit()` changes that budget only while source ownership
+and OTG are active. Ethernet startup and VID/PID profiles select the budget;
+charging current and USB input limits are unchanged. Failures
+turn boost off. Charge-enable checks host/OTG under the charger lock. Legacy
+unrestricted OTG setters remain blocked on V2.03. Register-mock tests exercise
+external VBUS, missing attachment, write failure and charge/source exclusion.
+
+Host-power failures log the rejected attachment, pre-enable telemetry guard,
+external VBUS detection, or boost-start status/fault registers before rollback.
+These diagnostics retain the existing voltage, fault and external-power guards;
+the Ethernet sharing service supplies the user-visible error and LED signal.

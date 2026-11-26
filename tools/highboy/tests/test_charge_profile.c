@@ -51,6 +51,7 @@ int i2c_master_transmit(void *device,const uint8_t *data,size_t length,int timeo
   assert(device==s_dev && (s_locked || (s_input_locked && data[0]==REG00_INPUT)) && length==2 && timeout>0);
   if (data[0]==s_fail_write) return ESP_FAIL;
   s_regs[data[0]]=data[1];
+  if (data[0]==REG03_POWER_CONTROL && (data[1]&REG03_OTG_CONFIG)) s_regs[REG0B_STATUS]=VBUS_STATUS_OTG<<5;
   if (data[0]==REG02_ADC_CONTROL && (data[1]&REG02_CONV_START)) {
     s_adc_reads=0;s_conversions++;
     if (s_conversions==s_drop_on_conversion) s_regs[REG0E_BATTERY_ADC]=34; // 2984 mV
@@ -66,6 +67,7 @@ int i2c_master_transmit_receive(void *device,const uint8_t *reg,size_t count,
   *out=s_regs[*reg];if(s_bad_input_readback && *reg==REG00_INPUT) *out^=1;return ESP_OK;
 }
 static void reset(void) {
+  test_host_mode=test_host_attached=false;
   s_input_locked=s_bad_input_readback=false;s_input_lock=(void *)2;s_is_input_isolated=false;s_has_external_input_hiz=false;s_present=false;
   memset(s_regs,0,sizeof(s_regs));
   s_regs[REG03_POWER_CONTROL]=0x0a; // SYS_MIN 3500 mV, charge and OTG off
@@ -170,5 +172,46 @@ int main(void) {
   s_fail_read=-1;
   assert(bq25896_set_usb_input_limit(900,&applied)==ESP_OK && applied==0 && (s_regs[0]&0x80));
   assert(bq25896_set_input_current_limit(500,&applied)==ESP_ERR_NOT_SUPPORTED);
+  reset(); test_host_mode=test_host_attached=true;
+  s_regs[REG0E_BATTERY_ADC]=65; // 3604 mV
+  assert(bq25896_host_power(true)==ESP_ERR_INVALID_STATE); // external VBUS
+  assert(!(s_regs[REG03_POWER_CONTROL]&REG03_OTG_CONFIG));
+  s_regs[REG11_VBUS_ADC]=0;
+  test_host_attached=false;
+  assert(bq25896_host_power(true)==ESP_ERR_INVALID_STATE);
+  test_host_attached=true;
+  s_regs[REG0E_BATTERY_ADC]=36;
+  assert(bq25896_host_power(true)==ESP_ERR_INVALID_STATE); // low battery
+  s_regs[REG0E_BATTERY_ADC]=65;
+  assert(bq25896_host_power(true)==ESP_OK);
+  assert(s_regs[REG03_POWER_CONTROL]&REG03_OTG_CONFIG);
+  assert((s_regs[REG0A_BOOST_CONTROL]&REG0A_BOOST_LIM_MASK)==0); // 500 mA
+  assert(bq25896_host_set_current_limit(1500)==ESP_OK);
+  assert((s_regs[REG0A_BOOST_CONTROL]&REG0A_BOOST_LIM_MASK)==3); // floor to 1400 mA
+  assert(bq25896_host_set_current_limit(1650)==ESP_ERR_INVALID_ARG);
+  assert((s_regs[REG0A_BOOST_CONTROL]&REG0A_BOOST_LIM_MASK)==3);
+  assert(bq25896_host_set_current_limit(500)==ESP_OK);
+  assert((s_regs[REG0A_BOOST_CONTROL]&REG0A_BOOST_LIM_MASK)==0);
+  test_host_mode=false;
+  assert(bq25896_host_set_current_limit(1400)==ESP_ERR_INVALID_STATE);
+  test_host_mode=true;
+  assert(bq25896_set_charge_enable_for_profile(true,POWER_PROFILE_CHARGE_604858)!=ESP_OK);
+  assert(!enabled());
+  assert(bq25896_host_power(false)==ESP_OK);
+  assert(!(s_regs[REG03_POWER_CONTROL]&REG03_OTG_CONFIG));
+  assert(bq25896_host_set_current_limit(1400)==ESP_ERR_INVALID_STATE);
+  reset(); test_host_mode=test_host_attached=true;
+  s_regs[REG0E_BATTERY_ADC]=65; s_regs[REG11_VBUS_ADC]=0;
+  assert(bq25896_host_power_with_limit(true,1650)==ESP_ERR_INVALID_ARG);
+  assert(!(s_regs[REG03_POWER_CONTROL]&REG03_OTG_CONFIG));
+  assert(bq25896_host_power_with_limit(true,499)==ESP_ERR_INVALID_ARG);
+  assert(bq25896_host_power_with_limit(true,1400)==ESP_OK);
+  assert((s_regs[REG0A_BOOST_CONTROL]&REG0A_BOOST_LIM_MASK)==3);
+  assert(bq25896_host_power(false)==ESP_OK);
+  reset(); test_host_mode=test_host_attached=true;
+  s_regs[REG0E_BATTERY_ADC]=65; s_regs[REG11_VBUS_ADC]=0;
+  s_fail_write=REG0A_BOOST_CONTROL;
+  assert(bq25896_host_power(true)!=ESP_OK);
+  assert(!(s_regs[REG03_POWER_CONTROL]&REG03_OTG_CONFIG));
   puts("PASS: actual charger profile at 3024 mV, generic floor, boundaries, latched low-cell recovery, fresh ADC, faults and I2C failure stops");
 }

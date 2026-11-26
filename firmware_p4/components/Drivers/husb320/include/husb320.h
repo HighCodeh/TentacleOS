@@ -33,6 +33,10 @@ typedef struct {
 
 // System-lifetime device; boot and the USB power worker serialize initialization.
 esp_err_t husb320_init(void);
+// Explicit USB host session; source advertises default current only.
+esp_err_t husb320_set_host_mode(bool enabled);
+esp_err_t husb320_host_attached(bool *out_attached);
+bool husb320_host_mode(void);
 esp_err_t husb320_read_source(husb320_source_t *out_source);
 
 #ifdef __cplusplus

@@ -18,7 +18,8 @@
 #include "../../firmware_p4/components/Service/power_manager/usb_power.c"
 
 static int64_t now_us;
-static bool locked, fail_alloc, fail_task;
+static bool locked, fail_alloc, fail_task, host_mode;
+bool husb320_host_mode(void) { return host_mode; }
 static int warnings, infos, init_calls, creates, writes, fail_writes;
 static husb320_source_t source;
 static esp_err_t source_result;
@@ -84,5 +85,9 @@ int main(void) {
   locked=true;assert(!usb_power_get(&snapshot));locked=false;
   assert(warnings+infos<=3); // event feedback is rate limited with logs
   puts("PASS: USB source transitions, 900 mA cap, immediate fallback, ADC-independent policy, stale state and allocation/control failures");
+  host_mode=true;
+  int writes_before=writes, init_before=init_calls;
+  update_input();
+  assert(writes==writes_before && init_calls==init_before);
   return 0;
 }

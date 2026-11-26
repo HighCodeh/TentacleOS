@@ -183,6 +183,11 @@ esp_err_t bq25896_set_otg_profile(uint16_t requested_mv,
                                   uint16_t *actual_mv,
                                   uint16_t *actual_ma);
 esp_err_t bq25896_set_otg_enable(bool enable);
+// Guarded source power, only after HUSB320 confirms an attached sink.
+esp_err_t bq25896_host_power(bool enabled);
+// Requests 500..1500 mA, rounded down to a supported boost step.
+esp_err_t bq25896_host_power_with_limit(bool enabled, uint16_t current_ma);
+esp_err_t bq25896_host_set_current_limit(uint16_t current_ma);
 bool bq25896_get_otg_enable(void);
 
 /** Disconnect BATFET (ship mode). Effective only after external VBUS is

@@ -94,6 +94,8 @@ bool usb_power_get(usb_power_snapshot_t *out_snapshot) {
 }
 
 static uint32_t update_input(void) {
+  if (husb320_host_mode())
+    return USB_POWER_POLL_IDLE_MS;
   husb320_source_t source = {0};
   esp_err_t source_result = husb320_read_source(&source);
   int64_t now = esp_timer_get_time();

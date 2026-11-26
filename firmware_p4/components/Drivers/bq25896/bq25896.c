@@ -19,6 +19,7 @@
 // (at your option) any later version.
 
 #include "bq25896.h"
+#include "husb320.h"
 
 #include <string.h>
 
@@ -819,9 +820,12 @@ esp_err_t bq25896_set_charge_enable_for_profile(bool enable, power_profile_charg
   if (result == ESP_OK)
     result = lock_driver();
   if (result == ESP_OK) {
-    result = s_is_recovery_required
-                 ? ESP_ERR_INVALID_STATE
-                 : pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, REG03_CHG_CONFIG);
+    uint8_t power = 0;
+    result = read_reg_unlocked(REG03_POWER_CONTROL, &power);
+    if (result == ESP_OK)
+      result = (s_is_recovery_required || (power & REG03_OTG_CONFIG) || husb320_host_mode())
+                   ? ESP_ERR_INVALID_STATE
+                   : pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, REG03_CHG_CONFIG);
     unlock_driver();
   }
   if (result != ESP_OK)
@@ -1030,6 +1034,131 @@ esp_err_t bq25896_set_otg_enable(bool enable) {
   }
 
   (void)update_reg_unlocked(REG0A_BOOST_CONTROL, REG0A_BOOST_LIM_MASK, s_otg_current_code);
+  unlock_driver();
+  return ret;
+}
+
+#define USB_HOST_MIN_BATTERY_MV     3500
+#define USB_HOST_MAX_CURRENT_MA     1500
+#define USB_HOST_DEFAULT_CURRENT_MA 500
+#define USB_HOST_BOOST_VOLTAGE_CODE 7
+#define USB_HOST_BOOST_START_MS     35
+
+static esp_err_t host_current_code(uint16_t current_ma, uint8_t *out_code) {
+  if (current_ma < USB_HOST_DEFAULT_CURRENT_MA || current_ma > USB_HOST_MAX_CURRENT_MA)
+    return ESP_ERR_INVALID_ARG;
+  *out_code = 0;
+  for (uint8_t code = 1; code <= REG0A_BOOST_LIM_MASK; ++code) {
+    if (s_boost_current_ma[code] > current_ma)
+      break;
+    *out_code = code;
+  }
+  return ESP_OK;
+}
+
+esp_err_t bq25896_host_set_current_limit(uint16_t current_ma) {
+  uint8_t code = 0;
+  esp_err_t ret = host_current_code(current_ma, &code);
+  if (ret != ESP_OK)
+    return ret;
+  if (!husb320_host_mode())
+    return ESP_ERR_INVALID_STATE;
+  ret = lock_driver();
+  if (ret != ESP_OK)
+    return ret;
+  uint8_t control = 0;
+  ret = read_reg_unlocked(REG03_POWER_CONTROL, &control);
+  if (ret == ESP_OK && !(control & REG03_OTG_CONFIG))
+    ret = ESP_ERR_INVALID_STATE;
+  if (ret == ESP_OK)
+    ret = pack_write_unlocked(REG0A_BOOST_CONTROL, REG0A_BOOST_LIM_MASK, code);
+  unlock_driver();
+  return ret;
+}
+
+esp_err_t bq25896_host_power(bool enabled) {
+  return bq25896_host_power_with_limit(enabled, USB_HOST_DEFAULT_CURRENT_MA);
+}
+
+esp_err_t bq25896_host_power_with_limit(bool enabled, uint16_t current_ma) {
+  bool attached = false;
+  esp_err_t ret = ESP_OK;
+  uint8_t current_code = 0;
+  if (enabled) {
+    ret = host_current_code(current_ma, &current_code);
+    if (ret != ESP_OK)
+      return ret;
+    ret = husb320_host_attached(&attached);
+    if (ret != ESP_OK || !attached) {
+      ESP_LOGW(TAG,
+               "Host power attachment rejected: attached=%d error=%s",
+               attached,
+               esp_err_to_name(ret));
+      return ret != ESP_OK ? ret : ESP_ERR_INVALID_STATE;
+    }
+    bq25896_telem_t telemetry;
+    ret = bq25896_read_telemetry(&telemetry);
+    if (ret != ESP_OK)
+      return ret;
+    if (!telemetry.adc_valid || telemetry.vbat_mv < USB_HOST_MIN_BATTERY_MV ||
+        telemetry.fault_live || telemetry.is_recovery_required || telemetry.vbus_good) {
+      ESP_LOGW(TAG,
+               "Host power guard: adc=%d battery=%u mV fault=0x%02X recovery=%d vbus=%d",
+               telemetry.adc_valid,
+               (unsigned)telemetry.vbat_mv,
+               telemetry.fault_live,
+               telemetry.is_recovery_required,
+               telemetry.vbus_good);
+      return ESP_ERR_INVALID_STATE;
+    }
+  }
+  ret = lock_driver();
+  if (ret != ESP_OK)
+    return ret;
+  if (!enabled) {
+    ret = pack_write_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
+    esp_err_t pin = gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
+    if (ret == ESP_OK)
+      ret = pin;
+  } else {
+    uint8_t vbus = 0;
+    ret = read_reg_unlocked(REG11_VBUS_ADC, &vbus);
+    if (ret == ESP_OK && (vbus & REG11_VBUS_GOOD)) {
+      ESP_LOGW(TAG, "Host power refused: external VBUS detected, REG11=0x%02X", vbus);
+      ret = ESP_ERR_INVALID_STATE;
+    }
+    // Source current is bounded by the board ceiling before enabling boost.
+    if (ret == ESP_OK)
+      ret = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+    if (ret == ESP_OK)
+      ret = pack_write_unlocked(REG0A_BOOST_CONTROL,
+                                REG0A_BOOSTV_MASK | REG0A_BOOST_LIM_MASK,
+                                (USB_HOST_BOOST_VOLTAGE_CODE << 4) | current_code);
+    if (ret == ESP_OK)
+      ret = gpio_set_level(GPIO_CHARGER_OTG_PIN, 1);
+    if (ret == ESP_OK)
+      ret = pack_write_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, REG03_OTG_CONFIG);
+    if (ret == ESP_OK) {
+      vTaskDelay(pdMS_TO_TICKS(USB_HOST_BOOST_START_MS));
+      uint8_t status = 0, fault = 0;
+      ret = read_reg_unlocked(REG0B_STATUS, &status);
+      if (ret == ESP_OK)
+        ret = read_reg_unlocked(REG0C_FAULT, &fault);
+      if (ret == ESP_OK &&
+          (((status & REG0B_VBUS_STAT_MASK) >> 5) != VBUS_STATUS_OTG || (fault & FAULT_BOOST))) {
+        ESP_LOGW(TAG,
+                 "Host boost startup failed: status=0x%02X fault=0x%02X OTG_pin=%d",
+                 status,
+                 fault,
+                 gpio_get_level(GPIO_CHARGER_OTG_PIN));
+        ret = ESP_ERR_INVALID_STATE;
+      }
+    }
+    if (ret != ESP_OK) {
+      (void)pack_write_unlocked(REG03_POWER_CONTROL, REG03_OTG_CONFIG, 0);
+      (void)gpio_set_level(GPIO_CHARGER_OTG_PIN, 0);
+    }
+  }
   unlock_driver();
   return ret;
 }
