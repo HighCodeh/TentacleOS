@@ -618,6 +618,43 @@ esp_tinyusb's bus notifications cannot transfer filesystem ownership. Their
 signatures must be reviewed when upgrading esp_tinyusb. No managed source is
 modified. The existing TinyUSB stack handles USB BOT and endpoint transfers.
 
+### macOS throughput check
+
+With USB Storage active and its volume visible in Finder, run from the repository:
+
+```sh
+./tools/highboy/benchmark_storage.sh
+./tools/highboy/benchmark_storage.sh "/Volumes/Highboy" --size-mib 128
+./tools/highboy/benchmark_storage.sh --size-mib 128 --sync-at-end
+```
+
+Requires macOS and Python 3, without sudo. The default test writes and reads
+32 MiB in a uniquely named temporary file on `/Volumes/Highboy`. It refuses raw
+devices and ordinary directories, checks free space and never overwrites existing
+files. Other mounted volumes must be supplied explicitly. Keep Storage active
+and the cable connected until completion.
+
+Both file descriptors request `F_NOCACHE`; this does not prove the filesystem
+has no deferred writes. Every 8 MiB (and the final partial batch) is synchronized
+with `fsync` and `F_FULLFSYNC` before reporting that batch as synchronized.
+With `--sync-at-end`, intermediate progress is labeled Submitted and only the
+final batch is synchronized. This allows continuous writes while still including
+the final `fsync`/`F_FULLFSYNC` in write timing. It does not disable `F_NOCACHE`
+or exactly reproduce Finder behavior. Without the flag, 8 MiB checkpoints remain
+the default. Write timing includes all synchronization waits. A five-second heartbeat identifies the
+pending operation and its elapsed time, including blocked writes or flushes;
+it is not proof that the device is progressing. There is no unsafe forced timeout.
+Read progress is reported too, and read timing includes SHA-256 verification. If these operations
+fail, no successful throughput result is reported. Output includes decimal MB/s,
+MiB/s and elapsed seconds. This is end-to-end filesystem performance, not raw
+USB or SD bus bandwidth; card/controller caches and host behavior still matter.
+The temporary file is removed on success, I/O failure, Ctrl+C and SIGTERM.
+An abrupt disconnect, SIGKILL or power loss may prevent cleanup; failures identify
+the temporary path. No raw-device writes, unmounts, formatting or global cache
+purges are performed. Use the same script version, size and connection for
+comparisons: the earlier script flushed only once at the end, so its flush cadence
+differs from this version. A blocked filesystem call can delay cancellation.
+
 ### Native diagnostics
 
 During MSC, CDC interface 0 outputs plain-text P4 logs through the existing
