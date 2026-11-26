@@ -50,7 +50,7 @@ class ContractTests(unittest.TestCase):
             check_contracts.main()
 
     def write_config(self, chip, values):
-        config = self.root / f"firmware_{chip}/build_highboy/sdkconfig"
+        config = self.root / f"firmware_{chip}/build/sdkconfig"
         config.parent.mkdir(exist_ok=True)
         config.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
         return config

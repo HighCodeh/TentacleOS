@@ -111,8 +111,8 @@ jobs:
         shell: bash
         run: |
           python tools/highboy/build_evidence.py --target "${{ matrix.target }}" \
-            --build "firmware_${{ matrix.target }}/build_highboy" \
-            --out "firmware_${{ matrix.target }}/build_highboy/build-evidence.json"
+            --build "firmware_${{ matrix.target }}/build" \
+            --out "firmware_${{ matrix.target }}/build/build-evidence.json"
 
       - name: Test generated FatFS and exFAT lifecycle
         if: matrix.target == 'p4'
@@ -141,7 +141,7 @@ jobs:
         shell: bash
         run: |
           python tools/console/test_console.py --idf "$IDF_PATH" \
-            --build firmware_p4/build_highboy
+            --build firmware_p4/build
 
       - name: Build isolated factory-security review and test real image crypto
         shell: bash
@@ -151,7 +151,7 @@ jobs:
           python tools/highboy/secure_build.py build --target "${{ matrix.target }}" \
             --idf "$IDF_PATH" --python "$IDF_PYTHON_ENV_PATH/bin/python" \
             --tools "${IDF_TOOLS_PATH:-$HOME/.espressif}" \
-            --baseline "firmware_${{ matrix.target }}/build_highboy" --out "$review"
+            --baseline "firmware_${{ matrix.target }}/build" --out "$review"
           python tools/highboy/test_security_images.py "$review"
 
       - name: Upload factory-security review evidence
@@ -173,12 +173,12 @@ jobs:
           name: highboy-${{ matrix.target }}-app-only
           if-no-files-found: error
           path: |
-            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.bin
-            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.elf
-            firmware_${{ matrix.target }}/build_highboy/${{ matrix.project }}.map
-            firmware_${{ matrix.target }}/build_highboy/sdkconfig
-            firmware_${{ matrix.target }}/build_highboy/partition_table/partition-table.bin
-            firmware_${{ matrix.target }}/build_highboy/build-evidence.json
+            firmware_${{ matrix.target }}/build/${{ matrix.project }}.bin
+            firmware_${{ matrix.target }}/build/${{ matrix.project }}.elf
+            firmware_${{ matrix.target }}/build/${{ matrix.project }}.map
+            firmware_${{ matrix.target }}/build/sdkconfig
+            firmware_${{ matrix.target }}/build/partition_table/partition-table.bin
+            firmware_${{ matrix.target }}/build/build-evidence.json
 
   host-tests:
     name: High Boy offline regression tests (${{ matrix.compiler }})

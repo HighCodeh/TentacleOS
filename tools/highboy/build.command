@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-# Build the integrated application pair only. Never access a device or API.
+# Build the integrated firmware pair and full-flash images. Never access a device or API.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 explicit_names=()
@@ -113,7 +113,7 @@ else
 fi
 export IDF_TARGET="esp32$target"
 project="$repo/firmware_$target"
-build="$project/build_highboy"
+build="$project/build"
 export SDKCONFIG_DEFAULTS="$project/sdkconfig.defaults"
 python "$repo/tools/highboy/check_contracts.py"
 configure_args=(-D "HIGH_BOY_USB_VOICE=OFF")
@@ -125,7 +125,7 @@ python "$IDF_PATH/tools/idf.py" -C "$project" -B "$build" \
   -D "SDKCONFIG=$build/sdkconfig" -D "SDKCONFIG_DEFAULTS=$SDKCONFIG_DEFAULTS" \
   "${configure_args[@]}" reconfigure
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
-build_targets=(app littlefs_assets_bin)
+build_targets=(all)
 env -u PIP_NO_INDEX cmake --build "$build" --target "${build_targets[@]}" --parallel "${HIGHBOY_BUILD_JOBS:-2}"
 python "$repo/tools/highboy/check_contracts.py" --require-built "$target"
-echo "$target application and assets.bin built. No device was flashed."
+echo "$target firmware and full-flash images built. No device was flashed."

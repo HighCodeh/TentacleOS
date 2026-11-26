@@ -21,14 +21,21 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 This checkout includes the verified High Boy Muse integration. Read
 `docs/highboy/README.md` before changing build, protocol or deployment paths.
-`tools/build.sh` routes to an app-only build with the IDF Component Manager enabled:
+`tools/build.sh` builds applications, bootloaders and assets with the IDF Component Manager enabled:
 Both P4 and C5 use ESP-IDF v6.1. Preserve the paired protocol v2 headers and
 the C5 memory policy in `sdkconfig.defaults`. Do not run older external `prepare.py` generators here.
-`tools/flash.sh p4|c5 -p PORT` performs a guarded single-chip app-only update: full flash backup,
-matching installed partition map and valid existing boot/app images are required.
-Use `--check` for backup and validation without writing. It does not update the
-other chip or restore assets. Full restoration/migration remains gated; upstream's generic flash
-commands below are not valid for this local candidate.
+`tools/flash.sh` selects chip and update mode interactively. Use `--mode app`
+for the guarded application-only update, or `--mode full` for bootloader,
+partition table, initial OTA data, application and assets from the same build.
+Both modes require identity/capacity/security validation. Only full mode takes a
+full backup. App mode verifies the current image, writes/verifies the inactive OTA
+slot, then selects it as NEW while retaining a valid fallback selection. It requires
+a matching installed rollback-enabled bootloader and partition map.
+Full mode clears the new coredump region and preserves NVS/PHY only when their
+locations and sizes are unchanged; a blank flash is also supported.
+Use `--check` for validation without writing (full mode also takes a backup). Neither mode updates
+the other chip or SD card. See the canonical Highboy deployment documentation.
+
 
 ## Project Overview
 
@@ -37,6 +44,12 @@ The device this firmware runs on is named **Highboy** or **High Boy**; both name
 Embedded firmware for the High Boy platform (ESP32-S3/P4/C5). Dual-firmware architecture: ESP32-C5 is the co-processor and ESP32-P4 is the master. This integrated profile builds separate applications; flashing P4 does not program C5.
 
 ## Build & Flash
+
+Use only `firmware_p4/build` and `firmware_c5/build` for regular firmware builds.
+Do not create per-feature or per-profile build directories or select binaries by
+modification time. Reconfigure the same `build` directory when changing profiles.
+Factory-security reviews remain isolated outside the checkout with output in a
+`build` subdirectory, preserving the required security workflow separation.
 
 ESP-IDF v6.1 is the pinned version. Source the environment before any build command:
 

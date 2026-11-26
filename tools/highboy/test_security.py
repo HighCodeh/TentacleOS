@@ -139,7 +139,7 @@ class FactoryBuildAuditTests(unittest.TestCase):
             for bad in ({'status':'failed'}, dict(secure_build.BOUNDARY, deployment_approved=True)):
                 path.write_text(json.dumps(bad))
                 with self.assertRaises(ValueError):secure_build.verify(temporary)
-        with self.assertRaises(ValueError):secure_build.outside_checkout(security.ROOT/'firmware_p4/build_highboy')
+        with self.assertRaises(ValueError):secure_build.outside_checkout(security.ROOT/'firmware_p4/build')
 
 
 if __name__ == '__main__': unittest.main()

@@ -119,7 +119,7 @@ jobs:
           mkdir release-assets
           for target in p4 c5; do
             chip="$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')"
-            build="firmware_${target}/build_highboy"
+            build="firmware_${target}/build"
             python tools/highboy/build_evidence.py --target "$target" \
               --build "$build" --out "release-assets/${chip}-build-evidence.json"
             cp "$build/TentacleOS_${chip}.bin" \

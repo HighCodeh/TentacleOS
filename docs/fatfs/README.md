@@ -33,7 +33,7 @@ No repository is cloned and no network access is required for this preparation.
 Unchanged generated files retain their timestamps on subsequent configuration.
 Missing or changed SDK inputs and rejected patches stop configuration; there is
 no fallback to an unpatched FAT-only component. Independent build directories
-have independent copies, including `build/`, `build_highboy/` and the isolated
+have independent copies, including `build/`, `build/` and the isolated
 factory-security review. Generated output is disposable and may be deleted with
 its build directory. Source edits belong in the patch, never in generated files.
 

@@ -16,6 +16,7 @@
 
 """Offline source contract gates; no device access and no credentials read."""
 import argparse
+import json
 from pathlib import Path
 import re
 
@@ -55,7 +56,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-built", choices=("p4", "c5"),
                         help="Require and validate this target's generated sdkconfig")
+    parser.add_argument("--build-dir", type=Path, help="Validate generated config in this selected build")
     args = parser.parse_args()
+    require(not args.build_dir or args.require_built, "--build-dir requires --require-built")
     headers = [(ROOT / f"firmware_{chip}/components/Service/spi_bridge/include/spi_protocol.h").read_bytes()
                for chip in ("p4", "c5")]
     require(headers[0] == headers[1], "P4/C5 SPI contract mismatch")
@@ -79,11 +82,17 @@ def main():
             for key, expected in C5_MEMORY.items():
                 if key != "CONFIG_IDF_TARGET":
                     require(defaults.get(key) == expected, f"C5 defaults mismatch: {key}")
-        config = project / "build_highboy/sdkconfig"
+        selected = args.build_dir if args.require_built == chip else None
+        config = selected / "config/sdkconfig.json" if selected else project / "build/sdkconfig"
         if args.require_built == chip:
             require(config.is_file(), f"Missing generated {chip} sdkconfig: build validation required")
         if config.is_file():
-            effective = config_values([config])
+            if selected:
+                raw = json.loads(config.read_text())
+                effective = {f"CONFIG_{key}": ('y' if value is True else json.dumps(value))
+                             for key, value in raw.items() if value is not False}
+            else:
+                effective = config_values([config])
             require(effective.get("CONFIG_IDF_TARGET") == f'"esp32{chip}"', "Wrong compiled target")
             for key in ("SECURE_BOOT", "SECURE_FLASH_ENC_ENABLED", "SECURE_SIGNED_APPS_NO_SECURE_BOOT"):
                 require(effective.get(f"CONFIG_{key}") != "y", "Unexpected security migration")

@@ -117,7 +117,7 @@ def main():
     check_contracts.main()
     images = {}
     report = {
-        "app_signing": app_signing_configuration(ROOT / "firmware_p4", ROOT / "firmware_p4/build_highboy"),
+        "app_signing": app_signing_configuration(ROOT / "firmware_p4", ROOT / "firmware_p4/build"),
         "schema_version": 1, "protocol_version": 2, "spi_transport_revision": 1, "app_only": True,
         "status": "compiled_candidate_requires_hardware_acceptance",
         "upstream": "011ed7da4c750b7777fd6dbad8ce4541304c6898",
@@ -131,7 +131,7 @@ def main():
     }
     for chip in ("p4", "c5"):
         project = ROOT / ("firmware_" + chip)
-        build = project / "build_highboy"
+        build = project / "build"
         app = build / ("TentacleOS_" + chip.upper() + ".bin")
         elf = app.with_suffix(".elf")
         table = build / "partition_table/partition-table.bin"

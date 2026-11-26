@@ -166,7 +166,7 @@ def build(args):
             'Native app trust configuration belongs to P4')
     output = outside_checkout(args.out)
     require(not output.exists(), 'Output already exists')
-    work = output/'work'
+    work = output/'build'
     require(not work.is_symlink(), 'Symlinked build directory')
     baseline = Path(args.baseline).resolve()
     idf = Path(args.idf).resolve()

@@ -123,7 +123,7 @@ Both builds also generate their own `assets.bin`. P4 uses the existing
 `tools/png_to_bin/` conversion scripts, including rotated frames; C5 packages
 its configuration/data directory directly. Standard `idf.py flash` now includes
 the assets partition; `assets-flash` writes only that filesystem. The guarded
-`tools/flash.sh` path remains app-only. See [assets](../storage_assets/README.md#v203-p4-assets-build-and-flash).
+`tools/flash.sh --mode full` also installs assets. See [assets](../storage_assets/README.md#v203-p4-assets-build-and-flash).
 
 
 ```sh
@@ -170,7 +170,7 @@ Before configuration, the build verifies the pinned revisions of the target's
 required SDK submodules: eight shared libraries for P4 and thirteen libraries
 including the radio stack for C5. ESP-IDF's generic all-target submodule download
 is then disabled, so a P4 build does not fetch unused Wi-Fi/Bluetooth libraries.
-Build products live in `firmware_{p4,c5}/build_highboy`, not the previous build
+Build products live in the standard `firmware_{p4,c5}/build`
 directories.
 
 P4 loads only `firmware_p4/sdkconfig.defaults`, including its installed partition
@@ -204,9 +204,9 @@ assets, embed a different C5 recovery image or migrate security eFuses.
 
 The waterfall feature exceeds the previous 8 MB board's application slot. The
 prototype received a 16 MB replacement flash on 25 November 2026. Active
-`sdkconfig.defaults`, `partitions.csv`, the normal paired build and guarded
-app-only flashing still target the 8 MB layout; they are not silently migrated
-or relaxed. Use the separate profile below for the upgraded prototype.
+`sdkconfig.defaults`, `partitions.csv` and the normal paired build still target
+the 8 MB layout; they are not silently migrated. The guarded app updater now
+accepts the separate 16 MB build only on an already matching installation. Use the separate profile below for the upgraded prototype.
 
 A separate profile is provided by `firmware_p4/sdkconfig.16mb.defaults`
 and `firmware_p4/partitions_16mb.csv`: two 6 MiB OTA slots, the existing NVS/OTA/PHY
@@ -216,21 +216,21 @@ the **firmware_p4 directory** so all paths resolve consistently:
 
 ```sh
 cd firmware_p4
-IDF_COMPONENT_MANAGER=1 idf.py -B build_highboy_16mb \
-  -D SDKCONFIG="$PWD/build_highboy_16mb/sdkconfig" \
+IDF_COMPONENT_MANAGER=1 idf.py -B build \
+  -D SDKCONFIG="$PWD/build/sdkconfig" \
   -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.16mb.defaults' \
   -D HIGH_BOY_USB_VOICE=OFF reconfigure
-cmake --build build_highboy_16mb --parallel 2
+cmake --build build --parallel 2
 ```
 
-Use a fresh build/configuration directory when selecting this profile: an existing
-sdkconfig takes precedence over defaults. The ordinary 8 MB build's size check is
+Use the standard `build` directory for this profile too. Existing sdkconfig values
+take precedence over defaults; select the 16 MB flash size and partition filename
+through `idf.py menuconfig` when switching an already configured 8 MB build. The ordinary 8 MB build's size check is
 expected to reject this expanded application; no size check or CI budget is bypassed.
-The current flash/recovery scripts require reviewed 8 MiB backups and are **not**
-a 16 MB migration workflow. Do not use the current app-only flash helper on the
-upgraded prototype. A full installation requires confirmed chip identity/capacity,
-a complete backup and matching bootloader, partitions, OTA data, application and
-assets from this build directory.
+The guarded flash helper supports both app-only updates and full installation
+of this 16 MB profile. Both require matching device capacity; only full mode takes a full 16 MiB backup. App-only mode requires the installed partition map to match. Full mode
+uses the complete bundle from `build`, with the migration checks described below.
+The separate recovery scripts retain their own reviewed profile restrictions.
 
 Physical installation on 25 November 2026 identified P4 revision 3.2 and JEDEC
 `0x182085` (16 MB). A complete 16 MiB backup confirmed the replacement was blank.
@@ -374,54 +374,216 @@ actual P4, installed partition table, OTA selection and candidate hashes.
 
 An earlier record reports a P4 erase for the standalone PS1 test; this is not
 evidence of the currently connected device's state or recovery mode. An app-only
-update cannot restore erased runtime assets/settings. A separately reviewed full
-restore package is still required for an erased device or partition migration.
+update cannot restore erased runtime assets/settings. Use the guarded full mode below for a blank device or supported partition migration.
 Stock public assets remain references, not a verified recovery image.
 
 ### Updating an installed P4
 
-Build the current applications with `bash tools/build.sh`. Select the P4 serial
-port explicitly (Linux example: `/dev/ttyUSB1`; macOS example below):
+Build the applications, bootloaders and assets with `bash tools/build.sh`. The launcher
+first offers `ESP32-P4` / `ESP32-C5` / `Both chips`, then `Application only` / `Full flash`:
 
 ```sh
-# Backup and inspect only. This resets the device, but writes no flash bytes.
+bash tools/flash.sh         # Select chip, then flash mode with Up/Down and Enter
+bash tools/flash.sh p4      # Detect P4 port without the chip menu
+bash tools/flash.sh c5      # Detect C5 port without the chip menu
+bash tools/flash.sh both    # Update C5, then P4, using the same selected mode
+```
+
+To skip the mode menu:
+
+```sh
+./tools/flash.sh p4 --mode app
+./tools/flash.sh p4 --mode full
+./tools/flash.sh c5 --mode full -p /dev/your-c5-port --check
+```
+
+For a paired update, `both` selects the two interfaces of the same physical CP2105
+instead of guessing from serial-port order. On macOS, pairing uses the physical
+`IOUSBHostDevice` identity; duplicated VID/PID properties on serial drivers do not
+create separate board identities. If pairing metadata is missing, use:
+
+```sh
+./tools/flash.sh both --mode app --p4-port /dev/your-p4-port --c5-port /dev/your-c5-port
+./tools/flash.sh both --mode full
+```
+
+One mode selection applies to both chips. Each child uses its own SDK/Python
+configuration and `firmware_<chip>/build`. Both build/partition/rollback artifacts
+are checked offline before the first device connection. Identity, capacity and
+security checks still run on each actual device. C5 runs first, followed by P4.
+An error or cancellation stops the sequence and reports completed chips; this is
+not an atomic two-chip update and does not undo a successfully updated first chip.
+Use `--p4-port`/`--c5-port` for paired manual selection; a single `-p` is ambiguous
+and rejected in `both` mode. Baud overrides and `--check` apply to both children.
+
+C5 has the same inactive-slot OTA and full-backup policies as P4. For automatic
+C5 download entry, the updater identifies the paired P4 console and requests
+`c5 boot`, requiring the `C5 ROM boot: ESP_OK` acknowledgment before connecting
+with no reset. A single C5 invocation can supply `--control-port P4_PORT` explicitly.
+The console client answers ANSI status/cursor queries before sending the boot
+command, including when linenoise was left in terminal mode by a serial monitor.
+When the control console is unavailable or does not acknowledge, the updater
+falls back to the normal esptool reset/connect sequence. `--before no-reset` skips
+console entry for an already prepared loader. Both targets exit the loader through
+esptool's chip-specific watchdog reset rather than relying on a cable reconnect.
+After a C5 update, its paired P4 console is required: the updater runs `c5 wait 10`
+and requires `C5 link: ALIVE` before completing or advancing to P4. This restores
+SPI traffic within the C5 firmware's boot-health window; otherwise starting P4
+flashing immediately can make the C5 roll back during P4's preflight reads.
+Failure to restore the link stops the paired update.
+
+Application mode preserves the current app, bootloader, partition table and assets;
+it writes the inactive OTA slot and updates one selection sector only after verification. Full mode writes the generated bootloader, partition table, initial
+OTA metadata, application to `ota_0`, and assets. It also clears the new coredump
+region. Existing assets/settings stored in that filesystem are replaced, and OTA
+selection resets to `ota_0`. It does not erase the entire chip or touch the other
+processor or SD card.
+
+Full mode validates the exact generated file list, offsets, capacity, bootloader
+header and region bounds before connecting. It snapshots the selected binaries,
+backs up the entire device, verifies that backup against the device immediately
+before writing, and verifies every written image afterwards. Backup files and a
+manifest remain under `integration/device_backups`. NVS and PHY partitions are
+preserved: their offsets, sizes and types must match the installed table. A fully
+blank chip is accepted; a nonblank chip with an unreadable table or a migration
+moving NVS/PHY requires a separate recovery/data-migration procedure. `--check`
+performs validation without writing; only full mode also creates a full backup.
+
+Full-mode bundle/migration checks and write ordering have host tests; complete
+P4/C5 build bundles were validated offline. This does not claim a physical test
+of the new full-mode launcher.
+
+All regular firmware builds and updates use one directory per chip:
+`firmware_p4/build` and `firmware_c5/build`. Build, flash, packaging and CI consume
+these same paths. The updater never searches alternate directories or chooses a
+binary by modification time. Its compatibility `--build-dir` option only accepts
+the corresponding standard directory. The 8/16 MB profile is determined from the
+compiled configuration, not from the directory name. Switching profiles requires
+reconfiguration of the same build. Device capacity must match; app mode also
+requires matching installed partitions. The build script preserves its generated `build/sdkconfig`;
+plain `idf.py build` reuses that configured build as well.
+
+Generated project metadata, chip target, compiled configuration, flash settings
+and the profile's source partition table must agree. C5 memory and paired-protocol
+gates remain enabled. Offline tests cover full 16 MiB backups, capacity rejection,
+app-only writes and rejection of alternate build directories.
+
+Detection only reads USB descriptors; it does not open serial ports or reset the
+other chip. High Boy V2.03 uses CP2105 (VID:PID 10c4:ea70): ECI/interface 0 is P4,
+SCI/interface 1 is C5. macOS uses IORegistry interface ancestry with descendant properties (`ioreg -l`); Linux uses USB
+interface location and Windows uses available interface metadata. Port names
+and enumeration order are never treated as chip identity. The updater still
+validates the selected ESP32 chip through esptool before writing.
+
+Multiple matching devices bring up a port menu with USB serial/location. Missing
+or conflicting metadata requires explicit `-p PORT`; generic USB-UART adapters
+and native USB modes are not guessed. Non-interactive runs require an explicit
+chip, `--mode app|full`, and either one identifiable interface or a manual port. Esc/Ctrl-C cancels
+the menu without starting an update. These paths have offline metadata/PTY tests. On 2026-11-26, descriptor-only
+detection on macOS identified the connected CP2105 P4 and C5 interfaces correctly.
+This check did not open either serial port or start a flash update.
+
+Manual selection remains available (Linux example: `/dev/ttyUSB1`; macOS below):
+
+```sh
+# Inspect OTA preflight only. This resets the device, but writes no flash bytes.
 bash tools/flash.sh p4 -p /dev/cu.usbserial-01FDB4221 --check
-# Backup, validate, update the selected app partition and verify its bytes.
+# Validate, write the inactive app, verify it, then select it for the next boot.
 bash tools/flash.sh p4 -p /dev/cu.usbserial-01FDB4221
 ```
 
+Interactive terminals show a shaded purple ASCII Octobit above the current stage and
+progress bar. A fixed light source, varied character density (`.:;+=xX$@`) and
+256-color purple/gray shading give the mascot depth without animated noise.
+The percentage describes the current backup/write stage, not the
+whole operation; validation and reset show an indeterminate indicator entirely
+inside the bar, without a trailing ellipsis. Completion is
+shown only after the updater exits successfully. This presentation applies only
+to `tools/flash.sh`, not `idf.py`, and does not change deployment guards.
+
+Use `bash tools/flash.sh --preview` to inspect the artwork without an IDF
+environment or device access. `--plain` retains the original output; redirected
+output, CI, `TERM=dumb`, and `NO_COLOR` also select plain mode automatically.
+The interactive view saves complete subprocess output in a private temporary
+`highboy-flash-*.log` file and prints its path. Failures display the tool output
+and preserve the exit status. Ctrl-C stops the updater and restores the terminal;
+an interrupted write may still require recovery. These presentation paths are
+covered by offline subprocess tests, not a new hardware-flash validation.
+
 The updater uses the P4 Python/IDF paths from `.highboy-build.env`, explicit
 `HIGHBOY_P4_IDF_PATH` / `HIGHBOY_P4_PYTHON_ENV`, or the active IDF environment.
-`-b 115200` selects a slower serial baud rate if needed. It reads security flags,
-rejects enabled Secure Boot/Flash Encryption, and backs up the entire flash in
-`integration/device_backups/p4_<UTC>/flash.bin` before any write. These ignored,
-private directories can contain device settings; keep the backup locally.
-The reviewed profile requires an 8 MB flash device. Backup reads use 512 KiB
-blocks with progress and a 600-second limit per serial command; a failed or
-partial backup cannot reach the write step.
+Read and write speeds are independent: P4 defaults to **230400 read / 921600
+write**, C5 to **230400 / 460800**. `--read-baud` and `--write-baud` override each
+phase; `-b` overrides both unless a phase-specific option is supplied. Verification
+keeps the current baud. The same stub and serial connection survive speed changes.
 
-The installed partition table must exactly match `build_highboy`, including the
-preserved local offsets. The existing bootloader and OTA-selected app must have
-valid P4 image checksums/SHA256; ambiguous or pending OTA state is rejected.
-An entirely blank assets partition is rejected. This is only a presence check,
-not proof of a healthy filesystem or complete assets. A successful update writes
-only the selected app partition, keeping OTA selection, bootloader, partitions,
-assets, NVS and SD unchanged. The adjacent manifest records backup/candidate
-hashes, chosen slot and write/verification status. Interrupted in-place updates
-can require recovery from backup; this is not an automatic rollback mechanism.
-If a check fails, no migration or full restoration is attempted. The final P4
-cleanup reconnects to the already-active ROM with `--before no-reset` and requests
-`--after watchdog-reset`. This uses esptool's P4 watchdog implementation instead
-of depending on UART RTS/DTR wiring to leave download mode. Intermediate backup,
-write and verification commands retain `--after no-reset`; C5 retains its existing
-hard-reset behavior. The pinned esptool 5.6.0 supports this reset method.
+Application mode reads the partition table, OTA metadata and the current app
+(exact image length, without unused slot padding) for checksum/SHA256 validation.
+These preflight reads are temporary, not a full-flash backup. The installed
+bootloader must match the build's header, load addresses and code/data (only
+the IDF boot descriptor compile timestamp is ignored), with rollback enabled in
+both generated configurations; otherwise use full mode to establish that contract.
+An unconfirmed, corrupt, or exhausted OTA selection is rejected. No assets
+filesystem is read or rewritten in application mode.
 
-When the running P4 console is available, issue `p4 boot`, close the serial
-console, then use `tools/flash.sh p4 -p PORT --before no-reset -b 115200`.
-This skips UART reset throughout backup and flashing while preserving all
-deployment guards. Keep ROM baud for this sequence: separate esptool processes
-otherwise reconnect at 115200 while the stub retains the previous higher baud.
-The command timeout accommodates app writes at this slower rate.
+The new application is written to the inactive OTA slot and verified first.
+Only then is a higher-sequence NEW entry written to the other OTA selection
+sector. The old selection sector and old application remain intact for rollback.
+If OTA metadata is entirely erased, the updater first establishes a VALID entry
+for the checked current ota_0 image, verifies it, then selects ota_1 as NEW.
+Each selection write affects one 4 KiB sector; it never erases both together.
+The firmware's existing post-boot health check must confirm the new image;
+otherwise the rollback-enabled bootloader rejects an unconfirmed image on a
+subsequent reboot. This does not guarantee immediate recovery from every hang.
+A failure before selection leaves the previous application selected.
+
+Only full mode reads all flash in 512 KiB chunks and retains `flash.bin` under
+`integration/device_backups/<chip>_<UTC>/`, with verification before writing.
+Application mode retains the candidate, selection records and update manifest in
+that directory, but no full snapshot. These private artifacts can contain device
+data. Both modes enforce security, capacity and image/partition checks.
+
+Both chips upload the RAM stub once. Per-command `--no-stub` prevents another
+upload while reusing that stub. The final cleanup resets either chip by watchdog and closes the connection; each command has a 600-second timeout.
+
+Hardware evidence on 2026-11-26: P4 stub reads failed at 460800/921600 but passed
+at 230400 (512 KiB in 24.1 seconds); a complete 16 MiB backup was then read and
+verified. An application write at 921600 completed in 32.6 seconds for 3,251,584
+bytes, with digest and preserved-region checks followed by a working console.
+An earlier interrupted write was caused by the user unplugging USB. That recovery
+used the old active-slot workflow; it is not a physical rollback test of the new
+inactive-slot workflow. Host tests cover selection, interrupted verification,
+blank metadata initialization and speed transitions. A physical application
+`--check` passed on the connected P4: valid current ota_0, inactive ota_1 at
+0x620000, no full backup and no writes.
+
+Paired application-flash validation on 2026-11-26 used automatic port discovery
+and console boot entry for C5 then P4. C5 reads at 460800 reproduced serial
+corruption; 230400 passed the complete preflight, including its 49,520-byte tail.
+C5 wrote 2,156,064 bytes at 460800 in 33.1 seconds; P4 wrote 3,349,344 bytes
+at 921600 in 34.4 seconds in the initial paired run. Both inactive images and
+preserved active images passed digest verification. The initial run exposed a
+C5 health timeout when P4 flashing started immediately. With the required SPI
+confirmation added, the repeated paired run completed successfully. A subsequent
+C5 reboot retained ota_1 at 0x320000, reported build ELF SHA256 `604c70aa0...`,
+and returned `C5 link: ALIVE`. This validates application mode on this board,
+not a new full-mode migration or an injected power-loss rollback test.
+
+Before the default P4 connection, the launcher checks for a `highboy>` console
+prompt at 115200 (up to 12 seconds to accommodate boot) and requests `p4 boot`, accepting it only after the firmware's
+ROM-download acknowledgement. Otherwise it uses esptool's hardware-reset path.
+Explicit `--before no-reset` skips this console probe. On 2026-11-26 the connected
+P4 passed software boot entry, security/16 MB identification, a 4 KiB partition
+read over one 460800-baud ROM session, and watchdog reset. No flash bytes were
+written in that validation.
+
+If initial ROM-baud connection fails, the script retries the selected baud without
+reset (two attempts) to recover a loader left at high speed by an interrupted old
+updater. It never performs a write as part of this recovery. When the running P4
+console is available, issue `p4 boot`, close the serial console, then use
+`tools/flash.sh p4 -p PORT --before no-reset`. The persistent connection supports
+the requested baud in this mode too; separate 115200-baud reconnects are no longer
+necessary. These changes do not bypass security, capacity or partition checks.
 
 The reviewed `lab/rf` (`edc3182a`) updater also used `hard_reset`; the watchdog
 fallback was in esptool for native P4 USB-OTG, not a lab firmware feature. It is
@@ -447,16 +609,15 @@ bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220 --check
 bash tools/flash.sh c5 -p /dev/cu.usbserial-01FDB4220
 ```
 
-The C5 target selects `firmware_c5/build_highboy/TentacleOS_C5.bin`, its own
+The C5 target selects `TentacleOS_C5.bin` from its selected build directory, its own
 partition table, 3 MiB app slots and the C5 SDK/Python environment. Paths come
 from `HIGHBOY_C5_IDF_PATH` / `HIGHBOY_C5_PYTHON_ENV`, the local build environment
-file or the active IDF environment. It explicitly selects `esp32c5` and uses
-`--no-stub`, matching this profile's C5 flasher configuration. P4 uses
-`esp32p4` and its existing stub path. All other backup, security, image-integrity,
+file or the active IDF environment. It explicitly selects `esp32c5`; P4 selects `esp32p4`. Both use the persistent
+RAM stub, independently of the generated IDF flasher configuration. All other backup, security, image-integrity,
 OTA-selection and data-preservation gates apply to both targets. C5 backups go
-under `integration/device_backups/c5_<UTC>/`. The port is always explicit; the
-macOS C5 example is the port previously used by this environment's C5 monitor,
-not an automatic selection rule. A C5 update does not touch P4, and vice versa.
+under `integration/device_backups/c5_<UTC>/`. The port can be explicit or detected from its CP2105 interface. The macOS C5
+example is not a naming heuristic. A single-target update does not write the other
+chip; C5 automatic download entry may use the P4 console as its controller.
 The C5 updater passed host tests and validated the built C5 image; physical
 backup/write acceptance remains pending.
 

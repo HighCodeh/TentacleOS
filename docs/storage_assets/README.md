@@ -44,7 +44,7 @@ To populate only assets on an already flashed P4:
 
 ```sh
 cd firmware_p4
-idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p PORT assets-flash
+idf.py -B build -D SDKCONFIG=build/sdkconfig -p PORT assets-flash
 ```
 
 `assets-flash` replaces the entire assets filesystem, including any runtime
@@ -72,7 +72,7 @@ To replace only the C5 assets filesystem (including runtime configuration):
 
 ```sh
 cd firmware_c5
-idf.py -B build_highboy -D SDKCONFIG=build_highboy/sdkconfig -p C5_PORT assets-flash
+idf.py -B build -D SDKCONFIG=build/sdkconfig -p C5_PORT assets-flash
 ```
 
 If necessary, first enter C5 download using `c5 boot physical` in the P4 console.

@@ -17,10 +17,17 @@
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 case "${1:-}" in
-  -h|--help) exec python3 "$repo/tools/highboy/flash.py" --help ;;
+  -h|--help) exec python3 "$repo/tools/highboy/flash_visual.py" --help ;;
 esac
-target=p4
-case "${1:-}" in p4|c5) target="$1"; shift ;; esac
+for arg in "$@"; do
+  if [ "$arg" = --help ] || [ "$arg" = -h ]; then exec python3 "$repo/tools/highboy/flash_visual.py" --help; fi
+  if [ "$arg" = --preview ]; then exec python3 "$repo/tools/highboy/flash_visual.py" --preview; fi
+done
+target=
+case "${1:-}" in p4|c5|both) target="$1"; shift ;; esac
+if [ -z "$target" ]; then
+  target="$(python3 "$repo/tools/highboy/flash_ports.py" --select-target)"
+fi
 if [ "$target" = c5 ]; then
   idf_variable=HIGHBOY_C5_IDF_PATH
   python_variable=HIGHBOY_C5_PYTHON_ENV
@@ -40,4 +47,7 @@ if [ -z "$selected_idf" ] || [ ! -f "$selected_idf/components/partition_table/ge
 fi
 python_bin=python3
 if [ -n "$selected_python" ]; then python_bin="$selected_python/bin/python"; fi
-exec "$python_bin" "$repo/tools/highboy/flash.py" --idf-path "$selected_idf" --target "$target" "$@"
+if [ "$target" = both ]; then
+  exec "$python_bin" "$repo/tools/highboy/flash_both.py" "$@"
+fi
+exec "$python_bin" "$repo/tools/highboy/flash_visual.py" --idf-path "$selected_idf" --target "$target" "$@"

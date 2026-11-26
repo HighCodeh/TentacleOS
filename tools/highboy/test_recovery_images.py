@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise real esptool and built paired apps in synthetic, non-bootable flash fixtures."""
 import argparse
 import json
@@ -25,7 +40,7 @@ def main():
             data = bytearray(b'\xff' * recovery.FLASH_SIZE)
             boot_data = boot.read_bytes()
             data[recovery.BOOT_OFFSET:recovery.BOOT_OFFSET + len(boot_data)] = boot_data
-            table = (recovery.ROOT / ('firmware_' + chip.lower()) / 'build_highboy/partition_table/partition-table.bin').read_bytes()
+            table = (recovery.ROOT / ('firmware_' + chip.lower()) / 'build/partition_table/partition-table.bin').read_bytes()
             data[recovery.TABLE_OFFSET:recovery.TABLE_OFFSET + len(table)] = table
             application = (args.candidate / profile['file']).read_bytes()
             data[recovery.APP_OFFSET:recovery.APP_OFFSET + len(application)] = application

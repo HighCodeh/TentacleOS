@@ -118,7 +118,7 @@ the C5 memory policy, and SDK/license provenance metadata. Source markers are
 preservation guards, not proofs of runtime behavior or hardware timing.
 
 The C5 configuration check reads the unified `sdkconfig.defaults`, then verifies the effective
-`firmware_c5/build_highboy/sdkconfig` when present. A missing generated
+`firmware_c5/build/sdkconfig` when present. A missing generated
 configuration is reported as pending, never as a successful build validation.
 The build wrapper separately invokes `check_contracts.py --require-built <target>`
 after configuration and after compilation, requiring the generated configuration
@@ -252,7 +252,7 @@ and the original configuration overlays and partition tables retained.
 | C5 | `8c19b156084a0753687347cca1f5355782893533` / `v6.0.1` | 2,016,048 | 2,097,152 | 81,104 |
 | P4 | `2c211b236707889e8400c4dc5644dd5c4ee071e0` / `v5.5.3` | 2,944,624 | 2,949,120 | 4,496 |
 
-Candidate SHA-256 values for `firmware_<target>/build_highboy/TentacleOS_<TARGET>.bin`:
+Candidate SHA-256 values for `firmware_<target>/build/TentacleOS_<TARGET>.bin`:
 
 - C5: `8d881e9568af9308f7efaa6c866fcd414d51a1f2e7b92c048eeb1840272f73a1`.
 - P4: `4c5752823ee424363209f4817275e9c63a14176512a3c8ecb69b83869fa4fd92`.
@@ -632,8 +632,8 @@ or runtime performance measurements. They do not close #157.
 | C5 LP SRAM | 16,384 | 24 | 16,360 |
 
 Reproduce with the lane's `python -m esp_idf_size`: IDF 5.5.3 uses
-`--format json --target esp32p4 firmware_p4/build_highboy/TentacleOS_P4.map`;
-IDF 6.0.1 uses `--format json2 firmware_c5/build_highboy/TentacleOS_C5.map`.
+`--format json --target esp32p4 firmware_p4/build/TentacleOS_P4.map`;
+IDF 6.0.1 uses `--format json2 firmware_c5/build/TentacleOS_C5.map`.
 Unallocated linker memory can still be consumed/reserved during boot; runtime
 heap minima, stack watermarks and throughput require the device.
 
@@ -1396,7 +1396,7 @@ unchanged. Generation requires this original SDK SHA-256:
 Actual compiled generated-source SHA-256:
 `1129f072405bf3236065cd5536e4ee2ffef0a9e0af0a1ed3e483c43b48158f91`.
 
-`test_console.py --idf <pinned-idf> --build firmware_p4/build_highboy` first
+`test_console.py --idf <pinned-idf> --build firmware_p4/build` first
 confirmed that the unmodified editor fails the rapid-DEL expected-result case.
 With the fix, all **40** fast/slow real-editor cases passed ASan/UBSan: both
 Backspace encodings, over-deletion, arrows, middle editing, Delete, ANSI/SS3
@@ -1523,3 +1523,13 @@ snapshot containing tracked files plus the proposed changes, without local
 ignored source files. The snapshot used the already resolved managed cJSON
 sources and native libsodium/OpenSSL installations. No firmware rebuild or
 hardware operation was needed for these test-only corrections.
+
+## Paired flasher orchestration
+
+`python3 tools/highboy/tests/test_flash_both.py` covers C5-before-P4 ordering,
+offline build preflight before either update, both failure points, full/check
+propagation, physical-interface pairing, confirmed C5 console boot and watchdog
+reset, fragmented ANSI cursor queries and recovery of a cursor query left pending
+by a previous serial monitor, and the required post-reset C5 SPI confirmation.
+The tests use mocked subprocess/serial/esptool interfaces and never flash
+a device. `test_flash_ports.py` includes the third arrow-menu selection.

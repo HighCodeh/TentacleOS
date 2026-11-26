@@ -380,7 +380,7 @@ class PreservationTests(unittest.TestCase):
         for key, expected in C5_MEMORY.items():
             if key != "CONFIG_IDF_TARGET":
                 self.assertEqual(configured.get(key), expected, key)
-        effective = project / "build_highboy/sdkconfig"
+        effective = project / "build/sdkconfig"
         if effective.is_file():
             values = config_values([effective])
             for key, expected in C5_MEMORY.items():

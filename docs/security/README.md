@@ -71,7 +71,7 @@ partition-table relocation and CSV selection; ordinary resolution preserves both
 ```sh
 "$HIGHBOY_P4_PYTHON_ENV/bin/python" tools/highboy/security.py --target p4 \
   --idf "$HIGHBOY_P4_IDF_PATH" --python "$HIGHBOY_P4_PYTHON_ENV/bin/python" \
-  --build firmware_p4/build_highboy --out /tmp/p4-security-config --factory-review
+  --build firmware_p4/build --out /tmp/p4-security-config --factory-review
 ```
 
 Resolution is not compilation. The optional baseline size projection still
@@ -85,15 +85,15 @@ Build the ordinary pair first, then run once per target with its IDF Python:
 ```sh
 "$HIGHBOY_P4_PYTHON_ENV/bin/python" tools/highboy/secure_build.py build --target p4 \
   --idf "$HIGHBOY_P4_IDF_PATH" --python "$HIGHBOY_P4_PYTHON_ENV/bin/python" \
-  --tools "$HIGHBOY_P4_TOOLS_PATH" --baseline firmware_p4/build_highboy \
+  --tools "$HIGHBOY_P4_TOOLS_PATH" --baseline firmware_p4/build \
   --out /tmp/p4-factory-review
 "$HIGHBOY_C5_PYTHON_ENV/bin/python" tools/highboy/secure_build.py build --target c5 \
   --idf "$HIGHBOY_C5_IDF_PATH" --python "$HIGHBOY_C5_PYTHON_ENV/bin/python" \
-  --tools "$HIGHBOY_C5_TOOLS_PATH" --baseline firmware_c5/build_highboy \
+  --tools "$HIGHBOY_C5_TOOLS_PATH" --baseline firmware_c5/build \
   --out /tmp/c5-factory-review
 ```
 
-Output must be new and outside the checkout. The tool uses a fresh build directory,
+Output must be new and outside the checkout. The tool uses a fresh `build` subdirectory,
 verifies pinned SDK/submodule revisions, disables dependency downloads, removes
 inherited compiler overrides and never reuses or modifies the ordinary build.
 Failure leaves a `failed` report, which verification rejects.

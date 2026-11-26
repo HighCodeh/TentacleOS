@@ -54,9 +54,9 @@ To audit a single completed build without rebuilding or accessing a device:
 
 ```sh
 python3 tools/highboy/build_evidence.py --target p4 \
-  --build firmware_p4/build_highboy --out /tmp/p4-build-evidence.json
+  --build firmware_p4/build --out /tmp/p4-build-evidence.json
 python3 tools/highboy/build_evidence.py --target c5 \
-  --build firmware_c5/build_highboy --out /tmp/c5-build-evidence.json
+  --build firmware_c5/build --out /tmp/c5-build-evidence.json
 ```
 
 Output paths must be new. CI collects the same per-target report after the
