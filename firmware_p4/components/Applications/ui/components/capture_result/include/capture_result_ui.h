@@ -64,6 +64,7 @@ typedef struct {
   const char *card_sub;      ///< e.g. "NEC protocol" (may be NULL)
   const char *card_value;    ///< e.g. "cmd 08 F7" — shown in accent (may be NULL)
   const char *primary_label; ///< "Emulate" / "Send"
+  bool full_width_text;      ///< Three single-line fields; long text scrolls horizontally
   const char *again_label;   ///< "Read again" / "Receive again" / "Capture again"
 } capture_result_cfg_t;
 

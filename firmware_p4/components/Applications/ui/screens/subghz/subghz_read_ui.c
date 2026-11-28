@@ -39,22 +39,24 @@ static bool s_is_raw;
 
 static const char *TAG = "SUBGHZ_RD";
 
-#define READ_POLL_MS        50
-#define CONTENT_PAD         10
-#define CONTENT_GAP         6
-#define GRAPH_PAD           8
-#define GRAPH_RADIUS        10
-#define GRAPH_LINE_WIDTH    2
-#define GRAPH_GRID_LINES    3
-#define GRAPH_GRID_DIVISOR  4
-#define GRAPH_RSSI_MIN      (-120)
-#define GRAPH_RSSI_MAX      (-20)
-#define MHZ_SCALE           1000000UL
-#define MHZ_DECIMALS        10000UL
-#define FREQUENCY_TEXT_SIZE 24
-#define TEXT_SIZE           96
-#define MS_PER_SECOND       1000U
-#define MS_PER_TENTH        100U
+#define READ_POLL_MS         50
+#define CONTENT_PAD          10
+#define CONTENT_GAP          6
+#define GRAPH_PAD            8
+#define GRAPH_RADIUS         10
+#define GRAPH_LINE_WIDTH     2
+#define GRAPH_GRID_LINES     3
+#define GRAPH_GRID_DIVISOR   4
+#define GRAPH_RSSI_MIN       (-120)
+#define GRAPH_RSSI_MAX       (-20)
+#define MHZ_SCALE            1000000UL
+#define MHZ_DECIMALS         10000UL
+#define FREQUENCY_TEXT_SIZE  24
+#define TEXT_SIZE            96
+#define HEX_BITS_PER_DIGIT   4U
+#define RAW_VALUE_HEX_DIGITS 8U
+#define MS_PER_SECOND        1000U
+#define MS_PER_TENTH         100U
 
 static lv_obj_t *s_screen;
 static lv_obj_t *s_content;
@@ -74,7 +76,8 @@ static subghz_rx_result_t s_result;
 static capture_result_t s_cr;
 static lv_point_precise_t s_trace_points[SUBGHZ_RX_RSSI_SAMPLES];
 static lv_point_precise_t s_grid_points[GRAPH_GRID_LINES][2];
-static char s_card_sub[TEXT_SIZE];
+static char s_card_title[TEXT_SIZE];
+static char s_card_sub[SUBGHZ_KEY_TEXT_SIZE + TEXT_SIZE];
 static char s_card_value[TEXT_SIZE];
 
 static void read_tick_cb(lv_timer_t *timer);
@@ -215,6 +218,30 @@ void ui_subghz_read_open(void) {
   draw_rssi(&empty);
 }
 
+static void format_key(void) {
+  char key[SUBGHZ_KEY_TEXT_SIZE];
+  size_t length = 0;
+  for (const char *cursor = s_result.data.key_text; *cursor && length < sizeof(key) - 1; ++cursor) {
+    if (*cursor != ' ' && *cursor != '\t' && *cursor != '\r' && *cursor != '\n')
+      key[length++] = *cursor;
+  }
+  key[length] = '\0';
+  if (length == 0) {
+    snprintf(
+        key, sizeof(key), "%0*lX", RAW_VALUE_HEX_DIGITS, (unsigned long)s_result.data.raw_value);
+    length = strlen(key);
+  }
+  size_t digits = (s_result.data.bit_count + HEX_BITS_PER_DIGIT - 1) / HEX_BITS_PER_DIGIT;
+  if (digits == 0)
+    digits = 1;
+  const char *start = key;
+  while (length > digits && *start == '0') {
+    ++start;
+    --length;
+  }
+  snprintf(s_card_sub, sizeof(s_card_sub), "Key: %s", start);
+}
+
 static void show_result(void) {
   stop_rx();
   lv_obj_delete(s_content);
@@ -223,14 +250,15 @@ static void show_result(void) {
   char frequency[FREQUENCY_TEXT_SIZE];
   fmt_mhz(s_result.freq, frequency, sizeof(frequency));
   if (s_result.decoded) {
-    snprintf(s_card_sub,
-             sizeof(s_card_sub),
-             "%s / Key %08lX / %u bits",
+    snprintf(s_card_title,
+             sizeof(s_card_title),
+             "%s / %u bits",
              s_result.data.protocol_name,
-             (unsigned long)s_result.data.raw_value,
              (unsigned)s_result.data.bit_count);
+    format_key();
   } else {
-    snprintf(s_card_sub, sizeof(s_card_sub), "Unknown protocol / RAW waveform");
+    snprintf(s_card_title, sizeof(s_card_title), "RAW / Unknown protocol");
+    snprintf(s_card_sub, sizeof(s_card_sub), "Raw waveform captured");
   }
   snprintf(s_card_value,
            sizeof(s_card_value),
@@ -241,9 +269,8 @@ static void show_result(void) {
   capture_result_cfg_t config = {
       .accent = current_theme.border_accent,
       .card_icon = "/assets/icons/graphic_eq.bin",
-      .card_title = s_result.is_limited ? "Capture limit reached"
-                    : s_result.decoded  ? s_result.data.protocol_name
-                                        : "Signal captured",
+      .card_title = s_card_title,
+      .full_width_text = true,
       .card_sub = s_card_sub,
       .card_value = s_card_value,
       .primary_label = "Send",
@@ -251,7 +278,7 @@ static void show_result(void) {
   };
   s_cr = capture_result_create(s_screen, &config);
   s_options = true;
-  ui_chrome_footer_set_text(s_hint, "UP/DOWN choose   OK select   BACK exit");
+  ui_chrome_footer_set_text(s_hint, "UP/DOWN  OK select  BACK");
   ESP_LOGI(TAG,
            "Capture analyzed: %lu pulses, %lu blocks, %lu matches%s",
            (unsigned long)s_result.pulse_count,

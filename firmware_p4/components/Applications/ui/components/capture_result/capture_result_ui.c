@@ -87,25 +87,27 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
   lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(card, 11, 0);
 
-  lv_obj_t *sq = lv_obj_create(card);
-  lv_obj_remove_flag(sq, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(sq, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(sq, ICON_CELL, ICON_CELL);
-  lv_obj_set_style_radius(sq, 11, 0);
-  lv_obj_set_style_bg_color(sq, current_theme.bg_primary, 0);
-  lv_obj_set_style_bg_opa(sq, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(sq, 1, 0);
-  lv_obj_set_style_border_color(sq, cr->accent, 0);
-  lv_obj_set_style_pad_all(sq, 0, 0);
-  lv_obj_set_style_clip_corner(sq, true, 0);
-  if (cfg->card_icon) {
-    lv_image_dsc_t *dsc = assets_get(cfg->card_icon);
-    if (dsc) {
-      lv_obj_t *img = lv_image_create(sq);
-      lv_image_set_src(img, dsc);
-      lv_obj_set_size(img, ICON_CELL - 12, ICON_CELL - 12);
-      lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
-      lv_obj_center(img);
+  if (!cfg->full_width_text) {
+    lv_obj_t *sq = lv_obj_create(card);
+    lv_obj_remove_flag(sq, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(sq, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(sq, ICON_CELL, ICON_CELL);
+    lv_obj_set_style_radius(sq, 11, 0);
+    lv_obj_set_style_bg_color(sq, current_theme.bg_primary, 0);
+    lv_obj_set_style_bg_opa(sq, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sq, 1, 0);
+    lv_obj_set_style_border_color(sq, cr->accent, 0);
+    lv_obj_set_style_pad_all(sq, 0, 0);
+    lv_obj_set_style_clip_corner(sq, true, 0);
+    if (cfg->card_icon) {
+      lv_image_dsc_t *dsc = assets_get(cfg->card_icon);
+      if (dsc) {
+        lv_obj_t *img = lv_image_create(sq);
+        lv_image_set_src(img, dsc);
+        lv_obj_set_size(img, ICON_CELL - 12, ICON_CELL - 12);
+        lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
+        lv_obj_center(img);
+      }
     }
   }
 
@@ -127,7 +129,8 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
   if (cfg->card_sub) {
     lv_obj_t *sub = lv_label_create(col);
     lv_obj_set_width(sub, lv_pct(100));
-    lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(
+        sub, cfg->full_width_text ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
     lv_label_set_text(sub, cfg->card_sub);
     lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(sub, current_theme.text_secondary, 0);
@@ -135,7 +138,8 @@ static void make_card(capture_result_t *cr, lv_obj_t *root, const capture_result
   if (cfg->card_value) {
     lv_obj_t *val = lv_label_create(col);
     lv_obj_set_width(val, lv_pct(100));
-    lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(
+        val, cfg->full_width_text ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
     lv_label_set_text(val, cfg->card_value);
     lv_obj_set_style_text_font(val, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(val, cr->accent, 0);

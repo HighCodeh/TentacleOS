@@ -1035,6 +1035,13 @@ See [NFC naming and dump selection](../nfc/README.md) and
 [IR captured signals](../ir/README.md#captured-signals-and-names) for persistence
 and missing-data behavior. No folder chooser is introduced.
 
+Sub-GHz Read result cards show `Protocol / N bits`, a compact hexadecimal Key,
+and frequency/pulse count on three separate full-width lines. Only zero padding
+beyond the declared bit width is removed from the displayed key; stored data is
+unchanged. Long keys and metadata scroll horizontally within their own line,
+so they cannot wrap over the other fields. The standard action list remains
+vertically navigable in both orientations.
+
 Sub-GHz Read results remain in PSRAM until Save. Read RAW streams continuously
 to a hidden temporary SD file, without a total pulse/block/time cap; OK finishes
 and Save names it. Send retains an unsaved file across navigation and streams it

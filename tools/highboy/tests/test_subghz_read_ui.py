@@ -187,10 +187,40 @@ int main(void) {
       fixture_result = (subghz_rx_result_t){.decoded=true, .freq=315000000, .pulse_count=8192, .is_limited=true};
       strcpy(fixture_result.name_buf, "Princeton"); strcpy(fixture_result.save_name, "capture");
       fixture_result.data.raw_value = 0xabcdef; fixture_result.data.bit_count = 24;
+      strcpy(fixture_result.data.key_text, "00 00 00 00 00 AB CD EF");
       unsigned old_saves = saves;
       ready = true; read_tick_cb(NULL); assert(s_options && !running && saves == old_saves);
       lv_obj_update_layout(s_screen);
-      assert(strstr(s_card_sub, "ABCDEF") && strstr(s_card_value, "315.00"));
+      assert(strcmp(s_card_sub, "Key: ABCDEF") == 0 && strstr(s_card_value, "315.00"));
+      assert(strcmp(s_card_title, "Princeton / 24 bits") == 0);
+      lv_obj_t *card = lv_obj_get_child(s_cr.root, 0);
+      lv_obj_t *column = lv_obj_get_child(card, 0);
+      assert(lv_obj_get_child_count(card) == 1);
+      int previous_bottom = lv_obj_get_y(card);
+      for (unsigned line = 0; line < 3; ++line) {
+        lv_obj_t *label = lv_obj_get_child(column, line);
+        lv_area_t area, bounds;
+        lv_obj_get_coords(label, &area); lv_obj_get_coords(card, &bounds);
+        assert(area.x1 >= bounds.x1 && area.x2 <= bounds.x2);
+        assert(area.y1 > previous_bottom && area.y2 < bounds.y2);
+        previous_bottom = area.y2;
+      }
+      s_result.data.bit_count = 176;
+      strcpy(s_result.data.key_text, "12 34 56 78 9A BC DE F0 12 34 56 78 9A BC DE F0 12 34 56 78 9A BC");
+      format_key();
+      assert(strcmp(s_card_sub, "Key: 123456789ABCDEF0123456789ABCDEF0123456789ABC") == 0);
+      lv_obj_t *key_label = lv_obj_get_child(column, 1);
+      int key_height = lv_obj_get_height(key_label);
+      lv_label_set_text(key_label, s_card_sub); lv_obj_update_layout(s_screen);
+      assert(lv_obj_get_height(key_label) == key_height);
+      assert(lv_label_get_long_mode(key_label) == LV_LABEL_LONG_SCROLL_CIRCULAR);
+      lv_area_t key_area, value_area;
+      lv_obj_get_coords(key_label, &key_area);
+      lv_obj_get_coords(lv_obj_get_child(column, 2), &value_area);
+      assert(key_area.y2 < value_area.y1);
+      strcpy(s_result.data.key_text, "00 00 00 00 00 00 00 03");
+      s_result.data.bit_count = 24; format_key();
+      assert(strcmp(s_card_sub, "Key: 000003") == 0);
       for (int i = 0; i < CAP_ACT_MAX; ++i) {
         lv_obj_scroll_to_view(s_cr.rows[s_cr.sel], LV_ANIM_OFF); lv_obj_update_layout(s_screen);
         lv_area_t area; lv_obj_get_coords(s_cr.rows[s_cr.sel], &area);
