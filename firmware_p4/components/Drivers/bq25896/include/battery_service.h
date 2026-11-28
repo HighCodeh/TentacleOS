@@ -83,6 +83,8 @@ typedef struct {
 bool battery_service_get_charge(battery_charge_snapshot_t *out);
 /** Queue a request; all I2C and safety checks run outside the UI task. */
 esp_err_t battery_service_request_charge(bool enable);
+/** Manual confirmed-profile repair, serialized with polling; leaves charge request off. */
+esp_err_t battery_service_restore_profile(void);
 
 /**
  * @brief Copy the latest snapshot into @p out.

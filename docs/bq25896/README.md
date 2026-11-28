@@ -131,6 +131,38 @@ not implement the manufacturer's overdischarge recovery procedure or claim exact
 termination compliance. No PWM averaging or protection bypass is used.
 See [TI BQ25896 datasheet, REG05](https://www.ti.com/lit/ds/symlink/bq25896.pdf).
 
+### Explicit repair of erased charger settings
+
+`battery repair` restores the established KNLYPOW 604858 charge profile when
+charger configuration has been lost (for example REG01–REG0A reading zero).
+It is a manual exception to the normal retained-limit policy, not automatic
+recovery and not a reset of the battery or fuel gauge. Other pack profiles are
+rejected. The operation pauses the charge request and serializes against the
+battery worker. It requires fresh valid ADC, USB input, a recognized BQ25896,
+no live fault, no low-cell recovery latch, VBAT above 3.0 V and at most 4.2 V,
+board TS within the existing range, and OTG disabled.
+
+While charge is off, masked writes restore 384 mA charge, 128 mA precharge,
+64 mA termination, 4176 mV regulation, 3.0 V precharge threshold, 100 mV recharge
+hysteresis, 12-hour safety timer, termination enabled, JEITA current reduction,
+watchdog disabled, SYS_MIN 3500 mV and absolute VINDPM 4500 mV. Every changed
+register is read back. A second ADC snapshot verifies the result. Failure leaves
+the charge request paused. No REG_RST, BATFET reset, forced charging or relaxation
+of the temperature/low-voltage guards is used. This does not establish what
+caused the original configuration loss or qualify the board sensor as cell temperature.
+
+After successful repair, reboot to reinitialize the USB input service and charger
+presence state, then inspect `battery` and `battery regs`. The normal guarded
+charge worker remains responsible for enabling charge. Hardware validation must
+check positive battery current and retained register values over time.
+
+Hardware check, 2026-11-28: on unit 020189170 with the NRF24 disconnected,
+manual repair changed REG03/04/05/06/07/0D to 0A/06/10/56/8D/93 while charge
+remained off. After reboot REG03 became 1A; both initial and approximately
+one-minute snapshots reported Charging, 350 mA charger ADC, no live fault and
+unchanged charge limits. This establishes recovery of that observed configuration,
+not the cause of its loss or long-term hardware qualification.
+
 ### Manual shutdown
 
 `bq25896_power_off()` has a dedicated masked-write path for ship mode. The V2.03

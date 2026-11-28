@@ -141,6 +141,26 @@ esp_err_t battery_service_request_charge(bool enable) {
   return ESP_OK;
 }
 
+#define BATTERY_RESTORE_LOCK_MS 3000U
+
+esp_err_t battery_service_restore_profile(void) {
+  if (!s_started || s_charge_control == NULL || s_mtx == NULL)
+    return ESP_ERR_INVALID_STATE;
+  if (battery_service_profile_get()->charge_profile != POWER_PROFILE_CHARGE_604858)
+    return ESP_ERR_NOT_SUPPORTED;
+  if (xSemaphoreTake(s_charge_control, pdMS_TO_TICKS(BATTERY_RESTORE_LOCK_MS)) != pdTRUE)
+    return ESP_ERR_TIMEOUT;
+  xSemaphoreTake(s_mtx, portMAX_DELAY);
+  s_charge_requested = false;
+  s_charge.requested = false;
+  xSemaphoreGive(s_mtx);
+  esp_err_t result = bq25896_stop_charge();
+  if (result == ESP_OK)
+    result = bq25896_restore_confirmed_604858();
+  xSemaphoreGive(s_charge_control);
+  return result;
+}
+
 #ifdef CONFIG_HIGHBOY_BOARD_V203
 static const char *charge_block_reason(const bq25896_telem_t *t, power_profile_charge_t profile) {
   if (!t->adc_valid)

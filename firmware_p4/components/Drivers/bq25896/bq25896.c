@@ -584,6 +584,72 @@ esp_err_t bq25896_limit_confirmed_604858(void) {
   return limit_charge_profile(POWER_PROFILE_CHARGE_604858);
 }
 
+#define PACK_RESTORE_SYS_MIN_3500 0x0AU
+#define PACK_RESTORE_PRE_TERM     0x10U
+#define PACK_RESTORE_VBATLOWV     0x02U
+#define PACK_RESTORE_TIMER        0x8DU
+#define PACK_RESTORE_VINDPM_4500  0x93U
+#define PACK_RESTORE_BYTE_MASK    0xFFU
+
+esp_err_t bq25896_restore_confirmed_604858(void) {
+#ifndef CONFIG_HIGHBOY_BOARD_V203
+  return ESP_ERR_NOT_SUPPORTED;
+#else
+  bq25896_telem_t sample;
+  esp_err_t result = bq25896_read_telemetry(&sample);
+  if (result != ESP_OK)
+    return result;
+  if (!sample.adc_valid || !sample.power_good || sample.fault_live ||
+      sample.part_number != BQ25896_EXPECTED_PN || sample.otg_enabled ||
+      sample.is_recovery_required || sample.vbat_mv <= POWER_PROFILE_CUTOFF_MV ||
+      sample.vbat_mv > PACK_604858_MAX_MV || sample.ts_milli_pct < PACK_604858_TS_MIN ||
+      sample.ts_milli_pct > PACK_604858_TS_MAX)
+    return ESP_ERR_INVALID_STATE;
+  result = lock_driver();
+  if (result != ESP_OK)
+    return result;
+  uint8_t power = 0;
+  result = read_reg_unlocked(REG03_POWER_CONTROL, &power);
+  if (result == ESP_OK && (power & REG03_OTG_CONFIG))
+    result = ESP_ERR_INVALID_STATE;
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+  if (result == ESP_OK)
+    result = pack_write_unlocked(REG07_TIMER_CONTROL, REG07_WATCHDOG_MASK, 0);
+  /* No REG_RST: factory defaults could enable charging before limits are restored. */
+  const uint8_t settings[][3] = {
+      {REG04_CHARGE_CURRENT, REG04_ICHG_MASK, PACK_604858_CURRENT_CODE},
+      {REG05_PRE_TERM_CURRENT, PACK_RESTORE_BYTE_MASK, PACK_RESTORE_PRE_TERM},
+      {REG06_CHARGE_VOLTAGE,
+       PACK_RESTORE_BYTE_MASK,
+       (PACK_604858_VOLTAGE_CODE << 2) | PACK_RESTORE_VBATLOWV},
+      {REG07_TIMER_CONTROL, PACK_RESTORE_BYTE_MASK, PACK_RESTORE_TIMER},
+      {REG03_POWER_CONTROL, REG03_SYS_MIN_MASK, PACK_RESTORE_SYS_MIN_3500},
+      {REG0D_VINDPM, PACK_RESTORE_BYTE_MASK, PACK_RESTORE_VINDPM_4500},
+  };
+  for (size_t i = 0; result == ESP_OK && i < sizeof(settings) / sizeof(settings[0]); ++i)
+    result = pack_write_unlocked(settings[i][0], settings[i][1], settings[i][2]);
+  if (result != ESP_OK) {
+    esp_err_t stopped = pack_write_unlocked(REG03_POWER_CONTROL, REG03_CHG_CONFIG, 0);
+    if (stopped != ESP_OK)
+      ESP_LOGE(
+          TAG, "Profile restore failed; charge stop unconfirmed: %s", esp_err_to_name(stopped));
+  }
+  unlock_driver();
+  if (result == ESP_OK) {
+    result = bq25896_read_telemetry(&sample);
+    if (result == ESP_OK &&
+        (!sample.adc_valid || !sample.power_good || sample.fault_live || sample.charge_enabled ||
+         sample.otg_enabled || sample.is_recovery_required ||
+         sample.vbat_mv <= POWER_PROFILE_CUTOFF_MV || sample.vbat_mv > PACK_604858_MAX_MV ||
+         sample.ts_milli_pct < PACK_604858_TS_MIN || sample.ts_milli_pct > PACK_604858_TS_MAX ||
+         sample.charge_current_limit_ma != 384 || sample.charge_voltage_limit_mv != 4176))
+      result = ESP_ERR_INVALID_STATE;
+  }
+  return result;
+#endif
+}
+
 esp_err_t bq25896_stop_charge(void) {
   esp_err_t result = lock_driver();
   if (result != ESP_OK)

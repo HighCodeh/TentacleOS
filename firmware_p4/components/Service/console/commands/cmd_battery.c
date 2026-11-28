@@ -164,6 +164,20 @@ static int print_registers(void) {
 }
 
 static int cmd_battery(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "repair") == 0) {
+    esp_err_t error = battery_service_restore_profile();
+    if (error == ESP_OK) {
+      ESP_LOGI(TAG,
+               "Confirmed battery profile restored and verified; charging paused. Reboot, then "
+               "check battery.");
+      led_signal_info();
+    } else {
+      ESP_LOGE(
+          TAG, "Battery profile restore failed: %s; check battery status", esp_err_to_name(error));
+      led_signal_error();
+    }
+    return error == ESP_OK ? 0 : 1;
+  }
   if (argc >= 2 && (strcmp(argv[1], "profiles") == 0 || strcmp(argv[1], "profile") == 0))
     return profile_command(argc, argv);
   if (argc == 3 && strcmp(argv[1], "charge") == 0 &&
@@ -174,7 +188,7 @@ static int cmd_battery(int argc, char **argv) {
     return error == ESP_OK ? 0 : 1;
   }
   if (argc != 1 && !(argc == 2 && strcmp(argv[1], "regs") == 0)) {
-    ESP_LOGW(TAG, "Usage: battery [regs|profiles|profile [ID]|charge on|charge off]");
+    ESP_LOGW(TAG, "Usage: battery [regs|profiles|profile [ID]|repair|charge on|charge off]");
     led_signal_warning();
     return 1;
   }
