@@ -245,5 +245,13 @@ Special thanks to the partners supporting this project:
 [![PCBWay](pics/PCBway.png)](https://www.pcbway.com)
 
 
+## Credits
+
+The Sub-GHz protocol catalog is imported from
+[RogueMaster](https://github.com/RogueMaster/flipperzero-firmware-wPlugins), under
+GNU GPL v3.0. Credit goes to RogueMaster, the Flipper Zero firmware contributors
+and the original protocol authors. Original notices and the upstream license are
+preserved; see [protocol credits and integration details](docs/flipper_subghz/README.md#credits).
+
 ## License
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for details.
