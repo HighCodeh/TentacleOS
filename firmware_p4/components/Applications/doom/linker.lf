@@ -22,8 +22,8 @@
 #
 # These are CPU-only renderer scratch buffers (the real double framebuffer is
 # malloc'd in PSRAM already), so PSRAM placement is safe — no DMA touches them.
-# Only .bss/.common move; initialized .data (states, mobjinfo, S_sfx) stays
-# internal. Requires CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y for the
+# Only .bss/.common move. State/object templates stay in flash and their
+# mutable copies allocate on launch; remaining initialized .data stays internal. Requires CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y for the
 # extern_ram region to exist.
 
 [scheme:doom_extram]

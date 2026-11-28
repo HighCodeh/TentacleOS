@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 //
 // Copyright(C) 1993-1996 Id Software, Inc.
 // Copyright(C) 2005-2014 Simon Howard
@@ -31,7 +46,7 @@
 #define MUSIC(name) \
     { name, 0, NULL, NULL }
 
-musicinfo_t S_music[] =
+const musicinfo_t doom_initial_music[NUMMUSIC] =
 {
     MUSIC(NULL),
     MUSIC("e1m1"),
@@ -111,9 +126,9 @@ musicinfo_t S_music[] =
 #define SOUND(name, priority) \
   { NULL, name, priority, NULL, -1, -1, 0, 0, -1, NULL }
 #define SOUND_LINK(name, priority, link_id, pitch, volume) \
-  { NULL, name, priority, &S_sfx[link_id], pitch, volume, 0, 0, -1, NULL }
+  { NULL, name, priority, (sfxinfo_t *)&doom_initial_sfx[link_id], pitch, volume, 0, 0, -1, NULL }
 
-sfxinfo_t S_sfx[] =
+const sfxinfo_t doom_initial_sfx[NUMSFX] =
 {
   // S_sfx[0] needs to be a dummy for odd reasons.
   SOUND("none",   0),

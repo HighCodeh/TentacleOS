@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 //
 // Copyright(C) 1993-1996 Id Software, Inc.
 // Copyright(C) 2005-2014 Simon Howard
@@ -1153,7 +1168,8 @@ typedef struct
     int misc2;
 } state_t;
 
-extern state_t	states[NUMSTATES];
+extern state_t *states;
+extern const state_t doom_initial_states[NUMSTATES];
 extern char *sprnames[];
 
 typedef enum {
@@ -1326,6 +1342,7 @@ typedef struct
 
 } mobjinfo_t;
 
-extern mobjinfo_t mobjinfo[NUMMOBJTYPES];
+extern mobjinfo_t *mobjinfo;
+extern const mobjinfo_t doom_initial_mobjinfo[NUMMOBJTYPES];
 
 #endif

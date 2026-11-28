@@ -38,6 +38,8 @@
 #include <dirent.h>
 
 #include "doomgeneric.h"
+#include "doom_memory.h"
+#include "led_control.h"
 #include "doomkeys.h"
 #include "doom_highboy.h"
 
@@ -344,6 +346,12 @@ static void doom_main_task(void *arg) {
 
   ESP_LOGW(TAG, "starting DOOM (wad=%s). Quit = hold OK+BACK ~2s.", wadpath);
   static char *argv[] = {"doom", "-iwad", wadpath, NULL};
+  if (doom_memory_init() != ESP_OK) {
+    ESP_LOGE(TAG, "Game tables unavailable; restarting launcher");
+    led_signal_error();
+    esp_restart();
+    return;
+  }
   doomgeneric_Create(3, argv);   // init only (D_DoomMain/D_DoomLoop return after 1 tick)
 
   // doomgeneric's design: the platform drives the game loop by calling
