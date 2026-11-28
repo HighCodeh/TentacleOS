@@ -54,7 +54,8 @@ typedef int esp_err_t;
                  '-Wno-unused-parameter','-fsanitize=address,undefined','-fno-sanitize-recover=all','-pthread', str(DRIVER/'cc1101_config.c')]
         for folder in [temp,HERE/'fixtures',SERVICE/'app_runtime',SERVICE/'app_runtime/include',
                        SERVICE/'host_link/include',ROOT/'firmware_p4/components/Core/resource_mgr/include',
-                       DRIVER/'include',APPS,APPS/'include',APPS/'protocols/include']:
+                       DRIVER/'include',APPS,APPS/'include',APPS/'protocols/include',
+                       SERVICE/'flipper_subghz/include']:
             command+=['-I',str(folder)]
         binary=temp/'test'
         subprocess.run([*command,str(HERE/'test_backend.c'),str(DRIVER/'cc1101_lease.c'),

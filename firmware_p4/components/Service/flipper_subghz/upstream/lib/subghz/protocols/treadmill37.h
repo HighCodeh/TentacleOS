@@ -1,0 +1,59 @@
+#pragma once
+
+#include "base.h"
+
+#define SUBGHZ_PROTOCOL_TREADMILL37_NAME "Treadmill37"
+
+typedef struct SubGhzProtocolDecoderTreadmill37 SubGhzProtocolDecoderTreadmill37;
+typedef struct SubGhzProtocolEncoderTreadmill37 SubGhzProtocolEncoderTreadmill37;
+
+extern const SubGhzProtocolDecoder subghz_protocol_treadmill37_decoder;
+extern const SubGhzProtocolEncoder subghz_protocol_treadmill37_encoder;
+extern const SubGhzProtocol subghz_protocol_treadmill37;
+
+/**
+ * Allocate SubGhzProtocolEncoderTreadmill37.
+ * @param environment Pointer to a SubGhzEnvironment instance
+ * @return SubGhzProtocolEncoderTreadmill37* pointer to a SubGhzProtocolEncoderTreadmill37 instance
+ */
+void* subghz_protocol_encoder_treadmill37_alloc(SubGhzEnvironment* environment);
+
+/**
+ * Deserialize and generating an upload to send.
+ * @param context Pointer to a SubGhzProtocolEncoderTreadmill37 instance
+ * @param flipper_format Pointer to a FlipperFormat instance
+ * @return status
+ */
+SubGhzProtocolStatus
+    subghz_protocol_encoder_treadmill37_deserialize(void* context, FlipperFormat* flipper_format);
+
+/**
+ * Allocate SubGhzProtocolDecoderTreadmill37.
+ * @param environment Pointer to a SubGhzEnvironment instance
+ * @return SubGhzProtocolDecoderTreadmill37* pointer to a SubGhzProtocolDecoderTreadmill37 instance
+ */
+void* subghz_protocol_decoder_treadmill37_alloc(SubGhzEnvironment* environment);
+
+/**
+ * Parse a raw sequence of levels and durations received from the air.
+ * @param context Pointer to a SubGhzProtocolDecoderTreadmill37 instance
+ * @param level Signal level true-high false-low
+ * @param duration Duration of this level in, us
+ */
+void subghz_protocol_decoder_treadmill37_feed(void* context, bool level, uint32_t duration);
+
+/**
+ * Deserialize data SubGhzProtocolDecoderTreadmill37.
+ * @param context Pointer to a SubGhzProtocolDecoderTreadmill37 instance
+ * @param flipper_format Pointer to a FlipperFormat instance
+ * @return status
+ */
+SubGhzProtocolStatus
+    subghz_protocol_decoder_treadmill37_deserialize(void* context, FlipperFormat* flipper_format);
+
+/**
+ * Getting a textual representation of the received data.
+ * @param context Pointer to a SubGhzProtocolDecoderTreadmill37 instance
+ * @param output Resulting text
+ */
+void subghz_protocol_decoder_treadmill37_get_string(void* context, FuriString* output);

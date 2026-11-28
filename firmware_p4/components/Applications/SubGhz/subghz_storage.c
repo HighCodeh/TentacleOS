@@ -33,7 +33,7 @@
 
 static const char *TAG = "SUBGHZ_STORAGE";
 
-#define DECODED_BUF_SIZE 1024
+#define DECODED_BUF_SIZE 2048
 #define RAW_BUF_SIZE     65536
 #define STORAGE_DIR      TOS_PATH_SUBGHZ
 #define PATH_BUF_SIZE    128

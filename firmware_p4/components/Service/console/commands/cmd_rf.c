@@ -66,7 +66,8 @@
 #define CC1101_TX_DRY_BITS       24U
 #define CC1101_TX_DRY_REPEATS    10U
 #define CC1101_TX_DRY_TE_US      350U
-#define CC1101_TX_DRY_SYNC_LOW   (31U * CC1101_TX_DRY_TE_US)
+#define CC1101_TX_DRY_GUARD      31U
+#define CC1101_TX_DRY_SYNC_LOW   (CC1101_TX_DRY_GUARD * CC1101_TX_DRY_TE_US)
 #define CC1101_TX_DRY_MAX_PULSES ((CC1101_TX_DRY_BITS * 2U) + 2U)
 #define CC1101_TX_TEST_CODE      0x005AA55AU
 #define CC1101_TX_TEST_REPEATS   3U
@@ -621,7 +622,7 @@ static int cmd_lora(int argc, char **argv) {
   return 1;
 }
 
-static bool cc1101_validate_p1_frame(
+static bool cc1101_validate_princeton_frame(
     const int32_t *pulses, size_t count, uint32_t code, uint32_t *total_us, uint32_t *high_us) {
   if (pulses == NULL || count != CC1101_TX_DRY_MAX_PULSES)
     return false;
@@ -840,14 +841,16 @@ static int cmd_cc1101(int argc, char **argv) {
   }
 
   if (strcmp(argv[1], "txdry") == 0) {
-    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
+    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("Princeton");
     if (protocol == NULL || protocol->encode == NULL) {
-      printf("CC1101 TX dry-run: FAIL (RCSwitch encoder unavailable); RF=OFF\n");
+      printf("CC1101 TX dry-run: FAIL (Princeton encoder unavailable); RF=OFF\n");
       return 1;
     }
 
     subghz_data_t data = {
-        .protocol_name = "RCSwitch(P1)",
+        .protocol_name = "Princeton",
+        .te_us = CC1101_TX_DRY_TE_US,
+        .guard_time = CC1101_TX_DRY_GUARD,
         .serial = CC1101_TX_DRY_CODE,
         .btn = 0,
         .bit_count = CC1101_TX_DRY_BITS,
@@ -857,10 +860,11 @@ static int cmd_cc1101(int argc, char **argv) {
     size_t count = protocol->encode(&data, pulses, CC1101_TX_DRY_MAX_PULSES);
     uint32_t frame_us = 0;
     uint32_t high_us = 0;
-    bool valid = cc1101_validate_p1_frame(pulses, count, CC1101_TX_DRY_CODE, &frame_us, &high_us);
+    bool valid =
+        cc1101_validate_princeton_frame(pulses, count, CC1101_TX_DRY_CODE, &frame_us, &high_us);
 
     printf("CC1101 TX dry-run: %s; RF=OFF (STX was not called)\n", valid ? "PASS" : "FAIL");
-    printf("  freq=%lu Hz protocol=RCSwitch(P1) code=0x%06lX bits=%u TE=%u us\n",
+    printf("  freq=%lu Hz protocol=Princeton code=0x%06lX bits=%u TE=%u us\n",
            (unsigned long)CC1101_DEFAULT_TEST_HZ,
            (unsigned long)CC1101_TX_DRY_CODE,
            CC1101_TX_DRY_BITS,
@@ -883,14 +887,16 @@ static int cmd_cc1101(int argc, char **argv) {
       return 1;
     }
 
-    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
+    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("Princeton");
     if (protocol == NULL || protocol->encode == NULL) {
-      printf("CC1101 TX GPIO test: FAIL (RCSwitch encoder unavailable); RF=OFF\n");
+      printf("CC1101 TX GPIO test: FAIL (Princeton encoder unavailable); RF=OFF\n");
       return 1;
     }
 
     subghz_data_t data = {
-        .protocol_name = "RCSwitch(P1)",
+        .protocol_name = "Princeton",
+        .te_us = CC1101_TX_DRY_TE_US,
+        .guard_time = CC1101_TX_DRY_GUARD,
         .serial = CC1101_TX_TEST_CODE,
         .btn = 0,
         .bit_count = CC1101_TX_DRY_BITS,
@@ -900,7 +906,8 @@ static int cmd_cc1101(int argc, char **argv) {
     size_t frame_count = protocol->encode(&data, frame, CC1101_TX_DRY_MAX_PULSES);
     uint32_t frame_us = 0;
     uint32_t high_us = 0;
-    if (!cc1101_validate_p1_frame(frame, frame_count, CC1101_TX_TEST_CODE, &frame_us, &high_us)) {
+    if (!cc1101_validate_princeton_frame(
+            frame, frame_count, CC1101_TX_TEST_CODE, &frame_us, &high_us)) {
       printf("CC1101 TX GPIO test: FAIL (waveform validation); RF=OFF\n");
       return 1;
     }
@@ -1014,14 +1021,16 @@ static int cmd_cc1101(int argc, char **argv) {
       return 1;
     }
 
-    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
+    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("Princeton");
     if (protocol == NULL || protocol->encode == NULL) {
-      printf("CC1101 TX test: FAIL (RCSwitch encoder unavailable); RF=OFF\n");
+      printf("CC1101 TX test: FAIL (Princeton encoder unavailable); RF=OFF\n");
       return 1;
     }
 
     subghz_data_t data = {
-        .protocol_name = "RCSwitch(P1)",
+        .protocol_name = "Princeton",
+        .te_us = CC1101_TX_DRY_TE_US,
+        .guard_time = CC1101_TX_DRY_GUARD,
         .serial = CC1101_TX_TEST_CODE,
         .btn = 0,
         .bit_count = CC1101_TX_DRY_BITS,
@@ -1031,7 +1040,8 @@ static int cmd_cc1101(int argc, char **argv) {
     size_t frame_count = protocol->encode(&data, frame, CC1101_TX_DRY_MAX_PULSES);
     uint32_t frame_us = 0;
     uint32_t high_us = 0;
-    if (!cc1101_validate_p1_frame(frame, frame_count, CC1101_TX_TEST_CODE, &frame_us, &high_us)) {
+    if (!cc1101_validate_princeton_frame(
+            frame, frame_count, CC1101_TX_TEST_CODE, &frame_us, &high_us)) {
       printf("CC1101 TX test: FAIL (waveform validation); RF=OFF\n");
       return 1;
     }

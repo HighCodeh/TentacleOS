@@ -43,7 +43,7 @@ typedef struct {
  * transmits each candidate code. There is no "hit" detection on fixed-code
  * remotes — the sweep simply completes.
  *
- * @param protocol   Protocol name (must have an encoder: e.g. "CAME", "RCSwitch").
+ * @param protocol   Protocol name (must have an encoder: e.g. "CAME", "Princeton").
  * @param bit_count  Code width in bits (sweep size is capped internally).
  * @param freq       Transmit frequency in Hz.
  * @return ESP_OK if the sweep started, or an error code on failure.

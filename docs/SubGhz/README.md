@@ -461,8 +461,7 @@ esp_err_t subghz_protocol_parse_radio(const char *content, cc1101_preset_t prese
 Reviewed `origin/lab/rf` at `edc3182a`, with protocol/replay corrections from
 `37709da5`, driver corrections from `9c84ed6e` and RX improvements from `5be71db9`.
 Princeton requires a complete 24-bit frame and stop, retaining measured TE and
-guard time. Nice Flo rejects longer PWM prefixes; RCSwitch requires a closing
-sync and retains measured TE. Flipper standard preset names and multiple
+guard time. Codec behavior now comes from the RogueMaster integration below. Flipper standard preset names and multiple
 `RAW_Data:` lines are accepted; malformed metadata and oversized expanded bursts
 are rejected before TX. The local `Radio:` overrides remain supported.
 
@@ -524,181 +523,27 @@ screen tests. Analyzer/waterfall worker and UI tests remain in
 `tools/frequency_analyzer/`. These checks do not establish physical range, output
 power, sensitivity, gap-free RAW acquisition or superiority to Flipper hardware.
 
-## Protocol Plugins (`protocols/`)
+## Protocol codecs
 
-The protocol system follows a **plugin architecture**. Each protocol is a self-contained module (e.g., `protocol_princeton.c`) that implements a common interface and is registered in a central registry. This design allows adding support for new protocols without modifying existing code - just create a new `protocol_*.c` file, implement the `subghz_protocol_t` interface, and register it in `subghz_protocol_registry.c`.
+The native registry delegates to the [RogueMaster codec component](../flipper_subghz/README.md).
+It includes all 68 non-RAW catalog entries, plus the existing native continuous
+RAW recorder/replayer. The old RCSwitch implementation and legacy fixed-code
+plugins have been removed. Exact upstream names are used for decoding, display,
+serialization and replay. RX-only codecs expose no native encoder.
 
-### Plugin Interface
+Protocol-specific serialized fields are retained alongside the full textual Key;
+`raw_value` is only the low 32-bit summary for the existing app ABI. Native files
+and replay retain the complete key. Read still performs deferred burst analysis
+and uses RAW fallback if no decoder matches. Princeton now follows upstream's
+repeated-frame recognition rather than the former single-frame heuristic.
 
-Every protocol plugin must export a `subghz_protocol_t` struct with two function pointers:
+The old `subghz_keeloq` cipher diagnostics remain available to console tests;
+native KeeLoq RX/TX uses the imported RogueMaster codec and keystore adapter.
+See the codec document for asset requirements, catalog, memory bounds and current
+rolling-counter persistence limitations.
 
-```c
-typedef struct {
-  const char *name;
-  bool (*decode)(const int32_t *pulses, size_t count, subghz_data_t *out_data);
-  size_t (*encode)(const subghz_data_t *data, int32_t *pulses, size_t max_count);
-} subghz_protocol_t;
-```
-
-- **`decode`**: Receives raw pulse timings and attempts to recognize the protocol. Returns `true` if the signal matches, filling `out_data` with serial, button, bit count, and raw value.
-- **`encode`**: Converts structured data back into pulse timings for retransmission.
-
-### How It Works
-
-1. Each plugin file declares a global `subghz_protocol_t` (e.g., `protocol_princeton`)
-2. The registry (`subghz_protocol_registry.c`) holds an array of pointers to all registered plugins
-3. On signal reception, `subghz_protocol_registry_decode_all()` iterates through all plugins in order, calling each `decode()` until one claims the signal
-4. If no plugin matches, the signal falls through to the `subghz_analyzer` for heuristic analysis
-
-### Adding a New Protocol Plugin
-
-1. Create `protocols/protocol_mydevice.c`
-2. Implement `decode()` and optionally `encode()`
-3. Export: `subghz_protocol_t protocol_mydevice = { .name = "MyDevice", .decode = ..., .encode = ... };`
-4. Register in `subghz_protocol_registry.c`:
-   - Add `extern subghz_protocol_t protocol_mydevice;`
-   - Add `&protocol_mydevice` to the `s_protocols[]` array
-
-### Registered Plugins
-
-| Plugin       | Modulation | Typical Use                  |
-|--------------|------------|------------------------------|
-| RCSwitch     | OOK/PWM    | Generic remote switches      |
-| Princeton    | OOK/PWM    | Fixed-code remotes           |
-| CAME         | OOK/PWM    | Gate/garage remotes          |
-| Nice FLO     | OOK/PWM    | Gate/garage remotes          |
-| Ansonic      | OOK/PWM    | Gate remotes                 |
-| Chamberlain  | OOK/PWM    | Garage door openers          |
-| Holtek       | OOK/PWM    | Remote controls              |
-| LiftMaster   | OOK/PWM    | Garage door openers          |
-| Linear       | OOK/PWM    | Gate/access control          |
-| KeeLoq       | OOK/PWM    | HCS301 rolling-code remotes   |
-| GateTX       | OOK/PWM    | Gate remotes (24-bit)        |
-| Holtek_HT12X | OOK/PWM    | HT12E DIP remotes (12-bit)   |
-
-RCSwitch, CAME and the fixed-code plugins (Ansonic, Chamberlain, Holtek,
-LiftMaster, Linear, Nice FLO, Princeton) also transmit: each has a real `.encode`
-(shared `subghz_pwm_encode` helper), verified by `subghz selftest`. KeeLoq is the
-rolling-code plugin (see the KeeLoq section below); it replaced the old Rossi stub.
-
-The HighBoy merge retains `protocol_rossi.c` as unregistered legacy source only.
-It is not a usable decoder: its broad pulse heuristic fabricated the serial
-`0xDEADBEEF` and returned no captured value. It must not shadow the KeeLoq decoder.
-The existing custom UI and PSRAM layout are unchanged by this codec merge.
-
-Registry lookup accepts an exact name first, then a leading registered name
-followed by a space or `(`. This preserves saved names such as `CAME 12bit`,
-`Nice Flo 12bit`, `RCSwitch(P1)` and `KeeLoq <manufacturer>` without accepting
-arbitrary substring matches. Replay uses that same registry encoder.
-RCSwitch rejects zero or wider-than-32-bit input and out-of-range protocol
-indices before any shift or index adjustment.
-
-### Utility Functions (`subghz_protocol_utils.h`)
-
-```c
-uint32_t subghz_abs_diff(uint32_t a, uint32_t b);
-bool subghz_check_pulse(int32_t raw_len, uint32_t target_len, uint8_t tolerance_pct);
-```
-Helper functions available to all plugins for pulse timing validation with percentage-based tolerance.
-
-### Registry API
-
-```c
-void subghz_protocol_registry_init(void);
-bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, subghz_data_t *out_data);
-const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name);
-```
-
-## KeeLoq Rolling Code (`subghz_keeloq`)
-
-HCS301 rolling-code support, surfaced as the `KeeLoq` protocol plugin (which
-replaced the old Rossi stub). Manufacturer keys load at runtime from the SD asset
-`config/subghz/keeloq_mfcodes.txt` (Flipper mfcodes format, 116 keys).
-
-- **Decode (capture):** `subghz_keeloq_identify(fix, hop, ...)` brute-forces every
-  loaded manufacturer key: derives the per-device key, decrypts the 32-bit hop, and
-  on a discrimination + button match recovers serial / button / counter / maker.
-  The plugin reports it as `KeeLoq <manufacturer>` with the serial and counter in
-  `subghz_data_t`.
-- **Encode (replay):** `subghz_keeloq_encode(...)` transmits the NEXT code
-  (counter + 1) — the rolling-code prediction attack — reached from the normal
-  replay path (`subghz_replay_file` → registry encode).
-- **Key derivation:** ported verbatim from Momentum firmware (GPLv3,
-  `lib/subghz/protocols/keeloq_common.c`). Deterministic schemes — SIMPLE, NORMAL,
-  MAGIC_XOR, MAGIC_SERIAL 1/2/3, PUJOL, SIMPLE_JCM — support decode **and** rolling
-  TX; AERF is decode-only (derived-key decrypt, no encrypt inverse). Adding
-  UNKNOWN (multi-scheme brute: simple / normal / byte-reversed key) and SECURE
-  (serial-derived or zero seed fallback) brings decode coverage to ~110 of the 116
-  keys. The remaining ~6 are separate protocols upstream — FAAC SLH, KINGGATES,
-  JAROLIFT — plus ERREKA (needs the seed) and the reserved Beninca_ARC; those need
-  their own frame decoders ported and a real capture to validate.
-- **Framing:** the 64-bit key is transmitted LSB-first, so decode bit-reverses it
-  to cipher order (`subghz_keeloq_decode_key`); the discrimination is the low
-  **8 bits** of the fixed part (HCS200/HCS300 common), not 10.
-- **Self-test:** `subghz selftest` runs the cipher inverse (checked against a
-  published KeeLoq test vector), a full encode→PWM→decode round-trip, and three
-  **real golden captures** from `FlipperZero-Subghz-DB` (DoorHan, Elmes_Poland,
-  JCM_Tech) that must decode to the right maker + counter. The cipher, disc,
-  reversal and learnings are validated against real remotes this way; only the
-  on-air RF (does the transmitted signal open a real gate) still needs an SDR.
-
-The decoded save format carries extra `Serial:` and `Btn:` lines so a saved KeeLoq
-capture replays with the correct rolling counter.
-
-Legacy fixed-code files without these fields remain readable: serial falls back
-to the stored key value and button defaults to zero. Replay accepts the full
-40-byte protocol-label buffer used by the KeeLoq adapter; longer labels are
-rejected rather than truncated. Decoded serialization returns zero and clears
-the output on insufficient buffer space, never a length beyond the buffer.
-
-### Offline merge regression tests
-
-Run `python3 -B tools/highboy/test_subghz.py` from the repository root. It compiles
-the actual protocol, registry, serializer, replay and KeeLoq sources with strict
-C11 warnings and UndefinedBehaviorSanitizer. Radio, FreeRTOS and storage calls
-are RAM-only test doubles; it opens no device, SD assets, or private key files.
-
-Coverage includes all 12 fixed-code self-test vectors, an independent expected
-PWM pulse vector, exact/decorated name lookup, invalid/small buffers, decoded and
-raw file replay, legacy files, cipher inverse/frame round-trips, and a synthetic
-long manufacturer name through serialization and replay. The synthetic key is
-a public test constant, not a key read from a device. Golden manufacturer-capture
-identification is skipped without the real public asset and is not claimed by
-this host test. Neither host tests nor `subghz selftest` transmit RF or establish
-electrical, modulation-tolerance, or real-device interoperability.
-
-## TODO / Not Yet Supported
-
-Tracked against `FlipperZero-Subghz-DB` (validation vectors) and Momentum firmware
-(reference decoders). Ordered by how blocked each item is.
-
-**Portable + validatable (do next).** Fixed-code protocols present in the DB with
-plenty of captures, but with a non-PWM encoding so they need a custom decoder (not
-the shared `subghz_pwm_encode` helper):
-- **MegaCode** — pulse-position (te_short == te_long, fixed slots), 24-bit. ~10 DB captures.
-- **SMC5326** — tri-state (0/1/float), te 300/900, 25-bit. ~5 DB captures.
-- **Firefly (Allstar)** — long inter-bit gap (te 600/4000), 18-bit. ~3 DB captures.
-
-**Separate rolling-code protocols (own frame + crypto).** Need their own decoder
-ported from Momentum:
-- **Security+ 2.0** (Chamberlain rolling) — ~4 DB captures.
-- **Somfy Telis (RTS)** — 1 DB capture.
-
-**KeeLoq makers needing a separate protocol decoder.** These are NOT KeeLoq
-learning types — Momentum implements them as standalone protocols (different frame).
-There are **zero captures in this DB**, so a port could not be validated yet:
-- **FAAC SLH**, **KINGGATES (Stylo 4k)**, **JAROLIFT**.
-
-**KeeLoq makers needing data we do not have:**
-- **AN-Motors** — uses standard KeeLoq, but its manufacturer key is not in our
-  `keeloq_mfcodes.txt`; the `.sub` is encrypted with that key, so it cannot be
-  recovered from the capture. Need the key.
-- **Beninca_ARC** — reserved even upstream (Momentum leaves type 9 unimplemented).
-- **ERREKA** — needs the seed carried in an extended frame we do not parse.
-
-**Cross-cutting:** over-the-air RF validation (does a transmitted frame open a real
-gate; does the pwm bit order match a real remote) still needs an SDR / real target.
-New fixed protocols are validated only by encode↔decode round-trip today.
+Run `python3 tools/highboy/test_subghz.py` for hardware-free serializer, codec and
+replay regressions. Physical reception and transmission remain to be validated.
 
 ## Common Types (`subghz_types.h`)
 
@@ -707,8 +552,11 @@ typedef struct {
   const char *protocol_name;
   uint32_t serial;
   uint8_t btn;
-  uint8_t bit_count;
+  uint16_t bit_count;
   uint32_t raw_value;
+  uint32_t te_us, guard_time;
+  char key_text[96];
+  char protocol_fields[1024];
 } subghz_data_t;
 ```
 

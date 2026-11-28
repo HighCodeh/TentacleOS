@@ -94,6 +94,7 @@ below; in-tree READMEs point to it.
 | `storage_assets` | [README.md](storage_assets/README.md)  |
 | `storage_vfs` | [README.md](storage_vfs/README.md)  |
 | `SubGhz` | [README.md](SubGhz/README.md)  |
+| `flipper_subghz` | [README.md](flipper_subghz/README.md) |
 | `sx1262` | [README.md](sx1262/README.md) - Semtech SX1262 LoRa radio transceiver driver |
 | `sys_monitor` | [README.md](sys_monitor/README.md)  |
 | `sys_prio` | [README.md](sys_prio/README.md)  |

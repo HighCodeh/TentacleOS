@@ -56,7 +56,7 @@ static const char *TAG = "SUBGHZ_SEND_UI";
 #define ROW_GLOW_SPREAD    -2
 #define DETAIL_PAD         10
 #define DETAIL_GAP         6
-#define DETAIL_KEY_SIZE    64
+#define DETAIL_KEY_SIZE    112
 #define STATUS_PAD         6
 #define STATUS_RADIUS      8
 #define FREQ_MHZ_SCALE     1000000UL

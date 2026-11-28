@@ -382,6 +382,7 @@ static bool decode_burst(subghz_rx_burst_t *burst, subghz_data_t *out, uint32_t 
       subghz_rx_candidate_t *entry = &burst->candidates[candidate];
       if (entry->data.raw_value == data.raw_value && entry->data.bit_count == data.bit_count &&
           entry->data.serial == data.serial && entry->data.btn == data.btn &&
+          strcmp(entry->data.key_text, data.key_text) == 0 &&
           strcmp(entry->name, data.protocol_name) == 0)
         break;
     }

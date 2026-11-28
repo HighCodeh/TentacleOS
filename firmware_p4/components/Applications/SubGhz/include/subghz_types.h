@@ -18,6 +18,9 @@
 
 #include <stdint.h>
 
+#define SUBGHZ_PROTOCOL_FIELDS_SIZE 1024U
+#define SUBGHZ_KEY_TEXT_SIZE        96U
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,10 +32,12 @@ typedef struct {
   const char *protocol_name; /**< @brief Name of the decoded protocol. */
   uint32_t serial;           /**< @brief Device serial number. */
   uint8_t btn;               /**< @brief Button code. */
-  uint8_t bit_count;         /**< @brief Number of bits in the raw value. */
+  uint16_t bit_count;        /**< @brief Number of bits in the raw value. */
   uint32_t raw_value;        /**< @brief Raw decoded value. */
   uint32_t te_us;            /**< @brief Measured base interval; zero uses protocol default. */
   uint32_t guard_time;       /**< @brief Princeton low guard in TE units; zero uses default. */
+  char key_text[SUBGHZ_KEY_TEXT_SIZE];
+  char protocol_fields[SUBGHZ_PROTOCOL_FIELDS_SIZE];
 } subghz_data_t;
 
 #ifdef __cplusplus

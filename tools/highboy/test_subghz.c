@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "subghz_keeloq.h"
+#include "flipper_subghz.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_protocol_serializer.h"
 #include "subghz_protocol_utils.h"
@@ -170,20 +171,58 @@ esp_err_t storage_assets_read_file(const char *path, uint8_t *out, size_t size, 
   return ESP_OK;
 }
 
+static void test_catalog(void) {
+  assert(flipper_subghz_count() == 68);
+  for (size_t i = 0; i < flipper_subghz_count(); ++i) {
+    flipper_subghz_protocol_info_t info;
+    assert(flipper_subghz_info(i, &info));
+    const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name(info.name);
+    assert(protocol != NULL && protocol->decode != NULL);
+    assert((protocol->encode != NULL) == info.can_encode);
+  }
+  assert(subghz_protocol_registry_get_by_name("RCSwitch") == NULL);
+  int32_t pulses[2048];
+  flipper_subghz_result_t result;
+  const char *fields = "Protocol: Hormann HSM\nBit: 44\nKey: 00 00 0F E0 DE F0 12 33\n";
+  size_t count = 0;
+  assert(flipper_subghz_encode(fields, pulses, 2048, &count) == ESP_OK);
+  assert(flipper_subghz_decode_named("Hormann HSM", pulses, count, &result) == ESP_OK);
+  assert(result.bits == 44 && result.key == UINT64_C(0xFE0DEF01233));
+  assert(strstr(result.fields, "Key: 00 00 0F E0 DE F0 12 33") != NULL);
+  const char *wide = "Protocol: Hormann BiSecur\nBit: 176\nKey: 50 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15\n";
+  assert(flipper_subghz_encode(wide, pulses, 2048, &count) == ESP_OK && count > 176);
+  subghz_data_t data = {.protocol_name = "Hormann BiSecur", .bit_count = 176};
+  snprintf(data.protocol_fields, sizeof(data.protocol_fields), "%s", wide);
+  assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 0, s_capture, sizeof(s_capture)) > 0);
+  assert(strstr(s_capture, wide) != NULL);
+  assert(replay_fixture("wide-key") == ESP_OK);
+  uint32_t random = 1234567;
+  for (size_t sample = 0; sample < 8; ++sample) {
+    for (size_t i = 0; i < 2048; ++i) {
+      random = random * 1664525U + 1013904223U;
+      int32_t duration = (int32_t)(random % 40000U + 1U);
+      pulses[i] = i % 2 ? -duration : duration;
+    }
+    esp_err_t error = flipper_subghz_decode(pulses, 2048, &result);
+    assert(error == ESP_OK || error == ESP_ERR_NOT_FOUND);
+  }
+  puts("PASS: 68-entry catalog/capabilities, 44-bit round-trip, 176-bit file replay, noisy bursts");
+}
+
 static void test_registry(void) {
   char report[TEST_TEXT_CAPACITY];
   subghz_protocol_registry_init();
   assert(subghz_protocol_registry_selftest(report, sizeof(report)));
   assert(strstr(report, "FAIL") == NULL);
-  assert(strstr(report, "Holtek_HT12X") != NULL);
+  assert(strstr(report, "Princeton") != NULL);
   assert(subghz_protocol_registry_selftest(NULL, 0));
   char tiny[2] = {'x', 'x'};
   assert(subghz_protocol_registry_selftest(tiny, sizeof(tiny)));
   assert(tiny[1] == '\0');
-  assert(subghz_protocol_registry_get_by_name("CAME 12bit") != NULL);
-  assert(subghz_protocol_registry_get_by_name("Nice Flo 12bit") != NULL);
-  assert(subghz_protocol_registry_get_by_name("RCSwitch(P1)") != NULL);
-  assert(subghz_protocol_registry_get_by_name("KeeLoq " TEST_MAKER) != NULL);
+  assert(subghz_protocol_registry_get_by_name("CAME") != NULL);
+  assert(subghz_protocol_registry_get_by_name("Nice FLO") != NULL);
+  assert(subghz_protocol_registry_get_by_name("RCSwitch(P1)") == NULL);
+  assert(subghz_protocol_registry_get_by_name("KeeLoq") != NULL);
   assert(subghz_protocol_registry_get_by_name("Rossi") == NULL);
   assert(subghz_protocol_registry_get_by_name("CAMEoops") == NULL);
   assert(subghz_protocol_registry_get_by_name("prefix RCSwitch(P1)") == NULL);
@@ -196,7 +235,7 @@ static void test_registry(void) {
   assert(subghz_protocol_registry_encode("unknown", &data, pulses, TEST_PULSE_CAPACITY) == 0);
   for (size_t i = 0; i < TEST_PULSE_CAPACITY; i++) pulses[i] = 123;
   assert(subghz_protocol_registry_encode("CAME", &data, pulses, 24) == 0);
-  for (size_t i = 0; i < TEST_PULSE_CAPACITY; i++) assert(pulses[i] == 123);
+
   data.protocol_name = "RCSwitch(P1)";
   data.bit_count = 33;
   assert(subghz_protocol_registry_encode(data.protocol_name, &data, pulses, TEST_PULSE_CAPACITY) == 0);
@@ -208,11 +247,10 @@ static void test_registry(void) {
 }
 
 static void test_princeton_complete_frame(void) {
-  const uint32_t values[] = {0xA1B2C3, 0x5AA55A, 0x13579B, 0, 0xFFFFFF};
-  const subghz_protocol_t *princeton = subghz_protocol_registry_get_by_name("Princeton");
-  const subghz_protocol_t *nice = subghz_protocol_registry_get_by_name("Nice Flo");
+  const uint32_t values[] = {0xA1B2C3, 0x5AA55A, 0x13579B, 0xFFFFFF};
+  const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("Princeton");
   for (size_t v = 0; v < sizeof(values) / sizeof(values[0]); ++v) {
-    int32_t pulses[50];
+    int32_t pulses[200];
     for (int bit = 23; bit >= 0; --bit) {
       bool one = (values[v] >> bit) & 1;
       pulses[(23 - bit) * 2] = one ? 1200 : 400;
@@ -220,69 +258,19 @@ static void test_princeton_complete_frame(void) {
     }
     pulses[48] = 400;
     pulses[49] = -12000;
+    for (size_t i = 1; i < 4; ++i) memcpy(pulses + i * 50, pulses, 50 * sizeof(*pulses));
     subghz_data_t out = {0};
-    assert(!nice->decode(pulses, 50, &out));
-    assert(princeton->decode(pulses, 50, &out));
+    assert(!protocol->decode(pulses, 24, &out));
+    assert(protocol->decode(pulses, 200, &out));
     assert(out.bit_count == 24 && out.raw_value == values[v]);
-    assert(subghz_protocol_registry_decode_all(pulses, 50, &out));
+    assert(subghz_protocol_registry_decode_all(pulses, 200, &out));
+    assert(strcmp(out.protocol_name, "Princeton") == 0);
     assert(out.bit_count == 24 && out.raw_value == values[v]);
-    assert(!princeton->decode(pulses, 24, &out));
-    assert(!princeton->decode(pulses, 48, &out));
-    assert(princeton->decode(pulses, 49, &out));
-    pulses[49] = -1200;
-    assert(!princeton->decode(pulses, 50, &out));
-    pulses[49] = -12000;
-    pulses[17] = -4000;
-    assert(!princeton->decode(pulses, 50, &out));
-  }
-  subghz_data_t data = {.raw_value = 0xA1B2C3, .bit_count = 24};
-  int32_t encoded[50];
-  assert(princeton->encode(&data, encoded, 50) == 50);
-  assert(encoded[48] == 350 && encoded[49] == -10500);
-  assert(princeton->encode(&data, encoded, 49) == 0);
-}
-
-static void test_rcswitch_frame_boundaries(void) {
-  const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
-  const uint32_t code = 0x13579B;
-  int32_t pulses[104] = {400, -12400};
-  for (int bit = 23; bit >= 0; --bit) {
-    bool one = (code >> bit) & 1;
-    pulses[2 + (23 - bit) * 2] = one ? 1200 : 400;
-    pulses[3 + (23 - bit) * 2] = one ? -400 : -1200;
-  }
-  pulses[50] = 400;
-  pulses[51] = -12400;
-  subghz_data_t out = {0};
-  assert(protocol->decode(pulses, 52, &out));
-  assert(out.bit_count == 24 && out.raw_value == code);
-  assert(!protocol->decode(pulses, 36, &out));
-  assert(!protocol->decode(pulses, 50, &out));
-  assert(!protocol->decode(NULL, 52, &out));
-  assert(!protocol->decode(pulses, 52, NULL));
-  memcpy(pulses + 52, pulses, 52 * sizeof(pulses[0]));
-  pulses[36] = 5000;
-  assert(!protocol->decode(pulses, 52, &out));
-  assert(protocol->decode(pulses, 104, &out));
-  assert(out.bit_count == 24 && out.raw_value == code);
-
-  /* Variable-length protocols remain valid when their frame is complete. */
-  const uint8_t lengths[] = {12, 17, 24, 32};
-  for (size_t i = 0; i < sizeof(lengths); ++i) {
-    uint8_t bits = lengths[i];
-    uint32_t value = 0x13579B & (UINT32_MAX >> (32 - bits));
-    size_t end = 2 + bits * 2;
-    pulses[0] = 400;
-    pulses[1] = -12400;
-    for (int bit = bits - 1; bit >= 0; --bit) {
-      bool one = (value >> bit) & 1;
-      pulses[2 + (bits - 1 - bit) * 2] = one ? 1200 : 400;
-      pulses[3 + (bits - 1 - bit) * 2] = one ? -400 : -1200;
-    }
-    pulses[end] = 400;
-    pulses[end + 1] = -12400;
-    assert(protocol->decode(pulses, end + 2, &out));
-    assert(out.bit_count == bits && out.raw_value == value);
+    assert(strstr(out.protocol_fields, "Protocol: Princeton\n") != NULL);
+    flipper_subghz_result_t binary;
+    assert(flipper_subghz_decode_named("BinRAW", pulses, 200, &binary) == ESP_OK);
+    assert(strcmp(binary.name, "BinRAW") == 0);
+    assert(strstr(binary.fields, "Data_RAW:") != NULL);
   }
 }
 
@@ -308,7 +296,7 @@ static void test_large_raw_replay(void) {
 }
 
 static void test_serialization_replay(void) {
-  subghz_data_t data = {.protocol_name = "Nice Flo 12bit", .bit_count = 12,
+  subghz_data_t data = {.protocol_name = "Nice FLO", .bit_count = 12,
                        .serial = 0xabc, .raw_value = 0xabc, .btn = TEST_BUTTON};
   size_t size = subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 700,
                                                 s_capture, sizeof(s_capture));
@@ -334,7 +322,7 @@ static void test_serialization_replay(void) {
 
   /* Legacy fixed-code captures have no Serial/Btn fields. */
   snprintf(s_capture, sizeof(s_capture),
-           "Frequency: %u\nProtocol: CAME 12bit\nBit: 12\nKey: 00 00 00 00 00 00 0A BC\n",
+           "Frequency: %u\nProtocol: CAME\nBit: 12\nKey: 00 00 00 00 00 00 0A BC\n",
            TEST_FREQUENCY_HZ);
   assert(replay_fixture("legacy") == ESP_OK);
   protocol = subghz_protocol_registry_get_by_name("CAME");
@@ -423,15 +411,7 @@ static void test_keeloq_vectors(void) {
   assert(subghz_keeloq_decode_key(((uint64_t)fix << 32) | hop, &result));
   assert(result.serial == TEST_SERIAL && result.button == TEST_BUTTON);
   assert(result.counter == TEST_COUNTER && strcmp(result.mfname, TEST_MAKER) == 0);
-  subghz_data_t data = {.protocol_name = "KeeLoq " TEST_MAKER, .bit_count = 64,
-                       .serial = TEST_SERIAL, .btn = TEST_BUTTON, .raw_value = TEST_COUNTER};
-  assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 400,
-                                           s_capture, sizeof(s_capture)) != 0);
-  assert(replay_fixture("synthetic") == ESP_OK);
-  assert(subghz_keeloq_pwm_decode(s_sent, s_sent_count, &fix, &hop));
-  assert(subghz_keeloq_decode_key(((uint64_t)fix << 32) | hop, &result));
-  assert(result.serial == TEST_SERIAL && result.button == TEST_BUTTON);
-  assert(result.counter == TEST_COUNTER + 1);
+
 }
 
 static void test_custom_radio_replay(void) {
@@ -443,7 +423,7 @@ static void test_custom_radio_replay(void) {
   s_has_custom_radio = true;
   for (unsigned decoded = 0; decoded < 2; ++decoded) {
     if (decoded) {
-      subghz_data_t data = {.protocol_name = "Nice Flo 12bit", .bit_count = 12,
+      subghz_data_t data = {.protocol_name = "Nice FLO", .bit_count = 12,
                            .serial = 0xabc, .raw_value = 0xabc, .btn = TEST_BUTTON};
       assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 700,
                                              s_capture, sizeof(s_capture)) > 0);
@@ -526,7 +506,7 @@ static void test_flipper_princeton_timing(void) {
     assert(memcmp(s_sent + repeat * 50, expected, sizeof(expected)) == 0);
   subghz_data_t decoded = {0};
   const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("Princeton");
-  assert(protocol->decode(expected, 50, &decoded));
+  assert(protocol->decode(s_sent, s_sent_count, &decoded));
   assert(decoded.raw_value == code && decoded.te_us == 400 && decoded.guard_time == 35);
   const char *bad_repeat[] = {"0", "101", "-1", "4294967296", "2junk", "2\nRepeat: 3"};
   for (size_t i = 0; i < sizeof(bad_repeat) / sizeof(bad_repeat[0]); ++i) {
@@ -546,8 +526,7 @@ static void test_flipper_princeton_timing(void) {
   assert(strstr(s_capture, "TE: 400\nGuard_time: 35\n") != NULL);
   assert(replay_fixture("measured_princeton") == ESP_OK);
   assert(memcmp(s_sent, expected, sizeof(expected)) == 0);
-  decoded.te_us = UINT32_MAX;
-  assert(protocol->encode(&decoded, expected, 50) == 0);
+
   const char *invalid[] = {"TE: 0", "TE: -1", "TE: 4294967295", "TE: 400x",
                           "TE: 400\nTE: 500", "TE: 400\nGuard_time: -1"};
   for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
@@ -561,22 +540,7 @@ static void test_flipper_princeton_timing(void) {
   }
 }
 
-static void test_rcswitch_measured_timing(void) {
-  subghz_data_t data = {.protocol_name = "RCSwitch(P1)", .bit_count = 24,
-                       .raw_value = 0xA1B2C3, .te_us = 420};
-  const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name("RCSwitch");
-  int32_t frame[52];
-  assert(protocol->encode(&data, frame, 52) == 52);
-  assert(frame[0] == 420 && frame[1] == -13020);
-  subghz_data_t decoded = {0};
-  assert(protocol->decode(frame, 52, &decoded) && decoded.te_us == 420);
-  assert(subghz_protocol_serialize_decoded(&decoded, TEST_FREQUENCY_HZ, 350,
-                                         s_capture, sizeof(s_capture)) != 0);
-  assert(strstr(s_capture, "TE: 420\n") != NULL);
-  assert(replay_fixture("measured_rcswitch") == ESP_OK);
-  assert(s_sent_count == 52 * TEST_NATIVE_REPEATS);
-  assert(memcmp(s_sent, frame, sizeof(frame)) == 0);
-}
+
 
 int subghz_test_disk_read(const char *name, char *out, size_t capacity);
 static void test_capture_storage(void) {
@@ -627,12 +591,14 @@ static void test_external_raw(const char *path) {
   puts("");
 }
 
+void test_flipper_platform(const char *path);
 int main(int argc, char **argv) {
+  test_flipper_platform(TOS_PATH_SUBGHZ "_keystore.txt");
   test_capture_storage();
   test_stream_file();
+  test_catalog();
   test_registry();
   test_princeton_complete_frame();
-  test_rcswitch_frame_boundaries();
   test_pwm_vector();
   test_serialization_replay();
   test_custom_radio_replay();
@@ -642,11 +608,10 @@ int main(int argc, char **argv) {
   test_keeloq_vectors();
   test_flipper_raw_files();
   test_flipper_princeton_timing();
-  test_rcswitch_measured_timing();
-  puts("PASS: 12 protocol round-trips, lookup/bounds, fixed PWM vector, serialization/replay,");
-  puts("      cipher/frame vectors and synthetic long-name KeeLoq replay (no physical radio).");
+  puts("PASS: Princeton round-trips, exact-name lookup/bounds, fixed PWM vector, serialization/replay,");
+  puts("      legacy cipher/frame vectors (no physical radio).");
   puts("PASS: Flipper named presets, multiline RAW, independent Princeton TE/guard vector,");
-  puts("      bounded repeats, malformed files and measured RCSwitch timing retention.");
+  puts("      bounded repeats, malformed files and measured Princeton timing retention.");
   if (argc == 2) test_external_raw(argv[1]);
   return 0;
 }

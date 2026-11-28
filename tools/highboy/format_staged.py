@@ -31,7 +31,7 @@ def is_first_party(path):
         "/Applications/doom/", "/Service/muse_port/sdk/",
         "/Service/script_engine/lua/", "/Service/script_engine/mquickjs/",
         "/legacy_des/des.c", "/legacy_des/des.h",
-        "/Service/noise_core/", "/Service/minimp3/", "/Service/fatfs/",
+        "/Service/flipper_subghz/upstream/", "/Service/noise_core/", "/Service/minimp3/", "/Service/fatfs/",
     ))
 
 

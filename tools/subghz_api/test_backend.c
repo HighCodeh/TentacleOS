@@ -293,6 +293,14 @@ const subghz_protocol_t *subghz_protocol_registry_get_by_name(const char *name) 
 size_t subghz_protocol_registry_encode(const char *name,const subghz_data_t *data,int32_t *out,size_t capacity) {
   return encode_capture(data,out,capacity);
 }
+/* Codec details are exercised by test_subghz.py; this fixture tests ownership. */
+esp_err_t flipper_subghz_encode(const char *fields, int32_t *out, size_t capacity, size_t *out_count) {
+  assert(strstr(fields, "Key: 00 00 00 00 00 00 00 2A") != NULL);
+  subghz_data_t data = {.raw_value = 42, .bit_count = 12};
+  *out_count = encode_capture(&data, out, capacity);
+  return ESP_OK;
+}
+
 static FILE *open_capture(const char *path,const char *mode) {
   assert(s_gate && strcmp(mode,"rb")==0);
   if(strcmp(path,"/sdcard/missing.sub")==0)return NULL;

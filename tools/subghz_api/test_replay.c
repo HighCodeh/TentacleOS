@@ -53,6 +53,14 @@ size_t subghz_protocol_registry_encode(const char *name, const subghz_data_t *da
                                       int32_t *out, size_t capacity) {
   return encode_capture(data, out, capacity);
 }
+/* Codec details are exercised by test_subghz.py; this fixture tests ownership. */
+esp_err_t flipper_subghz_encode(const char *fields, int32_t *out, size_t capacity, size_t *out_count) {
+  assert(strstr(fields, "Key: 00 00 00 00 00 00 00 2A") != NULL);
+  subghz_data_t data = {.raw_value = 42, .bit_count = 12};
+  *out_count = encode_capture(&data, out, capacity);
+  return ESP_OK;
+}
+
 int main(void) {
   s_content = "Frequency: 315000000\nPreset: 1\nProtocol: CAME\nBit: 12\nKey: 00 00 00 00 00 00 00 2A\n";
   subghz_replay_t replay = {0};

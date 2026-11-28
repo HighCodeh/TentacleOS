@@ -19,8 +19,8 @@
 #include "esp_err.h"
 #include "subghz_transmitter.h"
 
-#define SUBGHZ_REPLAY_PROTOCOL_SIZE 24
-#define SUBGHZ_REPLAY_KEY_SIZE      32
+#define SUBGHZ_REPLAY_PROTOCOL_SIZE 40
+#define SUBGHZ_REPLAY_KEY_SIZE      96
 
 typedef struct {
   subghz_raw_file_t *raw_file;

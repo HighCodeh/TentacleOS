@@ -1,0 +1,247 @@
+#include "elplast.h"
+#include "../blocks/const.h"
+#include "../blocks/decoder.h"
+#include "../blocks/encoder.h"
+#include "../blocks/generic.h"
+#include "../blocks/math.h"
+#include "common.h"
+
+#define TAG "SubGhzProtocolElplast"
+
+static const SubGhzBlockConst subghz_protocol_elplast_const = {
+    .te_short = 230,
+    .te_long = 1550,
+    .te_delta = 160,
+    .min_count_bit_for_found = 18,
+};
+
+struct SubGhzProtocolDecoderElplast {
+    SubGhzProtocolDecoderBase base;
+
+    SubGhzBlockDecoder decoder;
+    SubGhzBlockGeneric generic;
+};
+SUBGHZ_ASSERT_DECODER_COMMON_LAYOUT(SubGhzProtocolDecoderElplast);
+
+struct SubGhzProtocolEncoderElplast {
+    SubGhzProtocolEncoderBase base;
+
+    SubGhzProtocolBlockEncoder encoder;
+    SubGhzBlockGeneric generic;
+};
+SUBGHZ_ASSERT_ENCODER_GENERIC_LAYOUT(SubGhzProtocolEncoderElplast);
+
+typedef enum {
+    ElplastDecoderStepReset = 0,
+    ElplastDecoderStepSaveDuration,
+    ElplastDecoderStepCheckDuration,
+} ElplastDecoderStep;
+
+const SubGhzProtocolDecoder subghz_protocol_elplast_decoder = {
+    .alloc = subghz_protocol_decoder_elplast_alloc,
+    .free = subghz_protocol_decoder_common_free,
+
+    .feed = subghz_protocol_decoder_elplast_feed,
+    .reset = subghz_protocol_decoder_common_reset,
+
+    .get_hash_data = NULL,
+    .get_hash_data_long = subghz_protocol_decoder_common_get_hash_data,
+    .serialize = subghz_protocol_decoder_common_serialize,
+    .deserialize = subghz_protocol_decoder_elplast_deserialize,
+    .get_string = subghz_protocol_decoder_elplast_get_string,
+    .get_string_brief = NULL,
+};
+
+const SubGhzProtocolEncoder subghz_protocol_elplast_encoder = {
+    .alloc = subghz_protocol_encoder_elplast_alloc,
+    .free = subghz_protocol_encoder_common_free,
+
+    .deserialize = subghz_protocol_encoder_elplast_deserialize,
+    .stop = subghz_protocol_encoder_common_stop,
+    .yield = subghz_protocol_encoder_common_yield,
+};
+
+const SubGhzProtocol subghz_protocol_elplast = {
+    .name = SUBGHZ_PROTOCOL_ELPLAST_NAME,
+    .type = SubGhzProtocolTypeStatic,
+    .flag = SubGhzProtocolFlag_433 | SubGhzProtocolFlag_AM | SubGhzProtocolFlag_Decodable |
+            SubGhzProtocolFlag_Load | SubGhzProtocolFlag_Save | SubGhzProtocolFlag_Send,
+
+    .decoder = &subghz_protocol_elplast_decoder,
+    .encoder = &subghz_protocol_elplast_encoder,
+};
+
+void* subghz_protocol_encoder_elplast_alloc(SubGhzEnvironment* environment) {
+    UNUSED(environment);
+    return subghz_protocol_encoder_common_alloc(
+        sizeof(SubGhzProtocolEncoderElplast), &subghz_protocol_elplast, 3, 64);
+}
+
+/**
+ * Generating an upload from data.
+ * @param context Pointer to a SubGhzProtocolEncoderElplast instance
+ * @return true Always; this encoder has no failure path
+ */
+static bool subghz_protocol_encoder_elplast_get_upload(void* context) {
+    SubGhzProtocolEncoderElplast* instance = context;
+
+    furi_assert(instance);
+    size_t index = 0;
+
+    // Send key and GAP
+    for(uint8_t i = instance->generic.data_count_bit; i > 0; i--) {
+        if(bit_read(instance->generic.data, i - 1)) {
+            // Send bit 1
+            instance->encoder.upload[index++] =
+                level_duration_make(true, (uint32_t)subghz_protocol_elplast_const.te_long);
+            if(i == 1) {
+                //Send gap if bit was last
+                instance->encoder.upload[index++] = level_duration_make(
+                    false, (uint32_t)subghz_protocol_elplast_const.te_long * 8);
+            } else {
+                instance->encoder.upload[index++] =
+                    level_duration_make(false, (uint32_t)subghz_protocol_elplast_const.te_short);
+            }
+        } else {
+            // Send bit 0
+            instance->encoder.upload[index++] =
+                level_duration_make(true, (uint32_t)subghz_protocol_elplast_const.te_short);
+            if(i == 1) {
+                //Send gap if bit was last
+                instance->encoder.upload[index++] = level_duration_make(
+                    false, (uint32_t)subghz_protocol_elplast_const.te_long * 8);
+            } else {
+                instance->encoder.upload[index++] =
+                    level_duration_make(false, (uint32_t)subghz_protocol_elplast_const.te_long);
+            }
+        }
+    }
+
+    instance->encoder.size_upload = index;
+    return true;
+}
+
+SubGhzProtocolStatus
+    subghz_protocol_encoder_elplast_deserialize(void* context, FlipperFormat* flipper_format) {
+    return subghz_protocol_encoder_common_deserialize(
+        context,
+        flipper_format,
+        subghz_protocol_elplast_const.min_count_bit_for_found,
+        subghz_protocol_encoder_elplast_get_upload);
+}
+
+void* subghz_protocol_decoder_elplast_alloc(SubGhzEnvironment* environment) {
+    UNUSED(environment);
+    return subghz_protocol_decoder_common_alloc(
+        sizeof(SubGhzProtocolDecoderElplast), &subghz_protocol_elplast);
+}
+
+void subghz_protocol_decoder_elplast_feed(void* context, bool level, volatile uint32_t duration) {
+    furi_assert(context);
+    SubGhzProtocolDecoderElplast* instance = context;
+
+    // Elplast/P-11B/3BK/E.C.A Decoder
+    // 2025.09 - @xMasterX (MMX)
+
+    // Key samples
+    // 00110010110000001010 = 32C0A
+    // 00110010110010000010 = 32C82
+
+    switch(instance->decoder.parser_step) {
+    case ElplastDecoderStepReset:
+        if((!level) && (DURATION_DIFF(duration, subghz_protocol_elplast_const.te_long * 8) <
+                        subghz_protocol_elplast_const.te_delta * 13)) {
+            //Found GAP
+            instance->decoder.decode_data = 0;
+            instance->decoder.decode_count_bit = 0;
+            instance->decoder.parser_step = ElplastDecoderStepSaveDuration;
+        }
+        break;
+    case ElplastDecoderStepSaveDuration:
+        if(level) {
+            instance->decoder.te_last = duration;
+            instance->decoder.parser_step = ElplastDecoderStepCheckDuration;
+        } else {
+            instance->decoder.parser_step = ElplastDecoderStepReset;
+        }
+        break;
+    case ElplastDecoderStepCheckDuration:
+        if(!level) {
+            // Bit 1 is long and short timing = 1550us HIGH (te_last) and 230us LOW
+            if((DURATION_DIFF(instance->decoder.te_last, subghz_protocol_elplast_const.te_long) <
+                subghz_protocol_elplast_const.te_delta) &&
+               (DURATION_DIFF(duration, subghz_protocol_elplast_const.te_short) <
+                subghz_protocol_elplast_const.te_delta)) {
+                subghz_protocol_blocks_add_bit(&instance->decoder, 1);
+                instance->decoder.parser_step = ElplastDecoderStepSaveDuration;
+                // Bit 0 is short and long timing = 230us HIGH (te_last) and 1550us LOW
+            } else if(
+                (DURATION_DIFF(instance->decoder.te_last, subghz_protocol_elplast_const.te_short) <
+                 subghz_protocol_elplast_const.te_delta) &&
+                (DURATION_DIFF(duration, subghz_protocol_elplast_const.te_long) <
+                 subghz_protocol_elplast_const.te_delta)) {
+                subghz_protocol_blocks_add_bit(&instance->decoder, 0);
+                instance->decoder.parser_step = ElplastDecoderStepSaveDuration;
+            } else if(
+                // End of the key
+                DURATION_DIFF(duration, subghz_protocol_elplast_const.te_long * 8) <
+                subghz_protocol_elplast_const.te_delta * 13) {
+                //Found next GAP and add bit 0 or 1 (only bit 0 was found on the remotes)
+                if((DURATION_DIFF(
+                        instance->decoder.te_last, subghz_protocol_elplast_const.te_long) <
+                    subghz_protocol_elplast_const.te_delta)) {
+                    subghz_protocol_blocks_add_bit(&instance->decoder, 1);
+                }
+                if((DURATION_DIFF(
+                        instance->decoder.te_last, subghz_protocol_elplast_const.te_short) <
+                    subghz_protocol_elplast_const.te_delta)) {
+                    subghz_protocol_blocks_add_bit(&instance->decoder, 0);
+                }
+                // If got 18 bits key reading is finished
+                if(instance->decoder.decode_count_bit ==
+                   subghz_protocol_elplast_const.min_count_bit_for_found) {
+                    instance->generic.data = instance->decoder.decode_data;
+                    instance->generic.data_count_bit = instance->decoder.decode_count_bit;
+                    if(instance->base.callback)
+                        instance->base.callback(&instance->base, instance->base.context);
+                }
+                instance->decoder.decode_data = 0;
+                instance->decoder.decode_count_bit = 0;
+                instance->decoder.parser_step = ElplastDecoderStepReset;
+            } else {
+                instance->decoder.parser_step = ElplastDecoderStepReset;
+            }
+        } else {
+            instance->decoder.parser_step = ElplastDecoderStepReset;
+        }
+        break;
+    }
+}
+
+SubGhzProtocolStatus
+    subghz_protocol_decoder_elplast_deserialize(void* context, FlipperFormat* flipper_format) {
+    furi_assert(context);
+    SubGhzProtocolDecoderElplast* instance = context;
+    return subghz_block_generic_deserialize_check_count_bit(
+        &instance->generic, flipper_format, subghz_protocol_elplast_const.min_count_bit_for_found);
+}
+
+void subghz_protocol_decoder_elplast_get_string(void* context, FuriString* output) {
+    furi_assert(context);
+    SubGhzProtocolDecoderElplast* instance = context;
+
+    uint64_t code_found_reverse = subghz_protocol_blocks_reverse_key(
+        instance->generic.data, instance->generic.data_count_bit);
+
+    uint32_t code_found_reverse_lo = code_found_reverse & 0x000003ffffffffff;
+
+    furi_string_cat_printf(
+        output,
+        "%s %db\r\n"
+        "Key: 0x%05lX\r\n"
+        "Yek: 0x%05lX",
+        instance->generic.protocol_name,
+        instance->generic.data_count_bit,
+        (uint32_t)(instance->generic.data & 0xFFFFFF),
+        code_found_reverse_lo);
+}

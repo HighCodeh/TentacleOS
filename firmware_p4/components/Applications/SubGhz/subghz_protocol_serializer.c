@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "subghz_protocol_serializer.h"
+#include "flipper_subghz.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -61,6 +62,25 @@ size_t subghz_protocol_serialize_decoded(
     return 0;
   }
 
+  if (data->protocol_fields[0] != '\0') {
+    char radio[RADIO_TEXT_SIZE];
+    uint8_t preset;
+    if (!format_radio(radio, sizeof(radio), &preset))
+      return 0;
+    int length =
+        snprintf(out_buf,
+                 out_size,
+                 "Filetype: High Boy SubGhz File\nVersion: 1\nFrequency: %lu\nPreset: %u\n%s%s",
+                 (unsigned long)frequency,
+                 (unsigned)preset,
+                 radio,
+                 data->protocol_fields);
+    if (length < 0 || (size_t)length >= out_size) {
+      out_buf[0] = '\0';
+      return 0;
+    }
+    return (size_t)length;
+  }
   uint32_t val = data->raw_value;
   char radio_text[RADIO_TEXT_SIZE];
   uint8_t preset;
@@ -369,34 +389,6 @@ size_t subghz_protocol_parse_raw(const char *content,
   return count;
 }
 
-static bool parse_key(const char *text, uint32_t *out) {
-  if (text == NULL)
-    return false;
-  uint32_t key = 0;
-  for (size_t i = 0; i < CAPTURE_KEY_BYTES; ++i) {
-    while (*text == ' ' || *text == '\t')
-      ++text;
-    if (!isxdigit((unsigned char)*text))
-      return false;
-    errno = 0;
-    char *end;
-    unsigned long value = strtoul(text, &end, CAPTURE_KEY_RADIX);
-    if (errno != 0 || value > UINT8_MAX || (i < CAPTURE_KEY_HIGH_BYTES && value != 0))
-      return false;
-    if (i >= CAPTURE_KEY_HIGH_BYTES)
-      key = (key << CAPTURE_BYTE_BITS) | (uint32_t)value;
-    if (i + 1 < CAPTURE_KEY_BYTES && *end != ' ' && *end != '\t')
-      return false;
-    text = end;
-  }
-  while (*text == ' ' || *text == '\t' || *text == '\r')
-    ++text;
-  if (*text != '\0' && *text != '\n')
-    return false;
-  *out = key;
-  return true;
-}
-
 esp_err_t subghz_protocol_parse_capture(const char *content,
                                         int32_t *out_pulses,
                                         size_t capacity,
@@ -428,34 +420,12 @@ esp_err_t subghz_protocol_parse_capture(const char *content,
     const subghz_protocol_t *encoder = subghz_protocol_registry_get_by_name(protocol);
     if (encoder == NULL || encoder->encode == NULL)
       return ESP_ERR_NOT_SUPPORTED;
-    uint32_t bits = 0, serial = 0, button = 0, key = 0;
     if (!parse_metadata(content, FREQ_KEY, UINT32_MAX, &frequency) ||
-        !parse_metadata(content, "Bit: ", UINT8_MAX, &bits) ||
-        !parse_key(find_field(content, "Key: "), &key))
+        (has_field(content, "Preset:") && !parse_preset(content, &preset)))
       return ESP_ERR_INVALID_ARG;
-    serial = key;
-    if ((has_field(content, "Preset:") && !parse_preset(content, &preset)) ||
-        (strstr(content, "Serial:") != NULL &&
-         !parse_metadata(content, "Serial: ", UINT32_MAX, &serial)) ||
-        (strstr(content, "Btn:") != NULL && !parse_metadata(content, "Btn: ", UINT8_MAX, &button)))
-      return ESP_ERR_INVALID_ARG;
-    subghz_data_t data = {.protocol_name = protocol,
-                          .raw_value = key,
-                          .serial = serial,
-                          .bit_count = (uint8_t)bits,
-                          .btn = (uint8_t)button};
-    if (encoder->name != NULL &&
-        (strcmp(encoder->name, "Princeton") == 0 || strcmp(encoder->name, "RCSwitch") == 0)) {
-      if ((has_field(content, "TE:") &&
-           (!parse_metadata(content, "TE: ", CAPTURE_PRINCETON_TE_MAX, &data.te_us) ||
-            data.te_us == 0)) ||
-          (has_field(content, "Guard_time:") &&
-           !parse_metadata(content, "Guard_time: ", UINT32_MAX, &data.guard_time)))
-        return ESP_ERR_INVALID_ARG;
-    }
-    count = subghz_protocol_registry_encode(protocol, &data, out_pulses, capacity);
-    if (count == 0)
-      return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t error = flipper_subghz_encode(content, out_pulses, capacity, &count);
+    if (error != ESP_OK)
+      return error;
   }
   cc1101_radio_config_t radio;
   if (subghz_protocol_parse_radio(content, (cc1101_preset_t)preset, &radio) != ESP_OK)

@@ -26,3 +26,5 @@ typedef int esp_err_t;
 #define ESP_ERR_NOT_FOUND 0x105
 #define ESP_ERR_NOT_SUPPORTED 0x106
 #endif
+
+#define ESP_ERR_INVALID_RESPONSE 0x108

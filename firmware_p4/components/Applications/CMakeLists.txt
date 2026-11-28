@@ -145,6 +145,7 @@ idf_component_register(SRCS
   "ui/components/waves/include"
 
   REQUIRES
+  flipper_subghz
   firmware_crypto
   esp_driver_jpeg
   esp_driver_tsens

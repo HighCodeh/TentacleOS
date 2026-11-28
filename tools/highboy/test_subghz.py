@@ -17,6 +17,8 @@
 """Compile and run the real Sub-GHz codecs with RAM-only hardware/storage fakes."""
 from pathlib import Path
 import os
+import hashlib
+import json
 import argparse
 import subprocess
 import tempfile
@@ -34,6 +36,10 @@ def main():
     sources = sorted((SOURCE / "protocols").glob("*.c"))
     sources += [SOURCE / name for name in (
         "subghz_keeloq.c", "subghz_protocol_serializer.c", "subghz_replay.c", "subghz_raw_file.c")]
+    port = ROOT / "firmware_p4/components/Service/flipper_subghz"
+    manifest = json.loads((port / "upstream_manifest.json").read_text())
+    for name, expected in manifest["files"].items():
+        assert hashlib.sha256((port / "upstream" / name).read_bytes()).hexdigest() == expected, name
     sources.append(ROOT / "firmware_p4/components/Drivers/cc1101/cc1101_config.c")
     with tempfile.TemporaryDirectory(prefix="highboy-subghz-") as temp:
         binary = Path(temp) / "test_subghz"
@@ -43,11 +49,11 @@ def main():
         (work / "storage_mkdir.h").write_text(notice + '#include <sys/stat.h>\n#include <errno.h>\n#include "esp_err.h"\nstatic inline esp_err_t storage_mkdir_recursive(const char *path) { return mkdir(path, 0700) == 0 || errno == EEXIST ? ESP_OK : ESP_FAIL; }\n')
         (work / "esp_attr.h").write_text(notice + "#define EXT_RAM_BSS_ATTR\n")
         command = [os.environ.get("CC", "cc"), "-std=c11", "-D_POSIX_C_SOURCE=200809L",
-                   "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined",
+                   "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                    "-fno-sanitize-recover=all", "-g", "-I", str(STUBS),
                    "-I", str(work), "-I", str(SOURCE / "include"),
                    "-I", str(ROOT / "firmware_p4/components/Drivers/cc1101/include"),
-                   "-I", str(SOURCE / "protocols/include"),
+                   "-I", str(SOURCE / "protocols/include"), "-I", str(port / "include"),
                    str(HERE / "test_subghz.c"), *map(str, sources), "-o", str(binary)]
         (work / "host_string.h").write_text(notice + '#include <string.h>\nstatic inline size_t fixture_strlcpy(char *dst, const char *src, size_t size) { size_t n = strlen(src); if (size) { size_t copy = n < size - 1 ? n : size - 1; memcpy(dst, src, copy); dst[copy] = 0; } return n; }\n#define strlcpy fixture_strlcpy\n')
         storage_object = work / "storage.o"
@@ -56,6 +62,19 @@ def main():
                         "-Dsubghz_storage_read=subghz_test_disk_read", "-c",
                         str(SOURCE / "subghz_storage.c"), "-o", str(storage_object)], check=True)
         command.insert(command.index("-o"), str(storage_object))
+        openssl = Path(os.environ.get("OPENSSL_ROOT", "/opt/homebrew/opt/openssl@3"))
+        port_sources = sorted(port.glob("*.c")) + sorted((port / "upstream").rglob("*.c")) + [HERE / "test_flipper_platform.c"]
+        for index, source in enumerate(port_sources):
+            obj = work / f"codec_{index}.o"
+            subprocess.run([os.environ.get("CC", "cc"), "-std=gnu11", "-g",
+                            "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                            "-Wno-format", "-Wno-deprecated-declarations", "-Wno-unused-value",
+                            "-I", str(STUBS), "-I", str(port / "include"),
+                            "-I", str(port / "compat"), "-I", str(port / "upstream"),
+                            "-I", str(port / "upstream/lib/subghz"), "-I", str(openssl / "include"),
+                            "-c", str(source), "-o", str(obj)], check=True)
+            command.insert(command.index("-o"), str(obj))
+        command[command.index("-o"):command.index("-o")] = ["-L", str(openssl / "lib"), "-lcrypto"]
         subprocess.run(command, check=True)
         command = [str(binary)]
         if args.capture:
@@ -77,7 +96,7 @@ def main():
             actual = next(line for line in actual_lines if line.startswith("CAPTURE_PULSES:")).split()[1:]
             assert list(map(int, actual)) == expected, "Replay changed RAW pulse order, polarity or duration"
             metadata = next(line for line in actual_lines if line.startswith("CAPTURE_METADATA:")).split()[1:]
-            assert list(map(int, metadata)) == [int(fields["Frequency"]), presets[fields["Preset"]]]
+            assert list(map(int, metadata)) == [int(fields["Frequency"]), (int(fields["Preset"]) if fields["Preset"].isdigit() else presets[fields["Preset"]])]
             print(f"PASS: external RAW: {len(expected)} pulses, {sum(map(abs, expected))} us, "
                   f"{fields['Frequency']} Hz; exact pulse-by-pulse replay and preset match (no RF)")
 

@@ -1,0 +1,254 @@
+#include "gate_tx.h"
+
+#include "../blocks/const.h"
+#include "../blocks/decoder.h"
+#include "../blocks/encoder.h"
+#include "../blocks/generic.h"
+#include "../blocks/math.h"
+#include "common.h"
+
+#define TAG "SubGhzProtocolGateTx"
+
+static const SubGhzBlockConst subghz_protocol_gate_tx_const = {
+    .te_short = 350,
+    .te_long = 700,
+    .te_delta = 100,
+    .min_count_bit_for_found = 24,
+};
+
+struct SubGhzProtocolDecoderGateTx {
+    SubGhzProtocolDecoderBase base;
+
+    SubGhzBlockDecoder decoder;
+    SubGhzBlockGeneric generic;
+};
+SUBGHZ_ASSERT_DECODER_COMMON_LAYOUT(SubGhzProtocolDecoderGateTx);
+
+struct SubGhzProtocolEncoderGateTx {
+    SubGhzProtocolEncoderBase base;
+
+    SubGhzProtocolBlockEncoder encoder;
+    SubGhzBlockGeneric generic;
+};
+SUBGHZ_ASSERT_ENCODER_GENERIC_LAYOUT(SubGhzProtocolEncoderGateTx);
+
+typedef enum {
+    GateTXDecoderStepReset = 0,
+    GateTXDecoderStepFoundStartBit,
+    GateTXDecoderStepSaveDuration,
+    GateTXDecoderStepCheckDuration,
+} GateTXDecoderStep;
+
+const SubGhzProtocolDecoder subghz_protocol_gate_tx_decoder = {
+    .alloc = subghz_protocol_decoder_gate_tx_alloc,
+    .free = subghz_protocol_decoder_common_free,
+
+    .feed = subghz_protocol_decoder_gate_tx_feed,
+    .reset = subghz_protocol_decoder_common_reset,
+
+    .get_hash_data = NULL,
+    .get_hash_data_long = subghz_protocol_decoder_common_get_hash_data,
+    .serialize = subghz_protocol_decoder_common_serialize,
+    .deserialize = subghz_protocol_decoder_gate_tx_deserialize,
+    .get_string = subghz_protocol_decoder_gate_tx_get_string,
+    .get_string_brief = NULL,
+};
+
+const SubGhzProtocolEncoder subghz_protocol_gate_tx_encoder = {
+    .alloc = subghz_protocol_encoder_gate_tx_alloc,
+    .free = subghz_protocol_encoder_common_free,
+
+    .deserialize = subghz_protocol_encoder_gate_tx_deserialize,
+    .stop = subghz_protocol_encoder_common_stop,
+    .yield = subghz_protocol_encoder_common_yield,
+};
+
+const SubGhzProtocol subghz_protocol_gate_tx = {
+    .name = SUBGHZ_PROTOCOL_GATE_TX_NAME,
+    .type = SubGhzProtocolTypeStatic,
+    .flag = SubGhzProtocolFlag_433 | SubGhzProtocolFlag_AM | SubGhzProtocolFlag_Decodable |
+            SubGhzProtocolFlag_Load | SubGhzProtocolFlag_Save | SubGhzProtocolFlag_Send,
+
+    .decoder = &subghz_protocol_gate_tx_decoder,
+    .encoder = &subghz_protocol_gate_tx_encoder,
+};
+
+void* subghz_protocol_encoder_gate_tx_alloc(SubGhzEnvironment* environment) {
+    UNUSED(environment);
+    return subghz_protocol_encoder_common_alloc(
+        sizeof(SubGhzProtocolEncoderGateTx),
+        &subghz_protocol_gate_tx,
+        3,
+        52); //max 24bit*2 + 2 (start, stop)
+}
+
+/**
+ * Generating an upload from data.
+ * @param instance Pointer to a SubGhzProtocolEncoderGateTx instance
+ * @return true Always; this encoder has no failure path
+ */
+static bool subghz_protocol_encoder_gate_tx_get_upload(void* context) {
+    SubGhzProtocolEncoderGateTx* instance = context;
+    furi_assert(instance);
+    size_t index = 0;
+    size_t size_upload = (instance->generic.data_count_bit * 2) + 2;
+    if(size_upload > instance->encoder.size_upload) {
+        FURI_LOG_E(TAG, "Size upload exceeds allocated encoder buffer.");
+        return false;
+    } else {
+        instance->encoder.size_upload = size_upload;
+    }
+    //Send header
+    instance->encoder.upload[index++] =
+        level_duration_make(false, (uint32_t)subghz_protocol_gate_tx_const.te_short * 49);
+    //Send start bit
+    instance->encoder.upload[index++] =
+        level_duration_make(true, (uint32_t)subghz_protocol_gate_tx_const.te_long);
+    //Send key data
+    for(uint8_t i = instance->generic.data_count_bit; i > 0; i--) {
+        if(bit_read(instance->generic.data, i - 1)) {
+            //send bit 1
+            instance->encoder.upload[index++] =
+                level_duration_make(false, (uint32_t)subghz_protocol_gate_tx_const.te_long);
+            instance->encoder.upload[index++] =
+                level_duration_make(true, (uint32_t)subghz_protocol_gate_tx_const.te_short);
+        } else {
+            //send bit 0
+            instance->encoder.upload[index++] =
+                level_duration_make(false, (uint32_t)subghz_protocol_gate_tx_const.te_short);
+            instance->encoder.upload[index++] =
+                level_duration_make(true, (uint32_t)subghz_protocol_gate_tx_const.te_long);
+        }
+    }
+    return true;
+}
+
+SubGhzProtocolStatus
+    subghz_protocol_encoder_gate_tx_deserialize(void* context, FlipperFormat* flipper_format) {
+    return subghz_protocol_encoder_common_deserialize(
+        context,
+        flipper_format,
+        subghz_protocol_gate_tx_const.min_count_bit_for_found,
+        subghz_protocol_encoder_gate_tx_get_upload);
+}
+
+void* subghz_protocol_decoder_gate_tx_alloc(SubGhzEnvironment* environment) {
+    UNUSED(environment);
+    return subghz_protocol_decoder_common_alloc(
+        sizeof(SubGhzProtocolDecoderGateTx), &subghz_protocol_gate_tx);
+}
+
+void subghz_protocol_decoder_gate_tx_feed(void* context, bool level, uint32_t duration) {
+    furi_assert(context);
+    SubGhzProtocolDecoderGateTx* instance = context;
+
+    switch(instance->decoder.parser_step) {
+    case GateTXDecoderStepReset:
+        if((!level) && (DURATION_DIFF(duration, subghz_protocol_gate_tx_const.te_short * 47) <
+                        subghz_protocol_gate_tx_const.te_delta * 47)) {
+            //Found Preambula
+            instance->decoder.parser_step = GateTXDecoderStepFoundStartBit;
+        }
+        break;
+    case GateTXDecoderStepFoundStartBit:
+        if(level && (DURATION_DIFF(duration, subghz_protocol_gate_tx_const.te_long) <
+                     subghz_protocol_gate_tx_const.te_delta * 3)) {
+            //Found start bit
+            instance->decoder.parser_step = GateTXDecoderStepSaveDuration;
+            instance->decoder.decode_data = 0;
+            instance->decoder.decode_count_bit = 0;
+        } else {
+            instance->decoder.parser_step = GateTXDecoderStepReset;
+        }
+        break;
+    case GateTXDecoderStepSaveDuration:
+        if(!level) {
+            if(duration >= ((uint32_t)subghz_protocol_gate_tx_const.te_short * 10 +
+                            subghz_protocol_gate_tx_const.te_delta)) {
+                instance->decoder.parser_step = GateTXDecoderStepFoundStartBit;
+                if(instance->decoder.decode_count_bit ==
+                   subghz_protocol_gate_tx_const.min_count_bit_for_found) {
+                    instance->generic.data = instance->decoder.decode_data;
+                    instance->generic.data_count_bit = instance->decoder.decode_count_bit;
+
+                    if(instance->base.callback)
+                        instance->base.callback(&instance->base, instance->base.context);
+                }
+                instance->decoder.decode_data = 0;
+                instance->decoder.decode_count_bit = 0;
+                break;
+            } else {
+                instance->decoder.te_last = duration;
+                instance->decoder.parser_step = GateTXDecoderStepCheckDuration;
+            }
+        }
+        break;
+    case GateTXDecoderStepCheckDuration:
+        if(level) {
+            if((DURATION_DIFF(instance->decoder.te_last, subghz_protocol_gate_tx_const.te_short) <
+                subghz_protocol_gate_tx_const.te_delta) &&
+               (DURATION_DIFF(duration, subghz_protocol_gate_tx_const.te_long) <
+                subghz_protocol_gate_tx_const.te_delta * 3)) {
+                subghz_protocol_blocks_add_bit(&instance->decoder, 0);
+                instance->decoder.parser_step = GateTXDecoderStepSaveDuration;
+            } else if(
+                (DURATION_DIFF(instance->decoder.te_last, subghz_protocol_gate_tx_const.te_long) <
+                 subghz_protocol_gate_tx_const.te_delta * 3) &&
+                (DURATION_DIFF(duration, subghz_protocol_gate_tx_const.te_short) <
+                 subghz_protocol_gate_tx_const.te_delta)) {
+                subghz_protocol_blocks_add_bit(&instance->decoder, 1);
+                instance->decoder.parser_step = GateTXDecoderStepSaveDuration;
+            } else {
+                instance->decoder.parser_step = GateTXDecoderStepReset;
+            }
+        } else {
+            instance->decoder.parser_step = GateTXDecoderStepReset;
+        }
+        break;
+    }
+}
+
+/** 
+ * Analysis of received data
+ * @param instance Pointer to a SubGhzBlockGeneric* instance
+ */
+static void subghz_protocol_gate_tx_check_remote_controller(SubGhzBlockGeneric* instance) {
+    uint32_t code_found_reverse =
+        subghz_protocol_blocks_reverse_key(instance->data, instance->data_count_bit);
+
+    instance->serial = (code_found_reverse & 0xFF) << 12 |
+                       ((code_found_reverse >> 8) & 0xFF) << 4 |
+                       ((code_found_reverse >> 20) & 0x0F);
+    instance->btn = ((code_found_reverse >> 16) & 0x0F);
+}
+
+SubGhzProtocolStatus
+    subghz_protocol_decoder_gate_tx_deserialize(void* context, FlipperFormat* flipper_format) {
+    furi_assert(context);
+    SubGhzProtocolDecoderGateTx* instance = context;
+    return subghz_block_generic_deserialize_check_count_bit(
+        &instance->generic, flipper_format, subghz_protocol_gate_tx_const.min_count_bit_for_found);
+}
+
+void subghz_protocol_decoder_gate_tx_get_string(void* context, FuriString* output) {
+    furi_assert(context);
+    SubGhzProtocolDecoderGateTx* instance = context;
+    subghz_protocol_gate_tx_check_remote_controller(&instance->generic);
+
+    // push protocol data to global variable
+    subghz_block_generic_global.btn_is_available = false;
+    subghz_block_generic_global.current_btn = instance->generic.btn;
+    subghz_block_generic_global.btn_length_bit = 4;
+    //
+
+    furi_string_cat_printf(
+        output,
+        "%s %dbit\r\n"
+        "Key:%06lX\r\n"
+        "Sn:%05lX  Btn:%X\r\n",
+        instance->generic.protocol_name,
+        instance->generic.data_count_bit,
+        (uint32_t)(instance->generic.data & 0xFFFFFF),
+        instance->generic.serial,
+        instance->generic.btn);
+}
