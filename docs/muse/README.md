@@ -58,3 +58,14 @@ and tags are unchanged. Reset destroys the ephemeral key and clears session
 secrets. Hardware-backed identity signing keeps its existing PSA policy and
 performs no provisioning or eFuse writes. Noise continues to select its existing
 `PsaCryptoBackend.cpp`; the upstream Mbed TLS backend is retained but not built.
+
+## P4 renderer memory
+
+The upstream Meta pixel renderer retains its Apache-2.0 notices and rendering
+algorithm. The local `MUSE_BUFFER_ATTR` annotation places its framebuffer, mask,
+and power/root lookup tables in external BSS only on ESP builds; host builds use
+an empty annotation. These are CPU-only intermediates, not LCD DMA buffers.
+The P4 display's internal DMA buffers and LVGL stack are unchanged. Updating the
+renderer must retain or reapply these five placement annotations. A host comparison
+against the pre-annotation renderer produced byte-identical RGB565 output for
+84 frames across all seven modes; this does not measure PSRAM frame time on device.

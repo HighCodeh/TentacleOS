@@ -1,6 +1,28 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
 #include "muse_pixel.h"
+
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define MUSE_BUFFER_ATTR EXT_RAM_BSS_ATTR
+#else
+#define MUSE_BUFFER_ATTR
+#endif
 
 #include <math.h>
 #include <stdlib.h>
@@ -81,8 +103,8 @@ static bool s_scheme_init;
 static uint16_t s_pal[C_COUNT];
 static uint16_t s_pal_dim[C_COUNT];
 
-static uint8_t s_fb[W * H];
-static uint8_t s_mask[W * H];
+MUSE_BUFFER_ATTR static uint8_t s_fb[W * H];
+MUSE_BUFFER_ATTR static uint8_t s_mask[W * H];
 
 static const uint8_t BAYER4[4][4] = {
     {0, 8, 2, 10},
@@ -101,11 +123,11 @@ static const uint8_t BAYER4[4][4] = {
 #define ONE           (1 << Q)
 #define QF(v)         ((int32_t)((v) * ONE))
 #define POW_LUT_N     256
-#define POW_LUT_MAX_Q QF(1.2f)            /* body_field() bails out beyond this */
-#define SQRT_LUT_N    1024                /* indexed by x >> 2 */
-static int16_t s_pow_dome[POW_LUT_N + 1]; /* |u|^2.7 */
-static int16_t s_pow_base[POW_LUT_N + 1]; /* |u|^3.6 */
-static int16_t s_sqrt[SQRT_LUT_N + 1];
+#define POW_LUT_MAX_Q QF(1.2f)                             /* body_field() bails out beyond this */
+#define SQRT_LUT_N    1024                                 /* indexed by x >> 2 */
+MUSE_BUFFER_ATTR static int16_t s_pow_dome[POW_LUT_N + 1]; /* |u|^2.7 */
+MUSE_BUFFER_ATTR static int16_t s_pow_base[POW_LUT_N + 1]; /* |u|^3.6 */
+MUSE_BUFFER_ATTR static int16_t s_sqrt[SQRT_LUT_N + 1];
 
 static void init_luts(void) {
   for (int i = 0; i <= POW_LUT_N; i++) {

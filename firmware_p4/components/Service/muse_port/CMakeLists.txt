@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-# Actual portable controller and unmodified official Muse pixel renderer.
+# Portable controller and official renderer with P4 CPU-buffer placement annotations.
 idf_component_register(SRCS
   "p4_app/hb_muse_app.c" "core/hb_muse_core.c"
   "transport/hb_muse_wire.c" "transport/hb_muse_wire_client.c"
