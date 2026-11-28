@@ -32,7 +32,7 @@ static const char *TAG = "TEST";
 static int s_screen_storage, s_timer_storage, s_status_storage;
 static void *s_screen = &s_screen_storage, *s_active, *s_status_label = &s_status_storage;
 static lv_timer_t *s_refresh_timer = &s_timer_storage;
-static unsigned s_stops, s_closed, s_sends, s_errors, s_details, s_backs;
+static unsigned s_stops, s_closed, s_sends, s_errors, s_detail_opens, s_backs;
 static subghz_tx_status_t s_status;
 static subghz_replay_t s_replay;
 static bool s_owns_tx, s_is_pressed, s_is_repeating, s_is_active, s_is_direct;
@@ -60,9 +60,16 @@ static void lv_label_set_text_fmt(void *label, const char *text, unsigned long c
 void led_signal_error(void) {}
 static void update_selection(void) {}
 static void ui_feedback(int event) { assert(event == UI_FB_NAV); }
-static void build_detail(const char *name) { ++s_details; s_view = SUBGHZ_SEND_DETAIL; }
+static void build_detail(const char *name) { ++s_detail_opens; s_view = SUBGHZ_SEND_DETAIL; }
 static void build_list(void) {}
 static void ui_switch_screen(int screen) { assert(screen == SCREEN_SUBGHZ_MENU); ++s_backs; }
+#define DETAIL_SCROLL_STEP 24
+#define LV_ANIM_OFF 0
+static void *s_details;
+static void lv_obj_scroll_by(void *object, int x, int y, int animation) {
+  assert(object == s_details && x == 0 && animation == LV_ANIM_OFF);
+  assert(y == DETAIL_SCROLL_STEP || y == -DETAIL_SCROLL_STEP);
+}
 /* CALLBACK */
 static void event(int action, int button) {
   if (button == INPUT_BTN_OK) {
@@ -72,7 +79,7 @@ static void event(int action, int button) {
   input_event_t input = {action, button}; subghz_send_input(&input, NULL);
 }
 static void reset(void) {
-  s_stops = s_closed = s_sends = s_errors = s_details = s_backs = 0;
+  s_stops = s_closed = s_sends = s_errors = s_detail_opens = s_backs = 0;
   s_active = s_screen; s_view = SUBGHZ_SEND_DETAIL; s_send_error = ESP_OK;
   s_owns_tx = s_is_pressed = s_is_repeating = s_is_active = s_is_direct = false;
   s_sent_count = 0; s_status = (subghz_tx_status_t){0};
@@ -81,10 +88,10 @@ static void reset(void) {
 }
 int main(void) {
   reset(); s_view = SUBGHZ_SEND_LIST; s_sig_count = 0;
-  event(INPUT_ACTION_PRESS, INPUT_BTN_OK); assert(!s_sends && !s_details);
+  event(INPUT_ACTION_PRESS, INPUT_BTN_OK); assert(!s_sends && !s_detail_opens);
   s_sig_count = 1; event(INPUT_ACTION_PRESS, INPUT_BTN_OK);
   event(INPUT_ACTION_LONG_PRESS, INPUT_BTN_OK);
-  refresh_tick_cb(NULL); assert(s_details == 1 && !s_sends); // Opening never sends.
+  refresh_tick_cb(NULL); assert(s_detail_opens == 1 && !s_sends); // Opening never sends.
   event(INPUT_ACTION_RELEASE, INPUT_BTN_OK);
   event(INPUT_ACTION_PRESS, INPUT_BTN_OK); assert(s_sends == 1);
   event(INPUT_ACTION_RELEASE, INPUT_BTN_OK); assert(s_stops == 1 && !s_is_active);

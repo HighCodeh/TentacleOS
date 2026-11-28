@@ -55,7 +55,8 @@ static const char *TAG = "SUBGHZ_SEND_UI";
 #define ROW_GLOW_W         14
 #define ROW_GLOW_SPREAD    -2
 #define DETAIL_PAD         10
-#define DETAIL_GAP         6
+#define DETAIL_GAP         3
+#define DETAIL_SCROLL_STEP 24
 #define DETAIL_KEY_SIZE    112
 #define STATUS_PAD         6
 #define STATUS_RADIUS      8
@@ -72,6 +73,7 @@ EXT_RAM_BSS_ATTR static lv_obj_t *s_row_val[SIGNAL_MAX];
 static lv_obj_t *s_screen;
 static lv_obj_t *s_list;
 static lv_obj_t *s_status_label;
+static lv_obj_t *s_details;
 static lv_obj_t *s_hint_label;
 static lv_timer_t *s_refresh_timer;
 static subghz_replay_t s_replay;
@@ -165,6 +167,7 @@ static void update_selection(void) {
 static void build_list(void) {
   delete_screen();
   s_status_label = NULL;
+  s_details = NULL;
   s_hint_label = NULL;
   s_list = NULL;
 
@@ -263,7 +266,7 @@ static void build_list(void) {
 static lv_obj_t *detail_label(lv_obj_t *parent, const char *text, lv_color_t color) {
   lv_obj_t *label = lv_label_create(parent);
   lv_obj_set_width(label, lv_pct(100));
-  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_label_set_text(label, text);
   lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(label, color, 0);
@@ -293,21 +296,47 @@ static void build_detail(const char *name) {
   lv_obj_set_style_pad_all(content, DETAIL_PAD, 0);
   lv_obj_set_style_pad_row(content, DETAIL_GAP, 0);
   lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
   detail_label(content, name, current_theme.border_accent);
+  s_details = lv_obj_create(content);
+  lv_obj_set_size(s_details, lv_pct(100), 0);
+  lv_obj_set_flex_grow(s_details, 1);
+  lv_obj_set_style_bg_opa(s_details, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_details, 0, 0);
+  lv_obj_set_style_pad_all(s_details, 0, 0);
+  lv_obj_set_style_pad_row(s_details, DETAIL_GAP, 0);
+  lv_obj_set_flex_flow(s_details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(s_details, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(s_details, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_style_bg_color(s_details, current_theme.border_accent, LV_PART_SCROLLBAR);
   if (error == ESP_OK) {
     char frequency[SUBGHZ_STORAGE_NAME_MAX];
     fmt_mhz(s_replay.config.frequency_hz, frequency, sizeof(frequency));
-    detail_label(content, frequency, current_theme.text_main);
-    detail_label(content, s_replay.protocol, current_theme.text_main);
-    char key[DETAIL_KEY_SIZE];
-    if (s_replay.key[0])
-      snprintf(key, sizeof(key), "Key: %s", s_replay.key);
-    else if (s_replay.raw_file && !s_replay.count)
-      snprintf(key, sizeof(key), "RAW waveform: SD stream");
-    else
-      snprintf(key, sizeof(key), "RAW waveform: %u pulses", (unsigned)s_replay.count);
-    detail_label(content, key, current_theme.text_secondary);
+    detail_label(s_details, frequency, current_theme.text_main);
+    if (s_replay.details != NULL && s_replay.details[0]) {
+      char *line = s_replay.details;
+      while (*line) {
+        size_t length = strcspn(line, "\r\n");
+        char saved = line[length];
+        line[length] = '\0';
+        if (length)
+          detail_label(s_details, line, current_theme.text_main);
+        line[length] = saved;
+        line += length;
+        while (*line == '\r' || *line == '\n')
+          ++line;
+      }
+    } else {
+      detail_label(s_details, s_replay.protocol, current_theme.text_main);
+      char key[DETAIL_KEY_SIZE];
+      if (s_replay.key[0])
+        snprintf(key, sizeof(key), "Key: %s", s_replay.key);
+      else if (s_replay.raw_file && !s_replay.count)
+        snprintf(key, sizeof(key), "RAW waveform: SD stream");
+      else
+        snprintf(key, sizeof(key), "RAW waveform: %u pulses", (unsigned)s_replay.count);
+      detail_label(s_details, key, current_theme.text_secondary);
+    }
   } else {
     ESP_LOGE(TAG, "Cannot prepare signal: %s", esp_err_to_name(error));
     led_signal_error();
@@ -324,7 +353,7 @@ static void build_detail(const char *name) {
   lv_obj_set_style_radius(s_status_label, STATUS_RADIUS, 0);
   lv_obj_set_style_pad_all(s_status_label, STATUS_PAD, 0);
   lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
-  s_hint_label = ui_chrome_footer(s_screen, "Hold OK to send   BACK exit");
+  s_hint_label = ui_chrome_footer(s_screen, "UP/DOWN info  Hold OK send  BACK");
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
@@ -404,6 +433,14 @@ static void subghz_send_input(const input_event_t *event, void *context) {
     } else if (is_press && event->button == INPUT_BTN_BACK) {
       ui_switch_screen(SCREEN_SUBGHZ_MENU);
     }
+    return;
+  }
+  if (is_nav && (event->button == INPUT_BTN_UP || event->button == INPUT_BTN_DOWN)) {
+    if (s_details != NULL)
+      lv_obj_scroll_by(s_details,
+                       0,
+                       event->button == INPUT_BTN_UP ? DETAIL_SCROLL_STEP : -DETAIL_SCROLL_STEP,
+                       LV_ANIM_OFF);
     return;
   }
   if (event->button == INPUT_BTN_BACK && is_press) {

@@ -101,6 +101,7 @@ esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out) {
   *out = (subghz_replay_t){0};
   if (fail_load) return ESP_ERR_NOT_SUPPORTED;
   out->pulses = pulses; out->count = 2; out->config.frequency_hz = 315000000;
+  out->details = strdup("Princeton 24bit\r\nKey:0x00555503\r\nYek:0x00C0AAAA\r\nSn:0x05555 Btn:03 (8b)\r\nTe:465us GT:Te*31\r\n");
   strcpy(out->protocol, "Princeton"); strcpy(out->key, "00 00 00 00 AB CD EF 01"); return ESP_OK;
 }
 static unsigned raw_refs;
@@ -121,6 +122,7 @@ esp_err_t subghz_replay_prepare(const char *text, subghz_replay_t *out) {
 }
 void subghz_replay_free(subghz_replay_t *replay) {
   if (replay->pulses) ++frees;
+  free(replay->details);
   subghz_raw_file_release(replay->raw_file);
   *replay = (subghz_replay_t){0};
 }
@@ -147,6 +149,17 @@ static void check_detail(void) {
     lv_area_t area; lv_obj_get_coords(label, &area);
     assert(area.x1 >= 0 && area.x2 < ui_screen_w());
     assert(area.y1 >= UI_CHROME_HEADER_H && area.y2 < ui_screen_h() - UI_CHROME_FOOTER_H);
+  }
+  if (s_replay.details) {
+    assert(lv_obj_get_child_count(s_details) == 6);
+    assert(strstr(lv_label_get_text(lv_obj_get_child(s_details, 2)), "Key:0x00555503"));
+    assert(strstr(lv_label_get_text(lv_obj_get_child(s_details, 5)), "GT:Te*31"));
+    lv_obj_scroll_to_y(s_details, LV_COORD_MAX, LV_ANIM_OFF); lv_obj_update_layout(s_screen);
+    lv_area_t last, bounds;
+    lv_obj_get_coords(lv_obj_get_child(s_details, 5), &last);
+    lv_obj_get_coords(s_details, &bounds);
+    assert(last.y2 <= bounds.y2);
+    lv_obj_scroll_to_y(s_details, 0, LV_ANIM_OFF);
   }
   assert(lv_color_eq(lv_obj_get_style_bg_color(s_screen, 0), current_theme.screen_base));
   assert(lv_color_eq(lv_obj_get_style_text_color(s_status_label, 0), current_theme.border_accent));

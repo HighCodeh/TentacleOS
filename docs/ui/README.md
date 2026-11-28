@@ -1035,6 +1035,14 @@ See [NFC naming and dump selection](../nfc/README.md) and
 [IR captured signals](../ir/README.md#captured-signals-and-names) for persistence
 and missing-data behavior. No folder chooser is introduced.
 
+Sub-GHz Send displays the codec's own protocol description, including hexadecimal
+Key, reversed-bit Yek, serial/button interpretation, TE and guard multiplier when
+provided by that protocol. The description refers to the loaded capture; it does
+not imply persistent rolling-counter updates. UP/DOWN scrolls the details while
+the filename, transmit status and OK press/hold controls remain available. Long
+individual lines scroll horizontally. RAW keeps its waveform summary, and a codec
+without a usable description falls back to the file's protocol/key summary.
+
 Sub-GHz Read result cards show `Protocol / N bits`, a compact hexadecimal Key,
 and frequency/pulse count on three separate full-width lines. Only zero padding
 beyond the declared bit width is removed from the displayed key; stored data is
