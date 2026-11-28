@@ -13,11 +13,12 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-# Name,     Type, SubType,  Offset,   Size,     Flags
-nvs,        data,       nvs,            0x9000,     24K,
-otadata,    data,       ota,            0xf000,     8K,
-phy_init,   data,       phy,            0x11000,    4K,
-ota_0,      app,        ota_0,          0x20000,    0x310000,
-ota_1,      app,        ota_1,          0x330000,   0x310000,
-coredump,   data,       coredump,       0x640000,   64K,
-assets,     data,       littlefs,       0x650000,   0x1B0000,
+# P4 with installed 16 MB flash; two equal OTA slots.
+# Name, Type, SubType, Offset, Size, Flags
+nvs,data,nvs,0x9000,24K,
+otadata,data,ota,0xf000,8K,
+phy_init,data,phy,0x11000,4K,
+ota_0,app,ota_0,0x20000,0x600000,
+ota_1,app,ota_1,0x620000,0x600000,
+coredump,data,coredump,0xc20000,64K,
+assets,data,littlefs,0xc30000,0x3d0000,

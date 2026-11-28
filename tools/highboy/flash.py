@@ -32,13 +32,11 @@ TABLE_OFFSET = 0x8000
 TABLE_SIZE = 0xC00
 SECTOR_SIZE = 0x1000
 BOOT_OFFSET = 0x2000
-SLOT_SIZES = {'p4': 0x310000, 'c5': 0x300000}
-FLASH_SIZE = 0x800000
+FLASH_SIZES = {'p4': 0x1000000, 'c5': 0x800000}
 BACKUP_CHUNK_SIZE = 0x80000
 TOOL_TIMEOUT_SECONDS = 600
 PROFILES = {
-    ('p4', '8MB'): (0x800000, 0x310000, 'partitions.csv'),
-    ('p4', '16MB'): (0x1000000, 0x600000, 'partitions_16mb.csv'),
+    ('p4', '16MB'): (0x1000000, 0x600000, 'partitions.csv'),
     ('c5', '8MB'): (0x800000, 0x300000, 'partitions.csv'),
 }
 
@@ -101,7 +99,9 @@ def image_valid(data, target='p4'):
     return image
 
 
-def validate_device(flash, expected_table, gen, target='p4', flash_size=FLASH_SIZE):
+def validate_device(flash, expected_table, gen, target='p4', flash_size=None):
+    if flash_size is None:
+        flash_size = FLASH_SIZES[target]
     require(len(flash) == flash_size, 'Incomplete full flash backup.')
     installed_table = flash[TABLE_OFFSET:TABLE_OFFSET + TABLE_SIZE]
     require(installed_table == expected_table[:TABLE_SIZE],

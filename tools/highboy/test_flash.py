@@ -68,7 +68,7 @@ class OtaTests(unittest.TestCase):
 
 class LayoutFixture:
     target = 'p4'
-    flash_size = 0x800000
+    flash_size = 0x1000000
     table_file = 'partitions.csv'
     @classmethod
     def setUpClass(cls):
@@ -96,7 +96,7 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         self.data[0xF000:0x11000] = ota_entry(3) + ota_entry(4)
         with patch.object(flash, 'image_valid'):
             slot = flash.validate_device(self.data, self.table, self.gen)
-        self.assertEqual(slot.offset, 0x330000)
+        self.assertEqual(slot.offset, 0x620000)
 
     def test_previous_p4_layout_is_rejected(self):
         from fixtures.recovery_tables import TABLES
@@ -108,9 +108,9 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
 
     def test_previous_nfc_layout_is_rejected(self):
         old_csv = (flash.ROOT / 'firmware_p4/partitions.csv').read_text()
-        for current, previous in [('0x310000', '0x2F0000'), ('0x330000', '0x310000'),
-                                  ('0x640000', '0x600000'), ('0x650000', '0x610000'),
-                                  ('0x1B0000', '0x1F0000')]:
+        for current, previous in [('0x600000', '0x2F0000'), ('0x620000', '0x310000'),
+                                  ('0xc20000', '0x600000'), ('0xc30000', '0x610000'),
+                                  ('0x3d0000', '0x1F0000')]:
             old_csv = old_csv.replace(current, previous)
         old_table = self.gen.PartitionTable.from_csv(old_csv).to_binary()
         self.data[flash.TABLE_OFFSET:flash.TABLE_OFFSET + len(old_table)] = old_table
@@ -136,7 +136,7 @@ class LayoutTests(LayoutFixture, unittest.TestCase):
         verify.assert_not_called()
 
     def test_erased_assets_rejected(self):
-        self.data[0x650000:0x650004] = b'\xff' * 4
+        self.data[0xc30000:0xc30004] = b'\xff' * 4
         with patch.object(flash, 'image_valid'):
             with self.assertRaisesRegex(ValueError, 'Assets partition is empty'):
                 flash.validate_device(self.data, self.table, self.gen)
@@ -279,7 +279,7 @@ class FlowTests(LayoutFixture, unittest.TestCase):
 
 class P4SixteenTests(FlowTests):
     flash_size = 0x1000000
-    table_file = 'partitions_16mb.csv'
+    table_file = 'partitions.csv'
 
     def test_write_only_selected_app_after_backup_verify(self):
         super().test_write_only_selected_app_after_backup_verify()
@@ -304,7 +304,7 @@ class BuildSelectionTests(unittest.TestCase):
             build = project / 'build'
             build.mkdir(parents=True)
             (build / 'TentacleOS_P4.bin').write_bytes(b'candidate')
-            build_metadata(build, project, 'p4', 0x1000000, 'partitions_16mb.csv')
+            build_metadata(build, project, 'p4', 0x1000000, 'partitions.csv')
             selected, profile = flash.select_build(project, 'p4')
             self.assertEqual(selected, build.resolve())
             self.assertEqual(profile[:2], (0x1000000, 0x600000))
@@ -312,6 +312,16 @@ class BuildSelectionTests(unittest.TestCase):
                 flash.select_build(project, 'p4', project / 'alternative')
             build_metadata(build, project, 'c5')
             with self.assertRaisesRegex(ValueError, 'wrong chip'):
+                flash.select_build(project, 'p4')
+
+    def test_obsolete_p4_capacity_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            build = project / 'build'
+            build.mkdir()
+            (build / 'TentacleOS_P4.bin').write_bytes(b'candidate')
+            build_metadata(build, project, 'p4', 0x800000)
+            with self.assertRaises(ValueError):
                 flash.select_build(project, 'p4')
 
     def test_alternate_directory_does_not_replace_missing_build(self):
@@ -326,6 +336,7 @@ class BuildSelectionTests(unittest.TestCase):
 
 class C5Tests(LayoutFixture, unittest.TestCase):
     target = 'c5'
+    flash_size = 0x800000
     exercise = FlowTests.exercise
 
     def test_c5_second_slot_uses_c5_map(self):
@@ -491,7 +502,7 @@ class FullFlashTests(LayoutFixture, unittest.TestCase):
     def test_migration_preserves_nvs_and_phy(self):
         from full_flash import validate_migration
         new = self.gen.PartitionTable.from_csv(
-            (flash.ROOT / 'firmware_p4/partitions_16mb.csv').read_text()).to_binary()
+            (flash.ROOT / 'firmware_p4/partitions.csv').read_text()).to_binary()
         validate_migration(bytes(self.data) + b'\xff' * 0x800000, new, self.gen)
         validate_migration(b'\xff' * 0x1000000, new, self.gen)
         moved = self.gen.PartitionTable.from_binary(new)
@@ -548,16 +559,16 @@ class FullFlashTests(LayoutFixture, unittest.TestCase):
             (build / 'ota_data_initial.bin').write_bytes(b'\xff' * parts['otadata'].size)
             (build / 'assets.bin').write_bytes(b'A' * parts['assets'].size)
             (build / 'flasher_args.json').write_text(json.dumps({'flash_files': files}))
-            image = SimpleNamespace(flash_size_freq=0x30,
-                                    ROM_LOADER=SimpleNamespace(FLASH_SIZES={'8MB': 0x30}))
+            image = SimpleNamespace(flash_size_freq=0x40,
+                                    ROM_LOADER=SimpleNamespace(FLASH_SIZES={'16MB': 0x40}))
             validate = lambda *_: image
             def plan():
                 return prepare(build, 'p4', self.flash_size, self.table, b'app', self.gen, validate)
             self.assertEqual(len(plan()), 6)
-            image.flash_size_freq = 0x40
+            image.flash_size_freq = 0x30
             with self.assertRaisesRegex(ValueError, 'Bootloader flash size'):
                 plan()
-            image.flash_size_freq = 0x30
+            image.flash_size_freq = 0x40
             (build / 'assets.bin').unlink()
             with self.assertRaisesRegex(ValueError, 'Missing assets'):
                 plan()

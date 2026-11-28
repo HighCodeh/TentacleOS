@@ -64,7 +64,7 @@ def main():
     require(headers[0] == headers[1], "P4/C5 SPI contract mismatch")
     require(re.search(rb"#define\s+SPI_PROTOCOL_VERSION\s+2\b", headers[0]), "Unexpected SPI version")
     require(re.search(rb"#define\s+SPI_TRANSPORT_REVISION\s+1\b", headers[0]), "Unexpected SPI transport revision")
-    for chip, slot in (("p4", 0x310000), ("c5", 0x300000)):
+    for chip, slot in (("p4", 0x600000), ("c5", 0x300000)):
         project = ROOT / f"firmware_{chip}"
         roots = {p.name for p in (project / "components").iterdir() if p.is_dir()}
         require(roots <= {"Applications", "Core", "Drivers", "Service"}, "Component outside architecture roots")
@@ -78,6 +78,11 @@ def main():
         default_paths = [project / "sdkconfig.defaults"]
         defaults = config_values(default_paths)
         require(defaults.get("CONFIG_PARTITION_TABLE_OFFSET") == "0x8000", "Unexpected partition offset")
+        require(defaults.get("CONFIG_PARTITION_TABLE_CUSTOM_FILENAME") == '"partitions.csv"',
+                "Use the canonical partitions.csv")
+        flash_size = "16MB" if chip == "p4" else "8MB"
+        require(defaults.get(f"CONFIG_ESPTOOLPY_FLASHSIZE_{flash_size}") == "y",
+                "Unexpected default flash size")
         if chip == "c5":
             for key, expected in C5_MEMORY.items():
                 if key != "CONFIG_IDF_TARGET":
@@ -94,6 +99,11 @@ def main():
             else:
                 effective = config_values([config])
             require(effective.get("CONFIG_IDF_TARGET") == f'"esp32{chip}"', "Wrong compiled target")
+            if args.require_built == chip:
+                require(effective.get("CONFIG_PARTITION_TABLE_CUSTOM_FILENAME") == '"partitions.csv"',
+                        "Reconfigure the build with the canonical partitions.csv")
+                require(effective.get(f"CONFIG_ESPTOOLPY_FLASHSIZE_{flash_size}") == "y",
+                        "Reconfigure the build with the canonical flash size")
             for key in ("SECURE_BOOT", "SECURE_FLASH_ENC_ENABLED", "SECURE_SIGNED_APPS_NO_SECURE_BOOT"):
                 require(effective.get(f"CONFIG_{key}") != "y", "Unexpected security migration")
             if chip == "c5":
