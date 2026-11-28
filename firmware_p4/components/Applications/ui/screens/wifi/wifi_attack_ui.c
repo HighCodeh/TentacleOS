@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_attack_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,7 @@
 #include "sys_prio.h"
 #include "lvgl.h"
 
+#include "led_control.h"
 #include "menu_component_ui.h"
 #include "msgbox_ui.h"
 #include "ui_chrome.h"
@@ -99,7 +101,7 @@ typedef struct {
 } pick_ap_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_timer_t *s_elapsed_timer = NULL;
 static lv_obj_t *s_elapsed_label = NULL;
 static uint32_t s_start_tick = 0;
@@ -215,7 +217,7 @@ static void build_pick_list(void) {
       menu_component_add_item(&s_menu, PICK_ICON, row);
     }
   }
-  menu_component_set_hint(&s_menu, "OK target   BACK exit");
+  menu_component_set_hint(&s_menu, "LEFT/RIGHT page | OK select | BACK");
 
   fade_in(s_menu.title_bar, UI_CONTENT_FADE_MS);
   fade_in(s_menu.items_cont, UI_CONTENT_FADE_MS);
@@ -401,7 +403,22 @@ static void ap_pick_done_cb(void *unused) {
   (void)unused;
   if (ui_current_screen() != SCREEN_WIFI_ATTACK_MENU)
     return;
+  bool is_new_screen = s_screen == NULL;
+  if (is_new_screen) {
+    s_screen = lv_obj_create(NULL);
+    if (s_screen == NULL) {
+      ESP_LOGE(TAG, "Failed to recreate scan results screen");
+      led_signal_error();
+      ui_switch_screen(SCREEN_WIFI_MENU);
+      return;
+    }
+    lv_obj_set_style_bg_color(s_screen, current_theme.screen_base, 0);
+    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+  }
   build_pick_list();
+  if (is_new_screen)
+    ui_screen_load_owned(&s_screen, s_screen);
   ui_input_set_screen_handler(wifi_attack_input, NULL);
   if (s_ap_count > 0)
     ui_feedback(UI_FB_READ);
@@ -431,7 +448,6 @@ static void ap_pick_task(void *arg) {
   s_ap_count = n;
   s_is_pick_scanning = false;
   ap_pick_done_cb(NULL);
-  menu_component_set_hint(&s_menu, "LEFT/RIGHT page | OK select | BACK");
 }
 
 static void start_ap_pick(attack_kind_t kind) {

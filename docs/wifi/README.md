@@ -55,7 +55,14 @@ continuously by default. APs appear after each channel completes, with a 200 ms
 UI refresh; this is channel-by-channel publication, not a callback per beacon.
 UP/DOWN browses the growing list. BACK stops scanning and retains the discovered
 APs in the original results/selection screen. BACK there follows that screen's
-normal navigation. LEFT/RIGHT pages through AP selection lists. Survey retains
+normal navigation. The attack target picker recreates its owned results screen
+after the live scanner deletes the outgoing screen; later page changes reuse
+that results screen. Allocation failure returns to the Wi-Fi menu. This fixes
+the invalid-screen access on BACK without changing radio transmission behavior.
+`python3 tools/highboy/test_wifi_scan_return.py` exercises the production return
+callback with host screen fakes: 100 reentries, empty/populated results, paging,
+allocation failure/retry and stale completion. Hardware confirmation remains required.
+LEFT/RIGHT pages through AP selection lists. Survey retains
 its explicitly selected single-sweep and timed modes.
 
 The radio worker runs on core 0; all LVGL updates run on the UI thread. Results
