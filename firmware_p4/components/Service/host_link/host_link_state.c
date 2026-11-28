@@ -20,6 +20,7 @@
 // console-output LOG frames.
 
 #include "host_link_state.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -131,7 +132,7 @@ static uint8_t do_console_exec(const uint8_t *payload, uint16_t plen) {
   line[plen] = '\0';
 
   // Capture the command's stdout and forward it as console-output LOG frames.
-  static char capbuf[STATE_CONSOLE_CAPBUF];
+  EXT_RAM_BSS_ATTR static char capbuf[STATE_CONSOLE_CAPBUF];
   FILE *mem = fmemopen(capbuf, sizeof(capbuf), "w");
   int cmd_ret = 0;
   if (mem != NULL) {

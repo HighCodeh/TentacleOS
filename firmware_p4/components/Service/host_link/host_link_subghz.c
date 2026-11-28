@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "host_link_subghz.h"
+#include "esp_attr.h"
 
 #include <string.h>
 
@@ -223,7 +224,7 @@ uint8_t host_subghz_handle(uint16_t cmd,
       int max_rows = (out_cap - 1) / row;
       if (max_rows > 32)
         max_rows = 32;
-      static subghz_storage_entry_t entries[32];
+      EXT_RAM_BSS_ATTR static subghz_storage_entry_t entries[32];
       int count = subghz_storage_list(entries, max_rows);
       if (count < 0)
         count = 0;

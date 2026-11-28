@@ -29,6 +29,7 @@ def function(text, name):
 fixture = r"""
 #include <assert.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -52,6 +53,9 @@ typedef struct {int unused;} StaticQueue_t;
 #define HOST_LINK_RX_DEPTH 64
 #define HOST_LOG_QUEUE_DEPTH 24
 #define HOST_LOG_TASK_STK 6144
+static atomic_bool s_log_initialized;
+static atomic_flag s_log_init_lock=ATOMIC_FLAG_INIT;
+esp_err_t host_link_log_init(void);
 static bool fail_alloc, fail_queue, fail_task;
 static unsigned allocations, hooks, tasks;
 static void *heap_caps_malloc(size_t n,unsigned caps) {
@@ -85,6 +89,10 @@ static uint8_t *s_rx_queue_storage,*s_log_queue_storage;
 """
 tests = r"""
 int main(void){
+ assert(!allocations&&!tasks&&!hooks);
+ atomic_flag_test_and_set(&s_log_init_lock);
+ assert(host_link_log_init()==ESP_ERR_INVALID_STATE && !allocations);
+ atomic_flag_clear(&s_log_init_lock);
  fail_alloc=true;assert(host_link_start_worker()==ESP_ERR_NO_MEM);
  assert(host_link_log_init()==ESP_ERR_NO_MEM);assert(!allocations&&!hooks);
  fail_alloc=false;fail_queue=true;

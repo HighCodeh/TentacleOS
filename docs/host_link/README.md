@@ -49,14 +49,24 @@ payload storage explicitly in PSRAM, with no internal-memory fallback. Their
 only from task context with the cache enabled. The command worker can access
 flash, so its stack must remain internal.
 
-Storage is allocated on first use and retained with the existing persistent
-workers; closing the Companion screen does not destroy an authenticated session.
+The P4 log worker and its PSRAM queue are created only when the command worker
+or native MSC diagnostics are requested, not during a normal UART-mode boot.
+This avoids its 6 KiB internal stack before first use. Initialization is guarded
+against concurrent transport startup; failures unwind the queue and permit retry.
+No task/queue allocation occurs inside the logging hook. Once started, relay
+workers remain resident; this change defers startup rather than forcibly deleting
+a worker that may still own a transport operation. UART logs remain active
+before and after relay initialization. Relay storage is retained with the workers; closing the Companion screen does not destroy an authenticated session.
 Initialization failures release queue storage before a retry where no worker
 owns it. This moves approximately 10.6 KiB of payload storage out of internal
 RAM without reducing queue depths. Build verification does not establish runtime
 heap headroom; measure with USB Ethernet and the authenticated BLE relay active.
 `python3 tools/host_link/test_queue_memory.py` exercises PSRAM allocation failure,
 queue/task creation failure, cleanup, retries and idempotent initialization.
+
+File response staging, captured console text, Sub-GHz file lists and the IR RAW
+copy are CPU-only external BSS. Internal locks, task stacks and SPI DMA storage
+are unchanged. These buffers remain bounded and preserve their existing ownership.
 
 ## The model
 
@@ -149,9 +159,9 @@ recursive UART logging using host threads; hardware capture remains necessary.
 ## Boot order
 
 **P4 (`kernel.c`):** `host_link_state_init` → `host_link_stream_init` →
-`host_link_init` → `host_link_cdc_init` → `host_link_log_init` →
-`host_link_c5log_init` → `host_link_ble_init` (BLE advertising starts on demand:
-`hostlink ble on`).
+`host_link_init` → `host_link_cdc_init` (deferred while the mux is on UART).
+`host_link_log_init` runs from first transport use; BLE relay/advertising starts
+on demand (`hostlink ble on`). C5 log relay is not started by the kernel.
 
 **C5 (`kernel.c`):** `c5_log_init` right after `spi_bridge_slave_init`. The GATT
 server is started on demand by the P4, not at boot.
@@ -242,9 +252,7 @@ host_link_state_init();   // load toggles
 host_link_stream_init();  // streaming proxy
 host_link_init();         // core + PSK
 host_link_cdc_init();     // USB transport
-host_link_log_init();     // P4 log tee
-host_link_c5log_init();   // C5 log relay
-host_link_ble_init();     // BLE relay infra (advertising on demand: `hostlink ble on`)
+// P4 log tee and BLE relay workers start from transport use, not here.
 ```
 
 ## Status

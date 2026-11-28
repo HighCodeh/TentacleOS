@@ -23,6 +23,7 @@
 #include "host_link_sec.h"
 
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -47,6 +48,8 @@ typedef struct {
   char text[HOST_LOG_LINE_MAX];
 } log_line_t;
 
+static atomic_bool s_log_initialized;
+static atomic_flag s_log_init_lock = ATOMIC_FLAG_INIT;
 static QueueHandle_t s_log_queue = NULL;
 static StaticQueue_t s_log_queue_control;
 static uint8_t *s_log_queue_storage;
@@ -180,24 +183,27 @@ static void log_task(void *arg) {
 }
 
 esp_err_t host_link_log_init(void) {
-  if (s_log_queue != NULL)
-    return ESP_OK; // already installed
-
+  if (atomic_load(&s_log_initialized))
+    return ESP_OK;
+  if (atomic_flag_test_and_set(&s_log_init_lock))
+    return ESP_ERR_INVALID_STATE;
+  if (atomic_load(&s_log_initialized)) {
+    atomic_flag_clear(&s_log_init_lock);
+    return ESP_OK;
+  }
+  esp_err_t result = ESP_ERR_NO_MEM;
   s_log_queue_storage = heap_caps_malloc(HOST_LOG_QUEUE_DEPTH * sizeof(log_line_t),
                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (s_log_queue_storage == NULL) {
     ESP_LOGE(TAG, "Cannot allocate log queue in PSRAM");
-    return ESP_ERR_NO_MEM;
+    goto cleanup;
   }
   s_log_queue = xQueueCreateStatic(
       HOST_LOG_QUEUE_DEPTH, sizeof(log_line_t), s_log_queue_storage, &s_log_queue_control);
   if (s_log_queue == NULL) {
-    heap_caps_free(s_log_queue_storage);
-    s_log_queue_storage = NULL;
     ESP_LOGE(TAG, "Cannot create log queue");
-    return ESP_ERR_NO_MEM;
+    goto cleanup;
   }
-
   if (xTaskCreatePinnedToCore(log_task,
                               "hl_log",
                               HOST_LOG_TASK_STK,
@@ -206,13 +212,20 @@ esp_err_t host_link_log_init(void) {
                               &s_log_task,
                               SYS_CORE_RADIO) != pdPASS) {
     ESP_LOGE(TAG, "Cannot create log worker");
+    result = ESP_FAIL;
+    goto cleanup;
+  }
+  s_prev_vprintf = esp_log_set_vprintf(log_vprintf);
+  atomic_store(&s_log_initialized, true);
+  atomic_flag_clear(&s_log_init_lock);
+  return ESP_OK;
+cleanup:
+  if (s_log_queue != NULL) {
     vQueueDelete(s_log_queue);
     s_log_queue = NULL;
-    heap_caps_free(s_log_queue_storage);
-    s_log_queue_storage = NULL;
-    return ESP_FAIL;
   }
-
-  s_prev_vprintf = esp_log_set_vprintf(log_vprintf);
-  return ESP_OK;
+  heap_caps_free(s_log_queue_storage);
+  s_log_queue_storage = NULL;
+  atomic_flag_clear(&s_log_init_lock);
+  return result;
 }

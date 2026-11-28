@@ -149,7 +149,7 @@ static void host_link_worker(void *arg) {
 
 static esp_err_t init_locked(void) {
   if (s_cdc_up) {
-    return busb_msc_is_exposed() ? ESP_OK : host_link_start_worker();
+    return busb_msc_is_exposed() ? host_link_log_init() : host_link_start_worker();
   }
 
   // Defer the native P4 USB (TinyUSB) until the USB-C data mux is actually routed
@@ -162,7 +162,7 @@ static esp_err_t init_locked(void) {
     return ESP_OK;
   }
 
-  esp_err_t err = busb_msc_is_exposed() ? ESP_OK : host_link_start_worker();
+  esp_err_t err = busb_msc_is_exposed() ? host_link_log_init() : host_link_start_worker();
   if (err != ESP_OK)
     return err;
   err = busb_init(); // ensure the TinyUSB composite (HID + CDC) is up

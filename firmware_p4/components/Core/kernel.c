@@ -294,7 +294,7 @@ esp_err_t kernel_init(void) {
   host_link_stream_init(); // streaming + heartbeat proxy state
   host_link_init();
   host_link_cdc_init();
-  host_link_log_init();
+  // The relay log worker starts only when a transport is used.
 
   // Console last: esp_console_new_repl_uart takes over UART0 (installs the driver
   // + redirects stdout). Do it after all the boot logging above so the takeover

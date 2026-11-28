@@ -61,6 +61,7 @@ static bool busb_device_acquire(void) {assert(!held); if(host)return false;held=
 static void busb_device_release(void) {assert(held);held=false;}
 static void busb_set_device_cleanup_cb(int (*cb)(void)) {assert(held);registered_cleanup=cb;}
 static int host_link_start_worker(void) {return ESP_OK;}
+static int host_link_log_init(void) {return ESP_OK;}
 static void host_link_session_release(void (*writer)(void)) {assert(writer==cdc_write);releases++;}
 static int tinyusb_cdcacm_init(const tinyusb_config_cdcacm_t *cfg) {
   assert(held && cfg->callback_rx==cdc_rx_cb && cfg->callback_line_state_changed==cdc_line_state_cb);

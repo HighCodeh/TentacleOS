@@ -125,7 +125,7 @@ FAKE(lf_rfid_init) FAKE(spi_init) FAKE(input_manager_init) FAKE(storage_assets_p
 FAKE(battery_service_init) FAKE(config_sync_start) FAKE(buttons_init) FAKE(audio_i2s_init)
 FAKE(wifi_service_init)
 FAKE(usb_mux_init) FAKE(host_link_state_init) FAKE(host_link_stream_init) FAKE(host_link_init)
-FAKE(host_link_cdc_init) FAKE(host_link_log_init) FAKE(led_signal_warning) FAKE(led_signal_info)
+FAKE(host_link_cdc_init) FAKE(led_signal_warning) FAKE(led_signal_info)
 /* MODULE */
 static void reset(void) {s_board_ready=false;
   g_config_wifi.enabled=false;strcpy(g_config_wifi.ap.ssid,"Saved AP");strcpy(g_config_wifi.ap.password,"password");

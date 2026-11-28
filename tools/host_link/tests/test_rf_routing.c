@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include <assert.h>
+#define EXT_RAM_BSS_ATTR
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>

@@ -149,6 +149,7 @@ esp_err_t host_link_start_worker(void) {
     return ESP_ERR_INVALID_STATE;
   xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
   if (s_started) {
+    (void)host_link_log_init();
     xSemaphoreGiveRecursive(s_lock);
     return ESP_OK;
   }
@@ -187,6 +188,7 @@ esp_err_t host_link_start_worker(void) {
     return ESP_ERR_NO_MEM;
   }
 #endif
+  (void)host_link_log_init();
   __atomic_store_n(&s_started, true, __ATOMIC_RELEASE);
   xSemaphoreGiveRecursive(s_lock);
   ESP_LOGI(TAG, "Host link worker started");
@@ -523,7 +525,7 @@ static void process_frame(const uint8_t *frame, size_t total) {
   if (host_link_dispatch_lookup(cmd, &h)) {
     // The single companion session serializes dispatch, so one shared scratch
     // buffer sized to the largest response (a file chunk) is safe.
-    static uint8_t scratch[HOST_FILE_CHUNK];
+    EXT_RAM_BSS_ATTR static uint8_t scratch[HOST_FILE_CHUNK];
     uint16_t rlen = 0;
     uint8_t status = h.handle(cmd, payload, plen16, scratch, h.out_cap, &rlen);
     send_resp(category, op, status, scratch, rlen);
@@ -692,7 +694,7 @@ static void
 send_resp(uint8_t category, uint8_t op, uint8_t status, const uint8_t *data, uint16_t data_len) {
   // [status][data...]. Sized for the largest local response (a file chunk).
   // Single-session guarantees only one dispatcher runs at a time.
-  static uint8_t payload[1 + HOST_FILE_CHUNK];
+  EXT_RAM_BSS_ATTR static uint8_t payload[1 + HOST_FILE_CHUNK];
   if (data_len > HOST_FILE_CHUNK)
     data_len = HOST_FILE_CHUNK;
   payload[0] = status;

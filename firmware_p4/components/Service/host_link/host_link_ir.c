@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "host_link_ir.h"
+#include "esp_attr.h"
 
 #include <string.h>
 #include <stdatomic.h>
@@ -42,7 +43,7 @@ static const char *TAG = "HOST_LINK_IR";
 static atomic_bool s_rx_active;
 static atomic_bool s_rx_run;
 static QueueHandle_t s_rx_started;
-static rmt_symbol_word_t s_raw[IR_RAW_MAX_SYMBOLS];
+EXT_RAM_BSS_ATTR static rmt_symbol_word_t s_raw[IR_RAW_MAX_SYMBOLS];
 
 // Pack an ir_data_t into the 10-byte wire layout shared by IR_TX and RX_FRAME.
 static void encode_signal(const ir_data_t *d, uint8_t out[IR_FRAME_LEN]) {
