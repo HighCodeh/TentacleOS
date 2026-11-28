@@ -159,7 +159,10 @@ int main(void) {
       current_theme.bg_secondary = current_theme.screen_base;
       current_theme.text_main = lv_color_hex(theme ? 0x101010 : 0xffffff);
       current_theme.border_accent = current_theme.text_main;
-      subghz_settings_set_freq(433920000); subghz_settings_set_preset(CC1101_PRESET_OOK_270KHZ);
+      subghz_settings_set_freq(433920000);
+      subghz_settings_set_freq(500000000);
+      assert(subghz_settings_get().freq == 433920000);
+      subghz_settings_set_preset(CC1101_PRESET_OOK_270KHZ);
       ui_subghz_config_open(); check_layout(); send(INPUT_BTN_DOWN);
       const cc1101_preset_t expected[] = {
         CC1101_PRESET_OOK_650KHZ, CC1101_PRESET_2FSK_2KHZ, CC1101_PRESET_2FSK_47KHZ,

@@ -195,7 +195,7 @@ void ui_subghz_read_open(void) {
   lv_obj_set_style_line_rounded(s_trace, true, 0);
   s_stats =
       make_label(s_content, "RSSI history / waiting for pulses", current_theme.text_secondary);
-  s_hint = ui_chrome_footer(s_screen, "BACK cancel");
+  s_hint = ui_chrome_footer(s_screen, s_is_raw ? "OK finish   BACK cancel" : "BACK cancel");
   s_tick_timer = lv_timer_create(read_tick_cb, READ_POLL_MS, NULL);
   ui_input_set_screen_handler(subghz_read_input, NULL);
   esp_err_t error =
@@ -287,6 +287,7 @@ static void read_tick_cb(lv_timer_t *timer) {
   lv_label_set_text(s_status,
                     progress.phase == SUBGHZ_RX_PHASE_CAPTURING   ? "Receiving / collecting pulses"
                     : progress.phase == SUBGHZ_RX_PHASE_ANALYZING ? "Analyzing captured signal"
+                    : progress.rejected_bursts                    ? "Noise filtered / listening"
                                                                   : "Listening for a signal");
   char frequency[FREQUENCY_TEXT_SIZE];
   fmt_mhz(progress.frequency_hz, frequency, sizeof(frequency));
@@ -352,8 +353,11 @@ static void subghz_read_input(const input_event_t *ev, void *ctx) {
     return;
   }
 
-  if (!s_options)
+  if (!s_options) {
+    if (s_is_raw && press && ev->button == INPUT_BTN_OK)
+      subghz_receiver_finish();
     return;
+  }
 
   switch (ev->button) {
     case INPUT_BTN_DOWN:

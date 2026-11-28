@@ -27,9 +27,10 @@ int subghz_storage_read(const char *name, char *out, size_t size) {
   size_t length = strlen(s_content); assert(length < size);
   memcpy(out, s_content, length + 1); return (int)length;
 }
-bool subghz_receiver_is_running(void) { return false; }
-void subghz_receiver_stop(void) { assert(false); }
-void vTaskDelay(TickType_t ticks) { assert(false); }
+static unsigned s_rx_ticks, s_stop_requests;
+bool subghz_receiver_is_running(void) { return s_rx_ticks != 0; }
+void subghz_receiver_stop(void) { ++s_stop_requests; }
+void vTaskDelay(TickType_t ticks) { assert(ticks == REPLAY_RX_POLL_MS && s_rx_ticks); --s_rx_ticks; }
 esp_err_t subghz_tx_init(void) { ++s_inits; return ESP_OK; }
 esp_err_t subghz_tx_send_configured(const int32_t *pulses, size_t count, const subghz_tx_config_t *config) {
   assert(count == (strstr(s_content, "Protocol: RAW") ? 3 : 15) && pulses[0] == 350 && pulses[1] == -700);
@@ -78,9 +79,23 @@ int main(void) {
   reads = s_reads;
   assert(subghz_replay_prepare(s_content, &replay) == ESP_OK);
   assert(s_reads == reads && !strcmp(replay.protocol, "RAW"));
+  s_rx_ticks = 3;
+  assert(subghz_replay_send(&replay) == ESP_OK && s_rx_ticks == 0 && s_stop_requests == 1);
+  unsigned inits = s_inits, sends = s_sends;
+  s_rx_ticks = REPLAY_RX_DRAIN_MS / REPLAY_RX_POLL_MS + 1;
+  assert(subghz_replay_send(&replay) == ESP_ERR_TIMEOUT);
+  assert(s_inits == inits && s_sends == sends);
+  s_rx_ticks = 0;
   subghz_replay_free(&replay);
   s_content = "Protocol: Unsupported\n";
   assert(subghz_replay_load("test", &replay) == ESP_ERR_NOT_SUPPORTED);
   assert(!replay.pulses);
   puts("PASS: prepared replay allocation failures, decoded/RAW metadata, no TX on load, repeated sends without rereads and idempotent cleanup");
 }
+
+// File-backed replay is exercised by the real-storage suite; this fixture covers text preparation.
+esp_err_t subghz_raw_file_load(const char *name, subghz_raw_file_t **out) { *out=NULL; return ESP_ERR_NOT_SUPPORTED; }
+void subghz_raw_file_acquire(subghz_raw_file_t *file) { assert(!file); }
+void subghz_raw_file_release(subghz_raw_file_t *file) { assert(!file); }
+void subghz_raw_file_info(const subghz_raw_file_t *file, uint32_t *hz, cc1101_radio_config_t *radio, uint64_t *count) { assert(false); }
+esp_err_t subghz_tx_send_file(subghz_raw_file_t *file, const subghz_tx_config_t *config) { assert(false); return ESP_FAIL; }

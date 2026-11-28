@@ -58,27 +58,23 @@ they are distinct from the current prototype selection below. The report notes
 high measurement uncertainty at 315/433 MHz.
 These supplied hardware documents are reference inputs, not packaged firmware assets.
 
-The current driver uses Vini's prototype link measurements from 13 November 2026:
+After the owner confirmed the matching circuit was repaired (28 November 2026),
+the driver uses all four nominal branches from the board report:
 
 | Supported tuning range | Selected branch | V1 / GPIO17 | V2 / GPIO18 |
 | --- | --- | --- | --- |
 | 300–348 MHz (315 band) | RF1 | 0 | 0 |
-| 387–464 MHz (433 band) | RF1 | 0 | 0 |
-| 779–928 MHz (868/915 bands) | RF2 | 0 | 1 |
+| 387–464 MHz (433 band) | RF2 | 0 | 1 |
+| 779–<900 MHz (868 band) | RF4 | 1 | 1 |
+| 900–928 MHz (915 band) | RF3 | 1 | 0 |
 
-The supplied results compare High Boy transmission received by a Flipper at
-5 cm, 50 cm and 1 m, with two 1 s carrier bursts per cell at nominal 0 dBm.
-RF1 led at 433.92 MHz at all distances and at 315 MHz at 5/50 cm; the 315 MHz
-results at 1 m were near the noise floor. RF2 led at 915 MHz at all distances
-and at 868.35 MHz at 5/50 cm, while RF1 led at 868.35 MHz at 1 m. RF2 is the
-selected upper-band compromise for this prototype. Applying these choices
-across each supported band is firmware policy; these limited measurements do
-not establish a best path at every frequency, receive performance or suitability
-for other board assemblies.
+This replaces the provisional RF1-for-low/RF2-for-high workaround based on
+Vini's measurements of the unrepaired prototype. The repaired-board mapping
+still needs over-the-air validation; register/GPIO tests cannot establish range.
 
 This selection applies independently of `CONFIG_HIGHBOY_BOARD_V203`. The PA
 tables remain frequency-specific, with their existing 900 MHz boundary between
-868/915 tables; that boundary no longer changes the RF path. Invalid frequencies
+868/915 tables; that boundary also switches RF4 to RF3. Invalid frequencies
 are rejected before touching the GPIOs or radio.
 Changes to either switch pin require a confirmed IDLE state, followed by the
 switch's 5 us maximum settling interval before tuning.
@@ -87,7 +83,7 @@ The upper-band PA tables now align their entries with the driver's nominal
 -30/-20/-15/-10/0/5/7/10 dBm selector (adapted from lab/rf `9c84ed6e`).
 For example, the 868/915 MHz 0 dBm entries are 0x50/0x8E and the 10 dBm entries
 are 0xC5/0xC3. These are register selections, not measured antenna output power.
-The RF1/RF2 mapping and user-selected power remain unchanged.
+The user-selected power remains unchanged.
 
 ## Modulation Presets (`cc1101_preset_t`)
 
@@ -120,7 +116,7 @@ without sync-word qualification (`MDMCFG2=04`). AM812 and FM952 retain the exist
 High Boy profiles, and serialized numeric preset IDs remain unchanged.
 
 High Boy retains its own GDO2 high-impedance setting, fixed channel zero,
-calibration sequence, selected carrier frequency, RF1/RF2 policy and requested
+calibration sequence, selected carrier frequency, four-branch policy and requested
 PA level/band-specific table. Flipper's fixed PA table is not imported. Async
 RMT pulse durations remain those of the received/saved signal; the modem rate is
 a receiver configuration, not a resampling rate for captured timings.

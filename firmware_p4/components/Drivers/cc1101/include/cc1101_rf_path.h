@@ -30,7 +30,7 @@ extern "C" {
 #define CC1101_BAND_433_MAX_HZ  464000000UL
 #define CC1101_BAND_HIGH_MIN_HZ 779000000UL
 #define CC1101_BAND_HIGH_MAX_HZ 928000000UL
-/* PA-table boundary; both upper bands use RF2. */
+/* Shared matching-network and PA-table boundary. */
 #define CC1101_PATH_915_MIN_HZ 900000000UL
 
 typedef enum {
@@ -42,14 +42,14 @@ typedef enum {
   CC1101_RF_PATH_COUNT,
 } cc1101_rf_path_t;
 
-/* Prototype link measurements, 13-Nov-2026: RF1 for low bands, RF2 for high bands. */
+/* Repaired V2.03 board: nominal matching branches from the board RF report. */
 static inline cc1101_rf_path_t cc1101_rf_path_for_frequency(uint32_t frequency_hz) {
   if (frequency_hz >= CC1101_BAND_315_MIN_HZ && frequency_hz <= CC1101_BAND_315_MAX_HZ)
     return CC1101_RF_PATH_1;
   if (frequency_hz >= CC1101_BAND_433_MIN_HZ && frequency_hz <= CC1101_BAND_433_MAX_HZ)
-    return CC1101_RF_PATH_1;
-  if (frequency_hz >= CC1101_BAND_HIGH_MIN_HZ && frequency_hz <= CC1101_BAND_HIGH_MAX_HZ)
     return CC1101_RF_PATH_2;
+  if (frequency_hz >= CC1101_BAND_HIGH_MIN_HZ && frequency_hz <= CC1101_BAND_HIGH_MAX_HZ)
+    return frequency_hz < CC1101_PATH_915_MIN_HZ ? CC1101_RF_PATH_4 : CC1101_RF_PATH_3;
   return CC1101_RF_PATH_NONE;
 }
 

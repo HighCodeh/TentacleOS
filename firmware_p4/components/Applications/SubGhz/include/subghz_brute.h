@@ -29,6 +29,7 @@ extern "C" {
  * @brief Progress of a running brute-force sweep.
  */
 typedef struct {
+  esp_err_t error;
   uint32_t sent;  /**< @brief Codes transmitted so far. */
   uint32_t total; /**< @brief Total codes in the sweep. */
   bool running;   /**< @brief true while the sweep is active. */

@@ -39,12 +39,11 @@ static const char *TAG = "SUBGHZ_BF";
 #define FREQ_Y   68
 
 #define SCOPE_W      208
-#define SCOPE_H      84
-#define SCOPE_Y_OFS  -22
+#define SCOPE_H      (ui_screen_h() >= 300 ? 84 : 44)
+#define SCOPE_Y      (FREQ_Y + 20)
 #define SCOPE_PAD    6
 #define SCOPE_RADIUS 8
 #define SCOPE_BORDER 2
-#define SCOPE_BG     0x0A0614
 
 #define WAVE_POINTS 49
 #define WAVE_W      (SCOPE_W - SCOPE_PAD * 2 - SCOPE_BORDER * 2)
@@ -69,15 +68,14 @@ static const char *TAG = "SUBGHZ_BF";
 
 #define GRID_OPA LV_OPA_20
 
-#define BAR_W     192
-#define BAR_H     8
-#define BAR_Y     (CARD_Y + 20)
-#define CODES_Y   (CARD_Y + 46)
-#define TRACK_COL 0x202028
+#define BAR_W   192
+#define BAR_H   8
+#define BAR_Y   (CARD_Y + 20)
+#define CODES_Y (CARD_Y + 46)
 
 #define CARD_W             210
-#define CARD_H             96
-#define CARD_Y             LV_MIN(190, ui_screen_h() - UI_CHROME_FOOTER_H - CARD_H)
+#define CARD_H             LV_MIN(96, ui_screen_h() - UI_CHROME_FOOTER_H - CARD_Y - 8)
+#define CARD_Y             (SCOPE_Y + SCOPE_H + 10)
 #define CARD_RADIUS        12
 #define CARD_SHADOW_W      14
 #define CARD_SHADOW_SPREAD -3
@@ -200,10 +198,10 @@ static void build_scope(void) {
   s_scope = frame;
   lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(frame, SCOPE_W, SCOPE_H);
-  lv_obj_align(frame, LV_ALIGN_CENTER, 0, SCOPE_Y_OFS);
+  lv_obj_align(frame, LV_ALIGN_TOP_MID, 0, SCOPE_Y);
   lv_obj_set_style_radius(frame, SCOPE_RADIUS, 0);
   lv_obj_set_style_pad_all(frame, SCOPE_PAD, 0);
-  lv_obj_set_style_bg_color(frame, lv_color_hex(SCOPE_BG), 0);
+  lv_obj_set_style_bg_color(frame, current_theme.bg_secondary, 0);
   lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(frame, SCOPE_BORDER, 0);
   lv_obj_set_style_border_color(frame, current_theme.border_accent, 0);
@@ -250,7 +248,7 @@ static void build_readout(void) {
   lv_obj_set_size(s_bar, BAR_W, BAR_H);
   lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, BAR_Y);
   lv_obj_set_style_radius(s_bar, 4, 0);
-  lv_obj_set_style_bg_color(s_bar, lv_color_hex(TRACK_COL), 0);
+  lv_obj_set_style_bg_color(s_bar, current_theme.border_inactive, 0);
   lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(s_bar, 4, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s_bar, current_theme.border_accent, LV_PART_INDICATOR);
@@ -265,7 +263,7 @@ static void build_readout(void) {
   lv_obj_align(s_codes, LV_ALIGN_TOP_MID, 0, CODES_Y);
 }
 
-static void finish_sweep(void) {
+static void finish_sweep(const subghz_brute_status_t *status) {
   s_locked = true;
   stop_timer(&s_scope_timer);
   if (s_wave != NULL)
@@ -273,24 +271,37 @@ static void finish_sweep(void) {
   fill_ook();
 
   if (s_bar != NULL)
-    lv_bar_set_value(s_bar, BRUTE_TOTAL, LV_ANIM_OFF);
+    lv_bar_set_value(s_bar, status->sent, LV_ANIM_OFF);
   if (s_codes != NULL)
-    lv_label_set_text_fmt(s_codes, "Sent  %d / %d", BRUTE_TOTAL, BRUTE_TOTAL);
+    lv_label_set_text_fmt(
+        s_codes, "Sent  %lu / %lu", (unsigned long)status->sent, (unsigned long)status->total);
   if (s_status != NULL) {
-    lv_label_set_text(s_status, "Sweep complete");
-    lv_obj_set_style_text_color(s_status, lv_color_hex(UI_COL_SUCCESS), 0);
+    lv_label_set_text(s_status,
+                      status->error != ESP_OK         ? esp_err_to_name(status->error)
+                      : status->sent == status->total ? "Sweep complete"
+                                                      : "Sweep stopped");
+    lv_obj_set_style_text_color(s_status, current_theme.text_main, 0);
   }
   if (s_hint != NULL)
     ui_chrome_footer_set_text(s_hint, HINT_SHOW);
 
-  ESP_LOGI(TAG, "brute sweep complete (%d codes)", BRUTE_TOTAL);
-  ui_feedback(UI_FB_WRITE);
+  if (status->error == ESP_OK)
+    ui_feedback(UI_FB_WRITE);
 }
 
-void ui_subghz_brute_open(void) {
+void ui_subghz_brute_stop(void) {
   subghz_brute_stop();
   stop_timer(&s_scope_timer);
   stop_timer(&s_tick_timer);
+}
+
+static void deleted(lv_event_t *event) {
+  if (lv_event_get_target(event) == s_screen)
+    ui_subghz_brute_stop();
+}
+
+void ui_subghz_brute_open(void) {
+  ui_subghz_brute_stop();
   if (s_screen != NULL) {
     lv_obj_del(s_screen);
     s_screen = NULL;
@@ -308,6 +319,7 @@ void ui_subghz_brute_open(void) {
   s_locked = false;
 
   s_screen = ui_chrome_screen_create();
+  lv_obj_add_event_cb(s_screen, deleted, LV_EVENT_DELETE, NULL);
 
   ui_chrome_header(s_screen, "BRUTE FORCE", "/assets/icons/bolt.bin");
 
@@ -334,10 +346,14 @@ void ui_subghz_brute_open(void) {
 
   ui_input_set_screen_handler(subghz_brute_input, NULL);
 
-  esp_err_t berr = subghz_brute_start(BRUTE_PROTO_NAME, BRUTE_BITS, BRUTE_FREQ_HZ);
+  esp_err_t berr = s_scope_timer == NULL || s_tick_timer == NULL
+                       ? ESP_ERR_NO_MEM
+                       : subghz_brute_start(BRUTE_PROTO_NAME, BRUTE_BITS, BRUTE_FREQ_HZ);
   if (berr != ESP_OK) {
     s_locked = true;
     stop_timer(&s_scope_timer);
+    stop_timer(&s_tick_timer);
+    ESP_LOGW(TAG, "Cannot start sweep: %s", esp_err_to_name(berr));
     if (s_status != NULL) {
       lv_label_set_text(s_status, "Unavailable");
       lv_obj_set_style_text_color(s_status, current_theme.text_secondary, 0);
@@ -398,7 +414,7 @@ static void brute_tick_cb(lv_timer_t *t) {
     lv_label_set_text_fmt(s_codes, "Sent  %d / %d", sent, total);
 
   if (st.done)
-    finish_sweep();
+    finish_sweep(&st);
 }
 
 static void subghz_brute_input(const input_event_t *ev, void *ctx) {

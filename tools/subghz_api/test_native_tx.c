@@ -36,6 +36,7 @@ static bool s_thread_created;
 static atomic_bool s_grant_live,s_channel_live,s_enabled,s_encoder_live,s_tx_entered,s_hold_tx,s_dma_pending;
 static atomic_uintptr_t s_dma_pointer;
 static atomic_uint s_alloc_count,s_received;
+static atomic_uint s_transmissions;
 static unsigned s_fail_alloc;
 static atomic_uint s_disable_fail,s_delete_fail,s_encoder_delete_fail,s_retries;
 static unsigned s_fault;
@@ -185,6 +186,7 @@ esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t encoder
   assert(symbols[0].duration1==17233 && !symbols[0].level1);
   assert(symbols[1].duration0==350 && symbols[1].level0);
   assert(symbols[1].duration1==700 && !symbols[1].level1);
+  ++s_transmissions;
   return s_fault==7?ESP_FAIL:ESP_OK;
 }
 esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
@@ -196,7 +198,9 @@ esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t channel,int wait) {
 }
 static void join_worker(void) { if(s_thread_created){assert(pthread_join(s_thread,NULL)==0);s_thread_created=false;}assert(s_state==SUBGHZ_TX_IDLE && !s_grant_live && !s_led_active); }
 static void *initialize_tx(void *unused) { s_start_error=subghz_tx_init();return NULL; }
+static void test_stream_encoder(void);
 int main(void) {
+  test_stream_encoder();
   for(s_fault=1;s_fault<=6;++s_fault) { assert(subghz_tx_init()!=ESP_OK);join_worker(); }
   s_fault=0;s_hold_start=true;s_start_entered=false;
   pthread_t initializer;assert(pthread_create(&initializer,NULL,initialize_tx,NULL)==0);
@@ -247,6 +251,22 @@ int main(void) {
   assert(subghz_tx_send_configured(timings,3,&s_expected)==ESP_OK);
   while(!s_tx_entered) { pause_tick(); }
   subghz_tx_stop();join_worker();
+  s_expected.repeat_until_stopped = true;
+  s_transmissions = 0; s_tx_entered = false;
+  assert(subghz_tx_init() == ESP_OK);
+  assert(subghz_tx_send_configured(timings, 3, &s_expected) == ESP_OK);
+  while (s_transmissions < 3) pause_tick();
+  unsigned held_radio_calls = s_radio_calls;
+  unsigned held_allocations = s_alloc_count;
+  unsigned held_transmissions = s_transmissions;
+  while (s_transmissions < held_transmissions + 3) pause_tick();
+  assert(s_radio_calls == held_radio_calls && s_alloc_count == held_allocations);
+  subghz_tx_status_t held_status; subghz_tx_get_status(&held_status);
+  assert(held_status.is_busy && held_status.error == ESP_OK);
+  subghz_tx_stop(); join_worker();
+  subghz_tx_get_status(&held_status);
+  assert(!held_status.is_busy && held_status.error == ESP_OK);
+  s_expected.repeat_until_stopped = false;
   // Radio startup errors must stop before RMT is created.
   for (unsigned call = 1; call <= 6; ++call) {
     s_radio_calls = 0; s_radio_fail = call; s_tx_entered = false;
@@ -293,4 +313,55 @@ int main(void) {
   int32_t invalid[]={INT32_MIN};size_t words=0;
   subghz_tx_item_t bad={.timings=invalid,.count=1};assert(make_symbols(&bad,&words)==NULL);
   puts("PASS: long gaps and queued frequency/preset; real native TX worker, startup/configuration errors, real completion, in-flight stop, RMT cleanup retries, allocation and INT32_MIN");
+}
+
+esp_err_t rmt_new_simple_encoder(const rmt_simple_encoder_config_t *config, rmt_encoder_handle_t *out) { return ESP_FAIL; }
+void subghz_raw_file_acquire(subghz_raw_file_t *file) { assert(!file); }
+void subghz_raw_file_release(subghz_raw_file_t *file) { assert(!file); }
+esp_err_t subghz_raw_reader_open(const subghz_raw_file_t *file, subghz_raw_reader_t *reader) { return ESP_FAIL; }
+static size_t s_file_cursor, s_file_count;
+esp_err_t subghz_raw_reader_next(subghz_raw_reader_t *reader, int32_t *pulse, bool *eof) {
+  *eof = s_file_cursor == s_file_count;
+  if (!*eof) { *pulse = (s_file_cursor & 1) ? -700 : 350; ++s_file_cursor; }
+  return ESP_OK;
+}
+esp_err_t subghz_raw_reader_rewind(subghz_raw_reader_t *reader) { s_file_cursor = 0; return ESP_OK; }
+void subghz_raw_reader_close(subghz_raw_reader_t *reader) { assert(!reader->file); }
+
+static void test_stream_encoder(void) {
+  s_state = SUBGHZ_TX_RUNNING;
+  for (unsigned repeat = 0; repeat < 2; ++repeat) {
+    subghz_tx_stream_t stream = {.repeat = repeat};
+    stream.symbols = calloc(TX_STREAM_SYMBOLS, sizeof(*stream.symbols));
+    assert(stream.symbols);
+    s_file_cursor = 0; s_file_count = 131073;
+    size_t checked = 0;
+    bool done = false;
+    while (!done && checked < 3 * s_file_count) {
+      assert(fill_stream(&stream) == ESP_OK);
+      rmt_symbol_word_t output[64];
+      size_t count = stream_encode(NULL, 0, 0, 64, output, &done, &stream);
+      for (size_t i=0; i<count; ++i) {
+        for (unsigned half=0; half<2; ++half) {
+          unsigned duration = half ? output[i].duration1 : output[i].duration0;
+          bool level = half ? output[i].level1 : output[i].level0;
+          if (!duration) { assert(!repeat && done && checked == s_file_count); break; }
+          size_t index = checked % s_file_count;
+          assert(duration == ((index & 1) ? 700 : 350));
+          assert(level == !(index & 1));
+          ++checked;
+        }
+      }
+      assert(!atomic_load(&stream.underrun));
+    }
+    if (!repeat) assert(done && checked == s_file_count);
+    else assert(!done && checked >= 3*s_file_count);
+    close_stream(&stream);
+  }
+  subghz_tx_stream_t empty = {0};
+  rmt_symbol_word_t output; bool done = false;
+  assert(stream_encode(NULL,0,0,1,&output,&done,&empty)==0);
+  assert(done && atomic_load(&empty.underrun));
+  s_state = SUBGHZ_TX_IDLE;
+  puts("PASS: RAW stream encoder >131072 pulses, ring wraps, odd tail, contiguous repeats and explicit underrun");
 }

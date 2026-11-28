@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "subghz_raw_file.h"
 
 #include "cc1101.h"
 #include "subghz_analyzer.h"
@@ -56,6 +57,7 @@ typedef struct {
   uint32_t pulse_count;
   uint32_t frame_count;
   bool is_limited;
+  uint32_t rejected_bursts;
   uint32_t rssi_sequence;
   uint32_t rssi_count;
   int16_t rssi_dbm[SUBGHZ_RX_RSSI_SAMPLES];
@@ -94,6 +96,7 @@ bool subghz_receiver_get_result(subghz_rx_result_t *out);
 esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out_text);
 esp_err_t subghz_receiver_save(uint32_t sequence, const char *name);
 void subghz_receiver_discard(void);
+esp_err_t subghz_receiver_acquire_raw(uint32_t sequence, subghz_raw_file_t **out_file);
 
 /**
  * @brief Start the Sub-GHz receiver.
@@ -113,6 +116,9 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
  * @brief Request receiver shutdown; its worker retains the radio until RMT cleanup succeeds.
  */
 void subghz_receiver_stop(void);
+
+/* Finalize collected pulses without discarding them; no SD write. */
+void subghz_receiver_finish(void);
 
 /**
  * @brief Check whether the receiver is currently running.

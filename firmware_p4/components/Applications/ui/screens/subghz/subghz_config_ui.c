@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "subghz_config_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -71,7 +72,7 @@ static const char *LNA_GAIN_NAMES[] = {
     "Max", "-2.6", "-6.1", "-7.4", "-9.2", "-11.5", "-14.6", "-17.1"};
 static const char *DVGA_GAIN_NAMES[] = {"All", "Top -1", "Top -2", "Top -3"};
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_obj_t *s_frequency_value;
 static lv_obj_t *s_frequency_unit;
 static lv_obj_t *s_frequency_ruler;

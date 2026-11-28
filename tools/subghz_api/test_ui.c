@@ -46,7 +46,7 @@ static void *lv_screen_active(void) { return s_active; }
 void subghz_tx_get_status(subghz_tx_status_t *out) { *out = s_status; }
 void subghz_tx_stop(void) { ++s_stops; }
 esp_err_t subghz_replay_send(const subghz_replay_t *replay) {
-  assert(replay == &s_replay); ++s_sends; return s_send_error;
+  assert(replay == &s_replay && replay->config.repeat_until_stopped); ++s_sends; return s_send_error;
 }
 void subghz_replay_free(subghz_replay_t *replay) { replay->pulses = NULL; }
 static void ui_subghz_send_stop(void) { ++s_closed; }

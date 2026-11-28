@@ -103,6 +103,16 @@ esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out) {
   out->pulses = pulses; out->count = 2; out->config.frequency_hz = 315000000;
   strcpy(out->protocol, "Princeton"); strcpy(out->key, "00 00 00 00 AB CD EF 01"); return ESP_OK;
 }
+static unsigned raw_refs;
+esp_err_t subghz_receiver_acquire_raw(uint32_t sequence, subghz_raw_file_t **out) {
+  if (sequence != 2) { *out=NULL; return ESP_ERR_NOT_SUPPORTED; }
+  *out=(subghz_raw_file_t *)1; ++raw_refs; return ESP_OK;
+}
+void subghz_raw_file_release(subghz_raw_file_t *file) { if (file) { assert(raw_refs); --raw_refs; } }
+void subghz_replay_from_raw(subghz_raw_file_t *file, subghz_replay_t *out) {
+  ++raw_refs; *out=(subghz_replay_t){.raw_file=file}; out->config.frequency_hz=315000000;
+  strcpy(out->protocol,"RAW");
+}
 esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out) {
   *out = strdup("capture"); return ESP_OK;
 }
@@ -111,10 +121,11 @@ esp_err_t subghz_replay_prepare(const char *text, subghz_replay_t *out) {
 }
 void subghz_replay_free(subghz_replay_t *replay) {
   if (replay->pulses) ++frees;
+  subghz_raw_file_release(replay->raw_file);
   *replay = (subghz_replay_t){0};
 }
 esp_err_t subghz_replay_send(const subghz_replay_t *replay) {
-  assert(replay->pulses == pulses); ++sends; return ESP_OK;
+  assert(replay->pulses == pulses || replay->raw_file); ++sends; return ESP_OK;
 }
 void subghz_tx_stop(void) { ++stops; }
 void subghz_tx_get_status(subghz_tx_status_t *out) { *out = (subghz_tx_status_t){0}; }
@@ -176,6 +187,15 @@ int main(void) {
   assert(s_view == SUBGHZ_SEND_DETAIL && s_pending_replay.pulses == NULL);
   assert(s_replay.pulses != NULL && loads == prepared_loads && sends == previous_sends);
   ui_subghz_send_stop(); lv_screen_load(blank); delete_screen();
+  prepared_loads = loads; previous_sends = sends;
+  assert(ui_subghz_send_capture(2) == ESP_OK && raw_refs == 1);
+  ui_subghz_send_open(); check_detail();
+  assert(s_replay.raw_file && !s_replay.pulses && !s_pending_replay.raw_file);
+  assert(loads == prepared_loads && sends == previous_sends);
+  start_frame(); assert(sends == previous_sends + 1);
+  ui_subghz_send_stop(); lv_screen_load(blank); delete_screen();
+  assert(raw_refs == 0);
+  puts("PASS: pending SD RAW handoff, stream-only Send and final reference release");
   puts("PASS: complete send screen, names/metadata, no send on entry, cleanup and errors; light/dark, portrait/landscape");
 }
 """

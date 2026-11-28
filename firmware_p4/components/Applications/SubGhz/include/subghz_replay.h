@@ -23,6 +23,7 @@
 #define SUBGHZ_REPLAY_KEY_SIZE      32
 
 typedef struct {
+  subghz_raw_file_t *raw_file;
   int32_t *pulses;
   size_t count;
   subghz_tx_config_t config;
@@ -48,10 +49,11 @@ extern "C" {
  */
 esp_err_t subghz_replay_file(const char *name);
 
-/* Prepare once; queued sends copy the pulses and never retain this object. */
+/* Queued sends copy memory pulses or retain the underlying RAW file independently. */
 esp_err_t subghz_replay_prepare(const char *content, subghz_replay_t *out_replay);
 esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out_replay);
 esp_err_t subghz_replay_send(const subghz_replay_t *replay);
+void subghz_replay_from_raw(subghz_raw_file_t *file, subghz_replay_t *out_replay);
 void subghz_replay_free(subghz_replay_t *replay);
 
 #ifdef __cplusplus

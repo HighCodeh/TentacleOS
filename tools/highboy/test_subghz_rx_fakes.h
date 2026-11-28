@@ -24,6 +24,7 @@
 #include <string.h>
 typedef int esp_err_t;
 #define ESP_OK 0
+#define ESP_ERR_NOT_FOUND 0x105
 #define ESP_FAIL (-1)
 #define ESP_ERR_NO_MEM 0x101
 #define ESP_ERR_INVALID_ARG 0x102
@@ -57,12 +58,14 @@ typedef void *SemaphoreHandle_t;
 typedef void *QueueHandle_t;
 typedef void *TaskHandle_t;
 typedef void *rmt_channel_handle_t;
-typedef struct { uint32_t duration0, duration1; bool level0, level1; } rmt_symbol_word_t;
-typedef struct { rmt_symbol_word_t *received_symbols; size_t num_symbols; } rmt_rx_done_event_data_t;
+typedef struct { uint32_t duration0 : 15; uint32_t level0 : 1;
+  uint32_t duration1 : 15; uint32_t level1 : 1; } rmt_symbol_word_t;
+_Static_assert(sizeof(rmt_symbol_word_t) == 4, "RMT symbols must match hardware width");
+typedef struct { rmt_symbol_word_t *received_symbols; size_t num_symbols; struct { bool is_last; } flags; } rmt_rx_done_event_data_t;
 typedef struct { int clk_src, resolution_hz, mem_block_symbols, gpio_num;
   struct { bool invert_in, with_dma; } flags; } rmt_rx_channel_config_t;
 typedef struct { bool (*on_recv_done)(rmt_channel_handle_t, const rmt_rx_done_event_data_t *, void *); } rmt_rx_event_callbacks_t;
-typedef struct { uint32_t signal_range_min_ns, signal_range_max_ns; } rmt_receive_config_t;
+typedef struct { uint32_t signal_range_min_ns, signal_range_max_ns; struct { bool en_partial_rx; } flags; } rmt_receive_config_t;
 #include "cc1101.h"
 typedef uint32_t res_handle_t;
 #define RES_HANDLE_NONE 0

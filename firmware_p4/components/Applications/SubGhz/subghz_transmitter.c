@@ -29,32 +29,36 @@
 #include "freertos/semphr.h"
 
 #include "cc1101.h"
+#include "subghz_raw_file.h"
 #include "cc1101_rf_path.h"
 #include "led_control.h"
 #include "pin_def.h"
 #include "resource_mgr.h"
 #include "sys_prio.h"
 
-#define RMT_RESOLUTION_HZ     1000000
-#define TX_QUEUE_SIZE         10
-#define TX_QUEUE_RECV_MS      200
-#define TX_QUEUE_SEND_MS      100
-#define TX_WAIT_TIMEOUT_MS    2000
-#define TX_WAIT_SLICE_MS      50
-#define TX_MAX_DURATION_US    120000000ULL
-#define TX_MAX_PULSES         8192
-#define TX_PA_DBM             10
-#define CC_GDO_HIGH_Z         0x2E
-#define CC_ASYNC_PACKET       0x32
-#define TX_TASK_STACK_SIZE    4096
-#define TX_POLL_MS            10
-#define TX_STOP_TIMEOUT_MS    2500
-#define TX_CLEANUP_RETRY_MS   100
-#define RMT_MEM_BLOCK_SYMBOLS 64
-#define RMT_TRANS_QUEUE_DEPTH 4
-#define RMT_MAX_DURATION      32767
-#define RMT_PULSES_PER_SYMBOL 2
-#define TX_DEFAULT_FREQ       433920000
+#define RMT_RESOLUTION_HZ        1000000
+#define TX_QUEUE_SIZE            10
+#define TX_QUEUE_RECV_MS         200
+#define TX_QUEUE_SEND_MS         100
+#define TX_WAIT_TIMEOUT_MS       2000
+#define TX_WAIT_SLICE_MS         50
+#define TX_MAX_DURATION_US       120000000ULL
+#define TX_MAX_PULSES            8192
+#define TX_PA_DBM                10
+#define CC_GDO_HIGH_Z            0x2E
+#define CC_ASYNC_PACKET          0x32
+#define TX_TASK_STACK_SIZE       4096
+#define TX_POLL_MS               10
+#define TX_STOP_TIMEOUT_MS       2500
+#define TX_CLEANUP_RETRY_MS      100
+#define RMT_MEM_BLOCK_SYMBOLS    64
+#define RMT_TRANS_QUEUE_DEPTH    4
+#define RMT_MAX_DURATION         32767
+#define RMT_PULSES_PER_SYMBOL    2
+#define TX_DEFAULT_FREQ          433920000
+#define TX_STREAM_SYMBOLS        16384
+#define TX_STREAM_POLL_MS        1
+#define TX_STREAM_VALIDATE_BATCH 512
 
 typedef enum {
   SUBGHZ_TX_IDLE = 0,
@@ -64,6 +68,7 @@ typedef enum {
 } subghz_tx_state_t;
 
 typedef struct {
+  subghz_raw_file_t *raw_file;
   int32_t *timings;
   size_t count;
   subghz_tx_config_t config;
@@ -75,10 +80,23 @@ typedef struct {
   esp_err_t error;
 } subghz_tx_start_t;
 
+typedef struct {
+  rmt_symbol_word_t *symbols;
+  subghz_raw_reader_t reader;
+  atomic_uint head;
+  atomic_uint tail;
+  atomic_bool eof;
+  atomic_bool underrun;
+  uint32_t remaining;
+  bool level;
+  bool repeat;
+} subghz_tx_stream_t;
+
 static const char *TAG = "SUBGHZ_TX";
 static res_handle_t s_tx_res;
 static rmt_channel_handle_t s_tx_channel;
 static rmt_encoder_handle_t s_copy_encoder;
+static rmt_encoder_handle_t s_stream_encoder;
 static QueueHandle_t s_tx_queue;
 static atomic_uint s_state;
 static portMUX_TYPE s_queue_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -220,6 +238,115 @@ cleanup:
   return error;
 }
 
+esp_err_t subghz_tx_send_file(subghz_raw_file_t *file, const subghz_tx_config_t *config) {
+  if (!file || !config || !config->has_radio_config ||
+      cc1101_rf_path_for_frequency(config->frequency_hz) == CC1101_RF_PATH_NONE ||
+      cc1101_config_validate(&config->radio) != ESP_OK)
+    return ESP_ERR_INVALID_ARG;
+  portENTER_CRITICAL(&s_queue_lock);
+  bool can_send = s_state == SUBGHZ_TX_RUNNING;
+  if (can_send)
+    ++s_senders;
+  portEXIT_CRITICAL(&s_queue_lock);
+  if (!can_send)
+    return ESP_ERR_INVALID_STATE;
+  subghz_tx_item_t item = {.raw_file = file, .config = *config, .apply_config = true};
+  subghz_raw_file_acquire(file);
+  atomic_fetch_add(&s_pending, 1);
+  esp_err_t error = xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(TX_QUEUE_SEND_MS)) == pdPASS
+                        ? ESP_OK
+                        : ESP_ERR_TIMEOUT;
+  if (error != ESP_OK) {
+    subghz_raw_file_release(file);
+    atomic_fetch_sub(&s_pending, 1);
+  }
+  portENTER_CRITICAL(&s_queue_lock);
+  --s_senders;
+  portEXIT_CRITICAL(&s_queue_lock);
+  return error;
+}
+
+static size_t stream_encode(const void *data,
+                            size_t data_size,
+                            size_t symbols_written,
+                            size_t symbols_free,
+                            rmt_symbol_word_t *symbols,
+                            bool *done,
+                            void *context) {
+  (void)data;
+  (void)data_size;
+  (void)symbols_written;
+  subghz_tx_stream_t *stream = context;
+  unsigned tail = atomic_load(&stream->tail);
+  unsigned head = atomic_load(&stream->head);
+  size_t count = head - tail;
+  if (count > symbols_free)
+    count = symbols_free;
+  for (size_t i = 0; i < count; ++i)
+    symbols[i].val = stream->symbols[(tail + i) % TX_STREAM_SYMBOLS].val;
+  atomic_store(&stream->tail, tail + count);
+  *done = atomic_load(&stream->eof) && tail + count == atomic_load(&stream->head);
+  if (!count && !*done) {
+    atomic_store(&stream->underrun, true);
+    *done = true;
+  }
+  return count;
+}
+
+static esp_err_t fill_stream(subghz_tx_stream_t *stream) {
+  while (!atomic_load(&stream->eof)) {
+    unsigned head = atomic_load(&stream->head);
+    if (head - atomic_load(&stream->tail) == TX_STREAM_SYMBOLS)
+      break;
+    rmt_symbol_word_t word = {0};
+    bool eof = false;
+    for (unsigned half = 0; half < RMT_PULSES_PER_SYMBOL; ++half) {
+      if (!stream->remaining) {
+        int32_t pulse = 0;
+        esp_err_t error = subghz_raw_reader_next(&stream->reader, &pulse, &eof);
+        if (error != ESP_OK)
+          return error;
+        if (eof && stream->repeat) {
+          error = subghz_raw_reader_rewind(&stream->reader);
+          if (error == ESP_OK)
+            error = subghz_raw_reader_next(&stream->reader, &pulse, &eof);
+          if (error != ESP_OK)
+            return error;
+        }
+        if (eof)
+          break;
+        stream->level = pulse > 0;
+        stream->remaining = pulse > 0 ? pulse : -(int64_t)pulse;
+      }
+      uint16_t duration =
+          stream->remaining > RMT_MAX_DURATION ? RMT_MAX_DURATION : stream->remaining;
+      stream->remaining -= duration;
+      if (half == 0) {
+        word.duration0 = duration;
+        word.level0 = stream->level;
+      } else {
+        word.duration1 = duration;
+        word.level1 = stream->level;
+      }
+    }
+    if (word.duration0) {
+      stream->symbols[head % TX_STREAM_SYMBOLS] = word;
+      atomic_store(&stream->head, head + 1);
+    }
+    if (eof)
+      atomic_store(&stream->eof, true);
+    if (s_state != SUBGHZ_TX_RUNNING)
+      return ESP_ERR_INVALID_STATE;
+  }
+  return ESP_OK;
+}
+
+static void close_stream(subghz_tx_stream_t *stream) {
+  subghz_raw_reader_close(&stream->reader);
+  free(stream->symbols);
+  memset(stream, 0, sizeof(*stream));
+}
+
 static bool has_senders(void) {
   portENTER_CRITICAL(&s_queue_lock);
   bool has_pending = s_senders != 0;
@@ -237,6 +364,12 @@ static esp_err_t release_channel(bool *is_enabled) {
     if (error != ESP_OK)
       return error;
     s_tx_channel = NULL;
+  }
+  if (s_stream_encoder != NULL) {
+    esp_err_t error = rmt_del_encoder(s_stream_encoder);
+    if (error != ESP_OK)
+      return error;
+    s_stream_encoder = NULL;
   }
   if (s_copy_encoder != NULL) {
     esp_err_t error = rmt_del_encoder(s_copy_encoder);
@@ -326,6 +459,7 @@ static void transmit_task(void *context) {
   bool has_radio_config = false;
   rmt_symbol_word_t *symbols = NULL;
   subghz_tx_item_t item = {0};
+  subghz_tx_stream_t stream = {0};
   esp_err_t error = ESP_ERR_INVALID_STATE;
   if (s_state != SUBGHZ_TX_STARTING)
     goto ready;
@@ -375,10 +509,50 @@ ready:
     if (xQueueReceive(s_tx_queue, &item, pdMS_TO_TICKS(TX_QUEUE_RECV_MS)) != pdPASS)
       continue;
     size_t words = 0;
-    symbols = make_symbols(&item, &words);
-    if (symbols == NULL) {
-      error = ESP_ERR_NO_MEM;
-      break;
+    if (item.raw_file) {
+      stream.symbols = heap_caps_malloc(TX_STREAM_SYMBOLS * sizeof(*stream.symbols),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!stream.symbols) {
+        ESP_LOGE(TAG, "Cannot allocate RAW replay ring");
+        error = ESP_ERR_NO_MEM;
+        break;
+      }
+      stream.repeat = item.config.repeat_until_stopped;
+      error = subghz_raw_reader_open(item.raw_file, &stream.reader);
+      if (error != ESP_OK)
+        break;
+      // Validate on the worker so a large file cannot block UI navigation or start partial RF.
+      size_t checked = 0;
+      while (error == ESP_OK) {
+        int32_t pulse;
+        bool eof;
+        error = subghz_raw_reader_next(&stream.reader, &pulse, &eof);
+        if (error != ESP_OK || eof)
+          break;
+        if (++checked % TX_STREAM_VALIDATE_BATCH == 0)
+          vTaskDelay(1);
+        if (s_state != SUBGHZ_TX_RUNNING) {
+          error = ESP_ERR_INVALID_STATE;
+          break;
+        }
+      }
+      if (error == ESP_OK)
+        error = subghz_raw_reader_rewind(&stream.reader);
+      if (error == ESP_OK)
+        error = fill_stream(&stream);
+      if (error != ESP_OK)
+        break;
+      const rmt_simple_encoder_config_t encoder = {
+          .callback = stream_encode, .arg = &stream, .min_chunk_size = 1};
+      error = rmt_new_simple_encoder(&encoder, &s_stream_encoder);
+      if (error != ESP_OK)
+        break;
+    } else {
+      symbols = make_symbols(&item, &words);
+      if (symbols == NULL) {
+        error = ESP_ERR_NO_MEM;
+        break;
+      }
     }
     error = rmt_disable(s_tx_channel);
     if (error != ESP_OK)
@@ -406,25 +580,59 @@ ready:
       break;
     led_set_activity(LED_ACTIVITY_SUBGHZ, true);
     const rmt_transmit_config_t transmit = {0};
-    error =
-        rmt_transmit(s_tx_channel, s_copy_encoder, symbols, words * sizeof(*symbols), &transmit);
-    if (error == ESP_OK) {
-      uint64_t duration = 0;
-      for (size_t i = 0; i < item.count; ++i) {
-        int64_t pulse = item.timings[i];
-        duration += pulse < 0 ? -pulse : pulse;
+    if (item.raw_file) {
+      error = rmt_transmit(s_tx_channel, s_stream_encoder, &stream, sizeof(stream), &transmit);
+      while (error == ESP_OK && s_state == SUBGHZ_TX_RUNNING) {
+        error = fill_stream(&stream);
+        if (error != ESP_OK)
+          break;
+        if (atomic_load(&stream.underrun)) {
+          ESP_LOGE(TAG, "SD could not keep up with RAW transmission");
+          error = ESP_ERR_INVALID_SIZE;
+          break;
+        }
+        error = rmt_tx_wait_all_done(s_tx_channel, TX_STREAM_POLL_MS);
+        if (error != ESP_ERR_TIMEOUT)
+          break;
+        error = ESP_OK;
       }
-      uint32_t limit_ms = duration / 1000 + TX_WAIT_TIMEOUT_MS;
-      for (uint32_t waited = 0; waited < limit_ms; waited += TX_WAIT_SLICE_MS) {
+      if (s_state != SUBGHZ_TX_RUNNING)
+        error = ESP_ERR_INVALID_STATE;
+      if (atomic_load(&stream.underrun))
+        error = ESP_ERR_INVALID_SIZE;
+      if (error == ESP_OK) {
+        error = rmt_del_encoder(s_stream_encoder);
+        if (error == ESP_OK) {
+          s_stream_encoder = NULL;
+          close_stream(&stream);
+        }
+      }
+    } else
+      do {
         if (s_state != SUBGHZ_TX_RUNNING) {
           error = ESP_ERR_INVALID_STATE;
           break;
         }
-        error = rmt_tx_wait_all_done(s_tx_channel, TX_WAIT_SLICE_MS);
-        if (error != ESP_ERR_TIMEOUT)
-          break;
-      }
-    }
+        error = rmt_transmit(
+            s_tx_channel, s_copy_encoder, symbols, words * sizeof(*symbols), &transmit);
+        if (error == ESP_OK) {
+          uint64_t duration = 0;
+          for (size_t i = 0; i < item.count; ++i) {
+            int64_t pulse = item.timings[i];
+            duration += pulse < 0 ? -pulse : pulse;
+          }
+          uint32_t limit_ms = duration / 1000 + TX_WAIT_TIMEOUT_MS;
+          for (uint32_t waited = 0; waited < limit_ms; waited += TX_WAIT_SLICE_MS) {
+            if (s_state != SUBGHZ_TX_RUNNING) {
+              error = ESP_ERR_INVALID_STATE;
+              break;
+            }
+            error = rmt_tx_wait_all_done(s_tx_channel, TX_WAIT_SLICE_MS);
+            if (error != ESP_ERR_TIMEOUT)
+              break;
+          }
+        }
+      } while (error == ESP_OK && item.apply_config && item.config.repeat_until_stopped);
     if (error != ESP_OK)
       break;
     error = cc1101_set_preset(CC1101_PRESET_IDLE, 0);
@@ -434,7 +642,8 @@ ready:
     free(symbols);
     symbols = NULL;
     free(item.timings);
-    item.timings = NULL;
+    subghz_raw_file_release(item.raw_file);
+    item = (subghz_tx_item_t){0};
     atomic_fetch_sub(&s_pending, 1);
   }
   bool is_cancelled = s_state == SUBGHZ_TX_STOPPING;
@@ -458,11 +667,14 @@ ready:
   }
   led_set_activity(LED_ACTIVITY_SUBGHZ, false);
   free(symbols);
-  if (item.timings != NULL) {
+  close_stream(&stream);
+  if (item.timings != NULL || item.raw_file != NULL) {
+    subghz_raw_file_release(item.raw_file);
     free(item.timings);
     atomic_fetch_sub(&s_pending, 1);
   }
   while (xQueueReceive(s_tx_queue, &item, 0) == pdPASS) {
+    subghz_raw_file_release(item.raw_file);
     free(item.timings);
     atomic_fetch_sub(&s_pending, 1);
   }

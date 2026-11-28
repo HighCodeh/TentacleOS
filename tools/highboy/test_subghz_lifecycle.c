@@ -111,8 +111,33 @@ BaseType_t xQueueReceive(QueueHandle_t queue, void *out, TickType_t timeout) {
     if (s_now >= 1300) subghz_receiver_stop();
     return pdFALSE;
   }
+  if (s_burst_case >= 10) {
+    s_now += RX_QUEUE_TIMEOUT_MS;
+    if (s_burst_blocks && !s_progress.rejected_bursts)
+      return pdFALSE;
+    if (s_burst_case == 11 && s_progress.rejected_bursts) {
+      subghz_receiver_stop();
+      return pdFALSE;
+    }
+    if (s_burst_blocks >= 4)
+      return pdFALSE;
+    rmt_symbol_word_t *symbols = s_dma;
+    for (unsigned i = 0; i < 16; ++i)
+      symbols[i] = (rmt_symbol_word_t){.duration0 = s_burst_blocks ? 350 : 33,
+                                      .duration1 = s_burst_blocks ? 700 : 3000,
+                                      .level0 = true};
+    *(rmt_rx_done_event_data_t *)out = (rmt_rx_done_event_data_t){
+        .received_symbols = symbols, .num_symbols = 16};
+    ++s_burst_blocks;
+    return pdTRUE;
+  }
   if (s_burst_case) {
     s_now += RX_QUEUE_TIMEOUT_MS;
+    if ((s_burst_case == 5 && s_burst_blocks == 3) ||
+        (s_burst_case == 6 && s_burst_blocks == 1)) {
+      subghz_receiver_finish();
+      return pdFALSE;
+    }
     if (s_burst_case == 4 && s_burst_blocks == 2) {
       subghz_receiver_stop();
       return pdFALSE;
@@ -121,10 +146,12 @@ BaseType_t xQueueReceive(QueueHandle_t queue, void *out, TickType_t timeout) {
     if (s_burst_blocks < blocks) {
       assert(!s_decodes && !s_saves);
       rmt_symbol_word_t *symbols = s_dma;
-      for (unsigned i = 0; i < 16; ++i)
+      unsigned symbols_count = s_burst_case == 6 ? RX_BUFFER_SIZE + 1 :
+                               s_burst_case == 7 ? RAW_RX_BUFFER_SIZE : 16;
+      for (unsigned i = 0; i < symbols_count; ++i)
         symbols[i] = (rmt_symbol_word_t){.duration0 = s_burst_blocks ? 350 : 700,
                                         .duration1 = 350, .level0 = true};
-      *(rmt_rx_done_event_data_t *)out = (rmt_rx_done_event_data_t){symbols, 16};
+      *(rmt_rx_done_event_data_t *)out = (rmt_rx_done_event_data_t){.received_symbols=symbols, .num_symbols=symbols_count};
       ++s_burst_blocks;
       return pdTRUE;
     }
@@ -154,6 +181,26 @@ void vTaskDelete(TaskHandle_t task) {
   assert(s_dma == NULL && s_decode == NULL && !subghz_receiver_is_running());
 }
 void vTaskDelay(TickType_t ticks) {
+  if (s_rx_mode == SUBGHZ_MODE_RAW && s_state == SUBGHZ_RX_RUNNING) {
+    s_now += 100;
+    if (s_finish_requested) return;
+    if (s_burst_blocks >= 160) { subghz_receiver_finish(); return; }
+    if (s_burst_case == 4 && s_burst_blocks == 2) { subghz_receiver_stop(); return; }
+    rmt_symbol_word_t *symbols = s_dma;
+    for (unsigned i = 0; i < RAW_RX_BUFFER_SIZE; ++i)
+      symbols[i] = (rmt_symbol_word_t){.duration0=350, .duration1=700, .level0=true};
+    rmt_rx_done_event_data_t event = {.received_symbols=symbols, .num_symbols=RAW_RX_BUFFER_SIZE,
+                                      .flags.is_last=(s_burst_blocks & 1) == 0};
+    subghz_rx_done_callback(s_rx_channel, &event, s_rx_queue);
+    if (s_burst_case == 7)
+      for (unsigned i=0; i<RAW_RING_BLOCKS; ++i)
+        subghz_rx_done_callback(s_rx_channel, &event, s_rx_queue);
+    memset(symbols, 0, RAW_RX_BUFFER_SIZE * sizeof(*symbols));
+    ++s_burst_blocks;
+    return;
+  }
+
+  if (s_burst_case >= 10 && ticks == 1) { ++s_now; return; }
   assert(ticks == CLEANUP_RETRY_MS && s_has_resource);
   assert(subghz_receiver_is_running());
   if (s_expect_dma)
@@ -168,7 +215,11 @@ void vTaskDelay(TickType_t ticks) {
   ++s_retries;
 }
 TickType_t xTaskGetTickCount(void) { if (s_burst_case || s_hop_case) return s_now; return s_test_hopping ? s_clock_calls++ * (HOP_INTERVAL_MS + 1) : 0; }
+static size_t s_dma_capacity;
 esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config, rmt_channel_handle_t *out) {
+  assert(config->flags.with_dma);
+  assert(config->mem_block_symbols == (s_rx_mode == SUBGHZ_MODE_RAW ? RAW_RX_BUFFER_SIZE : RX_BUFFER_SIZE));
+  s_dma_capacity = config->mem_block_symbols * sizeof(rmt_symbol_word_t);
   if (s_failure == FAIL_CHANNEL)
     return ESP_FAIL;
   s_has_channel = true;
@@ -207,13 +258,18 @@ esp_err_t rmt_del_channel(rmt_channel_handle_t channel) {
 esp_err_t rmt_receive(rmt_channel_handle_t channel, void *data, size_t size,
                       const rmt_receive_config_t *config) {
   assert(s_is_enabled && s_dma == data && s_decode != NULL);
+  assert(size <= s_dma_capacity && size % RMT_DMA_ALIGNMENT == 0);
+  assert((uintptr_t)data % RMT_DMA_ALIGNMENT == 0);
   ++s_receive_calls;
+  if (s_burst_case == 12 && s_progress.rejected_bursts) return ESP_FAIL;
   return s_failure == FAIL_RECEIVE ? ESP_FAIL : ESP_OK;
 }
 void *heap_caps_aligned_alloc(size_t alignment, size_t size, unsigned int caps) {
+  assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  assert(alignment == RMT_DMA_ALIGNMENT && size == s_dma_capacity);
   if (s_failure == FAIL_DMA)
     return NULL;
-  s_dma = malloc(size);
+  s_dma = aligned_alloc(alignment, size);
   assert(s_dma != NULL);
   return s_dma;
 }
@@ -273,6 +329,7 @@ bool subghz_protocol_registry_decode_all(const int32_t *pulses, size_t count, su
   if (!s_burst_case) return false;
   assert(!s_is_enabled && s_progress.phase == SUBGHZ_RX_PHASE_ANALYZING);
   ++s_decodes;
+  if (s_burst_case >= 10 && pulses[0] == 33) return false;
   *out = (subghz_data_t){.protocol_name="CAME", .raw_value=pulses[0] == 350 ? 42 : 99,
                         .bit_count=12};
   return true;
@@ -388,21 +445,73 @@ int main(void) {
     assert(!subghz_receiver_get_result(&second));
   }
   s_hop_case = 0;
-  s_burst_case = 1; s_now = s_burst_blocks = s_decodes = s_saves = 0;
-  assert(subghz_receiver_start(SUBGHZ_MODE_RAW, 3, DEFAULT_FREQ) == ESP_OK);
-  s_worker(NULL);
-  assert(subghz_receiver_get_result(&second) && !second.decoded && !s_saves);
-  char *pending = NULL;
-  assert(subghz_receiver_copy_capture(second.seq, &pending) == ESP_OK);
-  subghz_receiver_discard();
-  assert(!subghz_receiver_get_result(&first) && strcmp(pending, "RAW capture") == 0);
-  free(pending);
+  for (unsigned raw_case = 1; raw_case <= 9; ++raw_case) {
+    s_burst_case = raw_case; s_now = s_burst_blocks = s_decodes = s_saves = 0;
+    assert(subghz_receiver_start(SUBGHZ_MODE_RAW, 3, DEFAULT_FREQ) == ESP_OK);
+    s_worker(NULL);
+    assert(!s_decodes && !s_saves);
+    if (raw_case == 4 || raw_case >= 7) {
+      assert(!subghz_receiver_get_result(&second));
+      if (raw_case == 7) assert(subghz_receiver_get_error() == ESP_ERR_NO_MEM);
+    } else {
+      assert(subghz_receiver_get_result(&second) && !second.is_limited);
+      assert(second.frame_count == 160 && second.pulse_count == 160 * 8192);
+      assert(s_now > BURST_MAX_MS);
+      subghz_raw_file_t *pending = NULL;
+      assert(subghz_receiver_acquire_raw(second.seq, &pending) == ESP_OK);
+      assert(subghz_receiver_save(second.seq, "test") == ESP_OK && s_saves == 1);
+      subghz_receiver_discard();
+      subghz_raw_file_release(pending);
+    }
+    subghz_receiver_discard();
+  }
+  s_saves = 0;
+  s_burst_case = 1;
   s_now = s_burst_blocks = s_decodes = 0; s_fail_capture = true;
   assert(subghz_receiver_start(SUBGHZ_MODE_SCAN, 3, DEFAULT_FREQ) == ESP_OK);
   s_worker(NULL);
   assert(!subghz_receiver_get_result(&second) && !s_saves && s_capture_text == NULL);
   assert(subghz_receiver_get_error() == ESP_ERR_NO_MEM);
+  for (unsigned noise_case = 10; noise_case <= 12; ++noise_case) {
+    s_burst_case = noise_case;
+    s_failure = FAIL_NONE;
+    s_fail_capture = false;
+    s_burst_blocks = s_decodes = s_saves = s_now = 0;
+    s_stale_events = 1;
+    assert(subghz_receiver_start(SUBGHZ_MODE_SCAN, 2, DEFAULT_FREQ) == ESP_OK);
+    s_worker(NULL);
+    assert(!s_has_resource && !s_has_channel && !s_has_queue);
+    subghz_rx_progress_t progress;
+    assert(subghz_receiver_get_progress(&progress) && progress.rejected_bursts == 1);
+    assert(s_stale_events == 0);
+    subghz_rx_result_t capture;
+    if (noise_case == 10) {
+      assert(subghz_receiver_get_result(&capture) && capture.decoded);
+      assert(capture.data.raw_value == 42 && capture.matching_frames == 3);
+      assert(capture.pulse_count == 96 && capture.frame_count == 3);
+    } else {
+      assert(!subghz_receiver_get_result(&capture));
+      assert(subghz_receiver_get_error() == (noise_case == 12 ? ESP_FAIL : ESP_OK));
+    }
+    assert(s_saves == 0);
+    subghz_receiver_discard();
+  }
+  puts("Noise RX: rejected burst followed by valid signal, cancellation and rearm failure passed");
+  puts("RAW streaming: >1.3 million pulses, >10s, DMA reuse, manual finish, overflow, SD errors and discard passed");
   puts("Burst RX: no early decode, majority match, silence, limits, live RSSI and cancellation passed");
   puts("Sub-GHz RX lifecycle: radio failures, channel flush, cancellation, contention, allocation and retained DMA/IDLE cleanup passed");
   return 0;
 }
+
+struct subghz_raw_file { unsigned refs; size_t count; };
+esp_err_t subghz_raw_file_create(uint32_t hz, const cc1101_radio_config_t *radio, subghz_raw_file_t **out) {
+  *out = calloc(1, sizeof(**out)); assert(*out); (*out)->refs=1; return ESP_OK;
+}
+esp_err_t subghz_raw_file_append(subghz_raw_file_t *file, const int32_t *pulses, size_t count) {
+  for (size_t i=0;i<count;++i) assert(pulses[i] == ((i&1) ? -700 : 350));
+  file->count += count; return s_burst_case == 8 ? ESP_FAIL : ESP_OK;
+}
+esp_err_t subghz_raw_file_finish(subghz_raw_file_t *file) { assert(file->count); return s_burst_case == 9 ? ESP_FAIL : ESP_OK; }
+esp_err_t subghz_raw_file_save(subghz_raw_file_t *file, const char *name) { ++s_saves; return ESP_OK; }
+void subghz_raw_file_acquire(subghz_raw_file_t *file) { ++file->refs; }
+void subghz_raw_file_release(subghz_raw_file_t *file) { if (file && !--file->refs) free(file); }

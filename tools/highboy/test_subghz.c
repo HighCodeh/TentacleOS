@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -26,6 +27,7 @@
 #include "subghz_storage.h"
 #include "tos_storage_paths.h"
 #include <utime.h>
+#include <dirent.h>
 #include "storage_assets.h"
 
 #define TEST_PULSE_CAPACITY 8192
@@ -84,6 +86,77 @@ int subghz_storage_read(const char *name, char *out_buf, size_t out_size) {
   memcpy(out_buf, s_capture, length + 1);
   return (int)length;
 }
+esp_err_t subghz_tx_send_file(subghz_raw_file_t *file, const subghz_tx_config_t *config) {
+  subghz_raw_reader_t reader = {0};
+  esp_err_t error = subghz_raw_reader_open(file, &reader);
+  int32_t pulses[TEST_PULSE_CAPACITY]; size_t count = 0;
+  while (error == ESP_OK) {
+    int32_t pulse; bool eof;
+    error = subghz_raw_reader_next(&reader, &pulse, &eof);
+    if (error != ESP_OK || eof) break;
+    assert(count < TEST_PULSE_CAPACITY);
+    pulses[count++] = pulse;
+  }
+  subghz_raw_reader_close(&reader);
+  return error == ESP_OK ? subghz_tx_send_configured(pulses, count, config) : error;
+}
+static esp_err_t replay_fixture(const char *name) {
+  char path[256]; snprintf(path, sizeof(path), TOS_PATH_SUBGHZ "/%s.sub", name);
+  FILE *file = fopen(path, "wb"); assert(file);
+  assert(fwrite(s_capture, 1, strlen(s_capture), file) == strlen(s_capture));
+  assert(fclose(file) == 0);
+  esp_err_t error = subghz_replay_file(name);
+  assert(remove(path) == 0);
+  return error;
+}
+static void test_stream_file(void) {
+  cc1101_radio_config_t radio;
+  assert(cc1101_config_from_preset(CC1101_PRESET_OOK_270KHZ, &radio) == ESP_OK);
+  subghz_raw_file_t *file = NULL;
+  assert(subghz_raw_file_create(TEST_FREQUENCY_HZ, &radio, &file) == ESP_OK);
+  int32_t pulses[512];
+  for (size_t i = 0; i < 512; ++i) pulses[i] = (i & 1) ? -(int32_t)(i + 1) : (int32_t)(i + 1);
+  for (unsigned batch = 0; batch < 256; ++batch)
+    assert(subghz_raw_file_append(file, pulses, 512) == ESP_OK);
+  assert(subghz_raw_file_finish(file) == ESP_OK);
+  subghz_raw_reader_t reader;
+  assert(subghz_raw_reader_open(file, &reader) == ESP_OK);
+  for (unsigned pass = 0; pass < 2; ++pass) {
+    for (unsigned i = 0; i < 131072; ++i) {
+      int32_t pulse; bool eof;
+      assert(subghz_raw_reader_next(&reader, &pulse, &eof) == ESP_OK && !eof);
+      assert(pulse == pulses[i % 512]);
+    }
+    int32_t pulse; bool eof;
+    assert(subghz_raw_reader_next(&reader, &pulse, &eof) == ESP_OK && eof);
+    assert(subghz_raw_reader_rewind(&reader) == ESP_OK);
+  }
+  subghz_raw_reader_close(&reader);
+  assert(subghz_raw_file_save(file, "../invalid") == ESP_ERR_INVALID_ARG);
+  assert(subghz_raw_file_save(file, "stream") == ESP_OK);
+  subghz_raw_file_release(file);
+  assert(subghz_raw_file_load("stream", &file) == ESP_OK);
+  assert(subghz_raw_reader_open(file, &reader) == ESP_OK);
+  int32_t pulse; bool eof;
+  assert(subghz_raw_reader_next(&reader, &pulse, &eof) == ESP_OK && pulse == 1);
+  subghz_raw_reader_close(&reader);
+  subghz_raw_file_release(file);
+  assert(remove(TOS_PATH_SUBGHZ "/stream.sub") == 0);
+  assert(subghz_raw_file_create(TEST_FREQUENCY_HZ, &radio, &file) == ESP_OK);
+  assert(subghz_raw_file_append(file, pulses, 512) == ESP_OK);
+  assert(subghz_raw_file_finish(file) == ESP_OK);
+  subghz_raw_file_acquire(file);
+  subghz_raw_file_release(file);
+  assert(subghz_raw_reader_open(file, &reader) == ESP_OK);
+  subghz_raw_reader_close(&reader);
+  subghz_raw_file_release(file);
+  DIR *directory = opendir(TOS_PATH_SUBGHZ); assert(directory);
+  struct dirent *entry;
+  while ((entry = readdir(directory))) assert(strncmp(entry->d_name, ".raw-", 5) != 0);
+  assert(closedir(directory) == 0);
+  puts("PASS: 131072 RAW pulses, exact signed streaming/rewind, Save and retained temporary ownership");
+}
+
 esp_err_t storage_assets_get_file_size(const char *path, size_t *out_size) {
   assert(strcmp(path, "config/subghz/keeloq_mfcodes.txt") == 0);
   *out_size = s_has_assets ? sizeof(MFCODES) - 1 : 0;
@@ -229,7 +302,7 @@ static void test_large_raw_replay(void) {
   size_t length = subghz_protocol_serialize_raw(pulses, 2395, 868350000,
                                                 s_capture, sizeof(s_capture));
   assert(length > 8192 && length < sizeof(s_capture));
-  assert(subghz_replay_file("large_raw") == ESP_OK);
+  assert(replay_fixture("large_raw") == ESP_OK);
   assert(s_frequency == 868350000 && s_sent_preset == TEST_PRESET);
   assert(s_sent_count == 2395 && memcmp(s_sent, pulses, sizeof(pulses)) == 0);
 }
@@ -245,7 +318,7 @@ static void test_serialization_replay(void) {
   assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 700, tiny, sizeof(tiny)) == 0);
   assert(tiny[0] == '\0');
   s_is_running = true;
-  assert(subghz_replay_file("fixture") == ESP_OK);
+  assert(replay_fixture("fixture") == ESP_OK);
   assert(!s_is_running && s_sent_count != 0 && s_frequency == TEST_FREQUENCY_HZ && s_sent_preset == TEST_PRESET);
   subghz_data_t decoded = {0};
   const subghz_protocol_t *protocol = subghz_protocol_registry_get_by_name(data.protocol_name);
@@ -263,22 +336,22 @@ static void test_serialization_replay(void) {
   snprintf(s_capture, sizeof(s_capture),
            "Frequency: %u\nProtocol: CAME 12bit\nBit: 12\nKey: 00 00 00 00 00 00 0A BC\n",
            TEST_FREQUENCY_HZ);
-  assert(subghz_replay_file("legacy") == ESP_OK);
+  assert(replay_fixture("legacy") == ESP_OK);
   protocol = subghz_protocol_registry_get_by_name("CAME");
   assert(protocol->decode(s_sent, s_sent_count, &decoded) && decoded.raw_value == 0xabc);
 
   const int32_t raw[] = {350, -700, 700, -350};
   size = subghz_protocol_serialize_raw(raw, 4, TEST_FREQUENCY_HZ, s_capture, sizeof(s_capture));
   assert(size == strlen(s_capture));
-  assert(subghz_replay_file("raw") == ESP_OK);
+  assert(replay_fixture("raw") == ESP_OK);
   assert(s_sent_count == 4 && memcmp(s_sent, raw, sizeof(raw)) == 0);
   snprintf(s_capture, sizeof(s_capture), "Protocol: Unknown\nBit: 12\n");
   s_sent_count = 0;
-  assert(subghz_replay_file("unknown") == ESP_ERR_NOT_SUPPORTED);
+  assert(replay_fixture("unknown") == ESP_ERR_NOT_SUPPORTED);
   assert(s_sent_count == 0);
   snprintf(s_capture, sizeof(s_capture),
            "Protocol: CAME 12345678901234567890123456789012345678901234567890\nBit: 12\n");
-  assert(subghz_replay_file("overlong") == ESP_ERR_INVALID_ARG);
+  assert(replay_fixture("overlong") == ESP_ERR_INVALID_ARG);
   assert(s_sent_count == 0);
 }
 
@@ -321,7 +394,7 @@ static void test_decoded_validation(void) {
     assert(subghz_protocol_parse_capture(s_capture,pulses,TEST_PULSE_CAPACITY,&count,&frequency,&preset)!=ESP_OK);
     assert(count==0 && frequency==7 && preset==8);
     s_sent_count=0;s_is_running=true;
-    assert(subghz_replay_file("invalid")!=ESP_OK);
+    assert(replay_fixture("invalid")!=ESP_OK);
     assert(s_sent_count==0 && s_is_running);
   }
 }
@@ -354,7 +427,7 @@ static void test_keeloq_vectors(void) {
                        .serial = TEST_SERIAL, .btn = TEST_BUTTON, .raw_value = TEST_COUNTER};
   assert(subghz_protocol_serialize_decoded(&data, TEST_FREQUENCY_HZ, 400,
                                            s_capture, sizeof(s_capture)) != 0);
-  assert(subghz_replay_file("synthetic") == ESP_OK);
+  assert(replay_fixture("synthetic") == ESP_OK);
   assert(subghz_keeloq_pwm_decode(s_sent, s_sent_count, &fix, &hop));
   assert(subghz_keeloq_decode_key(((uint64_t)fix << 32) | hop, &result));
   assert(result.serial == TEST_SERIAL && result.button == TEST_BUTTON);
@@ -379,7 +452,7 @@ static void test_custom_radio_replay(void) {
                                          s_capture, sizeof(s_capture)) > 0);
     }
     assert(strstr(s_capture, "Radio:") != NULL);
-    assert(subghz_replay_file("custom") == ESP_OK);
+    assert(replay_fixture("custom") == ESP_OK);
     assert(s_sent_radio.mdmcfg4 == s_custom_radio.mdmcfg4 &&
            s_sent_radio.mdmcfg3 == s_custom_radio.mdmcfg3 &&
            s_sent_radio.deviatn == s_custom_radio.deviatn &&
@@ -392,7 +465,7 @@ static void test_custom_radio_replay(void) {
     snprintf(s_capture, sizeof(s_capture),
         "Frequency: 433920000\nPreset: 4\n%s\nProtocol: RAW\nRAW_Data: 350 -700\n", bad[i]);
     size_t before = s_sent_count;
-    assert(subghz_replay_file("bad_custom") == ESP_ERR_INVALID_ARG);
+    assert(replay_fixture("bad_custom") == ESP_ERR_INVALID_ARG);
     assert(s_sent_count == before);
   }
   s_has_custom_radio = false;
@@ -409,7 +482,7 @@ static void test_flipper_raw_files(void) {
              "Preset: %s\r\nProtocol: RAW\r\nRepeat: 50\r\n"
              "RAW_Data: 400 -1200 1200\r\n# continuation\r\nRAW_Data: -400 400 -14000\r\n",
              names[i]);
-    assert(subghz_replay_file("flipper_raw") == ESP_OK);
+    assert(replay_fixture("flipper_raw") == ESP_OK);
     assert(s_sent_preset == (cc1101_preset_t)(i + 1) && s_sent_count == 6);
     assert(memcmp(s_sent, expected, sizeof(expected)) == 0);
     int32_t too_small[5];
@@ -424,12 +497,12 @@ static void test_flipper_raw_files(void) {
     snprintf(s_capture, sizeof(s_capture),
              "Frequency: 433920000\nPreset: %s\nProtocol: RAW\nRAW_Data: 400 -1200\n", bad[i]);
     s_sent_count = 0;
-    assert(subghz_replay_file("unsupported") != ESP_OK && s_sent_count == 0);
+    assert(replay_fixture("unsupported") != ESP_OK && s_sent_count == 0);
   }
   snprintf(s_capture, sizeof(s_capture),
            "Frequency: 433920000\nPreset: 1\nRAW_Data: 400 -1200\nRAW_Data: -0\n");
   s_sent_count = 0;
-  assert(subghz_replay_file("bad_continuation") != ESP_OK && s_sent_count == 0);
+  assert(replay_fixture("bad_continuation") != ESP_OK && s_sent_count == 0);
 }
 
 static void test_flipper_princeton_timing(void) {
@@ -447,7 +520,7 @@ static void test_flipper_princeton_timing(void) {
            "Preset: FuriHalSubGhzPresetOok270Async\nProtocol: Princeton\nBit: 24\n"
            "Key: 00 00 00 00 00 95 D5 D4\nTE: 400\nGuard_time: 35\n");
   size_t header_length = strlen(s_capture);
-  assert(subghz_replay_file("flipper_princeton") == ESP_OK);
+  assert(replay_fixture("flipper_princeton") == ESP_OK);
   assert(s_sent_preset == 1 && s_sent_count == 500);
   for (size_t repeat = 0; repeat < 10; ++repeat)
     assert(memcmp(s_sent + repeat * 50, expected, sizeof(expected)) == 0);
@@ -461,17 +534,17 @@ static void test_flipper_princeton_timing(void) {
              "Repeat: %s\n", bad_repeat[i]);
     s_sent_count = 0;
     s_is_running = true;
-    assert(subghz_replay_file("invalid_repeat") != ESP_OK);
+    assert(replay_fixture("invalid_repeat") != ESP_OK);
     assert(s_sent_count == 0 && s_is_running);
   }
   snprintf(s_capture + header_length, sizeof(s_capture) - header_length, "Repeat: 3\n");
-  assert(subghz_replay_file("repeat_three") == ESP_OK && s_sent_count == 150);
+  assert(replay_fixture("repeat_three") == ESP_OK && s_sent_count == 150);
   snprintf(s_capture + header_length, sizeof(s_capture) - header_length, "Repeat: 100\n");
-  assert(subghz_replay_file("repeat_bounded") == ESP_OK && s_sent_count == 5000);
+  assert(replay_fixture("repeat_bounded") == ESP_OK && s_sent_count == 5000);
   assert(subghz_protocol_serialize_decoded(&decoded, TEST_FREQUENCY_HZ, 350,
                                          s_capture, sizeof(s_capture)) != 0);
   assert(strstr(s_capture, "TE: 400\nGuard_time: 35\n") != NULL);
-  assert(subghz_replay_file("measured_princeton") == ESP_OK);
+  assert(replay_fixture("measured_princeton") == ESP_OK);
   assert(memcmp(s_sent, expected, sizeof(expected)) == 0);
   decoded.te_us = UINT32_MAX;
   assert(protocol->encode(&decoded, expected, 50) == 0);
@@ -483,7 +556,7 @@ static void test_flipper_princeton_timing(void) {
              "Key: 00 00 00 00 00 95 D5 D4\n%s\n", invalid[i]);
     s_sent_count = 0;
     s_is_running = true;
-    assert(subghz_replay_file("bad_timing") != ESP_OK);
+    assert(replay_fixture("bad_timing") != ESP_OK);
     assert(s_sent_count == 0 && s_is_running);
   }
 }
@@ -500,7 +573,7 @@ static void test_rcswitch_measured_timing(void) {
   assert(subghz_protocol_serialize_decoded(&decoded, TEST_FREQUENCY_HZ, 350,
                                          s_capture, sizeof(s_capture)) != 0);
   assert(strstr(s_capture, "TE: 420\n") != NULL);
-  assert(subghz_replay_file("measured_rcswitch") == ESP_OK);
+  assert(replay_fixture("measured_rcswitch") == ESP_OK);
   assert(s_sent_count == 52 * TEST_NATIVE_REPEATS);
   assert(memcmp(s_sent, frame, sizeof(frame)) == 0);
 }
@@ -530,14 +603,33 @@ static void test_capture_storage(void) {
   assert(subghz_storage_save_capture("manual", s_capture) == ESP_OK);
   assert(subghz_storage_save_capture("manual", "changed") == ESP_ERR_INVALID_STATE);
   assert(subghz_storage_save_capture("../escape", s_capture) == ESP_ERR_INVALID_ARG);
+  assert(subghz_storage_save_raw("../escape", pulses, 2, TEST_FREQUENCY_HZ) == ESP_ERR_INVALID_ARG);
+  assert(subghz_storage_delete("../escape") == ESP_ERR_INVALID_ARG);
   char saved[64];
+  assert(subghz_test_disk_read("../escape", saved, sizeof(saved)) == -1);
   assert(subghz_test_disk_read("manual", saved, sizeof(saved)) > 0);
   assert(strncmp(saved, s_capture, strlen(saved)) == 0);
   puts("PASS: real storage full 8192-pulse RAW persistence, exclusive saves and bounded newest-first listing");
 }
 
-int main(void) {
+static void test_external_raw(const char *path) {
+  FILE *file = fopen(path, "rb");
+  assert(file != NULL);
+  size_t length = fread(s_capture, 1, sizeof(s_capture) - 1, file);
+  assert(length > 0 && length < sizeof(s_capture) - 1 && !ferror(file));
+  assert(fclose(file) == 0 && memchr(s_capture, '\0', length) == NULL);
+  s_capture[length] = '\0';
+  assert(replay_fixture("external_raw") == ESP_OK);
+  printf("CAPTURE_METADATA: %" PRIu32 " %u\n", s_frequency, (unsigned)s_sent_preset);
+  printf("CAPTURE_PULSES:");
+  for (size_t i = 0; i < s_sent_count; ++i)
+    printf(" %" PRId32, s_sent[i]);
+  puts("");
+}
+
+int main(int argc, char **argv) {
   test_capture_storage();
+  test_stream_file();
   test_registry();
   test_princeton_complete_frame();
   test_rcswitch_frame_boundaries();
@@ -555,5 +647,6 @@ int main(void) {
   puts("      cipher/frame vectors and synthetic long-name KeeLoq replay (no physical radio).");
   puts("PASS: Flipper named presets, multiline RAW, independent Princeton TE/guard vector,");
   puts("      bounded repeats, malformed files and measured RCSwitch timing retention.");
+  if (argc == 2) test_external_raw(argv[1]);
   return 0;
 }

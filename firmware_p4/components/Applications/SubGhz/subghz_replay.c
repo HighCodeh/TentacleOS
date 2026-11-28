@@ -36,7 +36,8 @@ static const char *TAG = "SUBGHZ_REPLAY";
 
 #define REPLAY_FILE_BUF    65536
 #define REPLAY_MAX_PULSES  8192
-#define REPLAY_RX_DRAIN_MS 150
+#define REPLAY_RX_DRAIN_MS 1000
+#define REPLAY_RX_POLL_MS  10
 
 static void copy_field(const char *content, const char *field, char *out, size_t size) {
   size_t length = strlen(field);
@@ -61,6 +62,15 @@ esp_err_t subghz_replay_load(const char *name, subghz_replay_t *out_replay) {
     return ESP_ERR_INVALID_ARG;
 
   *out_replay = (subghz_replay_t){0};
+  subghz_raw_file_t *file = NULL;
+  esp_err_t raw_error = subghz_raw_file_load(name, &file);
+  if (raw_error == ESP_OK) {
+    subghz_replay_from_raw(file, out_replay);
+    subghz_raw_file_release(file);
+    return ESP_OK;
+  }
+  if (raw_error != ESP_ERR_NOT_SUPPORTED)
+    return raw_error;
   char *content = heap_caps_malloc(REPLAY_FILE_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (content == NULL) {
     ESP_LOGE(TAG, "Cannot allocate replay text");
@@ -131,20 +141,27 @@ cleanup:
 void subghz_replay_free(subghz_replay_t *replay) {
   if (replay == NULL)
     return;
+  subghz_raw_file_release(replay->raw_file);
   free(replay->pulses);
   *replay = (subghz_replay_t){0};
 }
 
 esp_err_t subghz_replay_send(const subghz_replay_t *replay) {
-  if (replay == NULL || replay->pulses == NULL || replay->count == 0)
+  if (replay == NULL || (!replay->raw_file && (replay->pulses == NULL || replay->count == 0)))
     return ESP_ERR_INVALID_ARG;
   if (subghz_receiver_is_running()) {
     subghz_receiver_stop();
-    vTaskDelay(pdMS_TO_TICKS(REPLAY_RX_DRAIN_MS));
+    for (uint32_t elapsed = 0; elapsed < REPLAY_RX_DRAIN_MS && subghz_receiver_is_running();
+         elapsed += REPLAY_RX_POLL_MS)
+      vTaskDelay(pdMS_TO_TICKS(REPLAY_RX_POLL_MS));
+    if (subghz_receiver_is_running())
+      return ESP_ERR_TIMEOUT;
   }
   esp_err_t error = subghz_tx_init();
   if (error != ESP_OK)
     return error;
+  if (replay->raw_file)
+    return subghz_tx_send_file(replay->raw_file, &replay->config);
   return subghz_tx_send_configured(replay->pulses, replay->count, &replay->config);
 }
 
@@ -155,4 +172,15 @@ esp_err_t subghz_replay_file(const char *name) {
     error = subghz_replay_send(&replay);
   subghz_replay_free(&replay);
   return error;
+}
+
+void subghz_replay_from_raw(subghz_raw_file_t *file, subghz_replay_t *out_replay) {
+  *out_replay = (subghz_replay_t){.raw_file = file};
+  subghz_raw_file_acquire(file);
+  uint64_t count;
+  subghz_raw_file_info(file, &out_replay->config.frequency_hz, &out_replay->config.radio, &count);
+  out_replay->count = count > SIZE_MAX ? SIZE_MAX : count;
+  out_replay->config.preset = out_replay->config.radio.preset;
+  out_replay->config.has_radio_config = true;
+  snprintf(out_replay->protocol, sizeof(out_replay->protocol), "RAW");
 }

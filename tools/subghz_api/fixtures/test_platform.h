@@ -1,3 +1,18 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 #ifndef SUBGHZ_TEST_PLATFORM_H
 #define SUBGHZ_TEST_PLATFORM_H
 #include <assert.h>
@@ -39,13 +54,15 @@ typedef void *SemaphoreHandle_t;
 typedef void *QueueHandle_t;
 typedef void *rmt_channel_handle_t;
 typedef void *rmt_encoder_handle_t;
-typedef struct { uint32_t duration0, duration1; bool level0, level1; } rmt_symbol_word_t;
+typedef union { struct { uint32_t duration0:15, level0:1, duration1:15, level1:1; }; uint32_t val; } rmt_symbol_word_t;
 typedef struct { rmt_symbol_word_t *received_symbols; size_t num_symbols; } rmt_rx_done_event_data_t;
 typedef struct { int clk_src, resolution_hz, mem_block_symbols, gpio_num;
   struct { bool invert_in, with_dma; } flags; } rmt_rx_channel_config_t;
 typedef struct { int clk_src, resolution_hz, mem_block_symbols, gpio_num, trans_queue_depth; } rmt_tx_channel_config_t;
 typedef struct { bool (*on_recv_done)(rmt_channel_handle_t, const rmt_rx_done_event_data_t *, void *); } rmt_rx_event_callbacks_t;
 typedef struct { uint32_t signal_range_min_ns, signal_range_max_ns; } rmt_receive_config_t;
+typedef struct { size_t (*callback)(const void *, size_t, size_t, size_t, rmt_symbol_word_t *, bool *, void *); void *arg; size_t min_chunk_size; } rmt_simple_encoder_config_t;
+esp_err_t rmt_new_simple_encoder(const rmt_simple_encoder_config_t *, rmt_encoder_handle_t *);
 typedef struct { int unused; } rmt_copy_encoder_config_t;
 typedef struct { int loop_count; } rmt_transmit_config_t;
 TaskHandle_t xTaskGetCurrentTaskHandle(void);

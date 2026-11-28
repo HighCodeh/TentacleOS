@@ -68,7 +68,7 @@ static struct {
   lv_color_t screen_base, bg_primary, bg_secondary, border_accent;
   lv_color_t border_inactive, text_main, text_secondary;
 } current_theme;
-static unsigned stops;
+static unsigned stops, finishes;
 static bool fail_load;
 static bool ready, running;
 static subghz_rx_progress_t fixture_progress;
@@ -117,6 +117,7 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode, const cc1101_radi
   running = !fail_load; return fail_load ? ESP_FAIL : ESP_OK;
 }
 void subghz_receiver_stop(void) { running = false; ++stops; }
+void subghz_receiver_finish(void) { assert(running); ++finishes; }
 esp_err_t subghz_receiver_get_error(void) { return ESP_OK; }
 bool subghz_receiver_get_progress(subghz_rx_progress_t *out) { *out = fixture_progress; return true; }
 bool subghz_receiver_get_result(subghz_rx_result_t *out) {
@@ -169,12 +170,18 @@ int main(void) {
       current_theme.border_accent = current_theme.text_main;
       ready = false; fixture_progress = (subghz_rx_progress_t){.frequency_hz=315000000};
       ui_subghz_read_open(); assert(running); read_tick_cb(NULL); check_live();
+      fixture_progress.rejected_bursts = 1;
+      read_tick_cb(NULL); check_live();
+      assert(strstr(lv_label_get_text(s_status), "Noise filtered"));
       fixture_progress.phase = SUBGHZ_RX_PHASE_CAPTURING;
       fixture_progress.rssi_count = SUBGHZ_RX_RSSI_SAMPLES;
       fixture_progress.pulse_count = 8192; fixture_progress.frame_count = 128;
       fixture_progress.elapsed_ms = 10000;
       for (unsigned i = 0; i < SUBGHZ_RX_RSSI_SAMPLES; ++i) fixture_progress.rssi_dbm[i] = -130 + i * 2;
       read_tick_cb(NULL); check_live(); assert(strstr(lv_label_get_text(s_status), "Receiving"));
+      fixture_progress.pulse_count = 1310720; fixture_progress.frame_count = 160;
+      fixture_progress.elapsed_ms = 7200000;
+      read_tick_cb(NULL); check_live();
       fixture_progress.phase = SUBGHZ_RX_PHASE_ANALYZING; read_tick_cb(NULL); check_live();
       assert(strstr(lv_label_get_text(s_status), "Analyzing"));
       fixture_result = (subghz_rx_result_t){.decoded=true, .freq=315000000, .pulse_count=8192, .is_limited=true};
@@ -201,6 +208,9 @@ int main(void) {
   expected_mode = SUBGHZ_MODE_RAW;
   ui_subghz_read_set_raw(true); ready = false;
   ui_subghz_read_open(); assert(running);
+  assert(strstr(lv_label_get_text(s_hint), "OK finish"));
+  input_event_t finish = {.action=INPUT_ACTION_PRESS, .button=INPUT_BTN_OK};
+  subghz_read_input(&finish, NULL); assert(finishes == 1 && running);
   fixture_result = (subghz_rx_result_t){.freq=315000000};
   strcpy(fixture_result.save_name, "RAW_capture"); ready = true;
   read_tick_cb(NULL); assert(s_options && !running);

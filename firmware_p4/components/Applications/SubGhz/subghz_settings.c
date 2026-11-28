@@ -15,6 +15,7 @@
 
 #include "subghz_settings.h"
 #include "frequency_catalog.h"
+#include "cc1101_rf_path.h"
 
 #include "freertos/FreeRTOS.h"
 
@@ -60,6 +61,10 @@ void subghz_settings_set_preset(cc1101_preset_t preset) {
 }
 
 void subghz_settings_set_freq(uint32_t freq) {
+  if (freq != 0 && cc1101_rf_path_for_frequency(freq) == CC1101_RF_PATH_NONE) {
+    ESP_LOGE(TAG, "Frequency outside supported bands");
+    return;
+  }
   lock();
   s_settings.freq = freq;
   unlock();

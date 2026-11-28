@@ -177,9 +177,9 @@ static void reset_test(void) {
 static void test_paths(void) {
   const struct { uint32_t frequency; unsigned path, v1, v2; uint8_t pa; } cases[] = {
       {300000000, 1, 0, 0, 0xC2}, {315000000, 1, 0, 0, 0xC2}, {348000000, 1, 0, 0, 0xC2},
-      {387000000, 1, 0, 0, 0xC0}, {433920000, 1, 0, 0, 0xC0}, {464000000, 1, 0, 0, 0xC0},
-      {779000000, 2, 0, 1, 0xC5}, {868350000, 2, 0, 1, 0xC5}, {899999999, 2, 0, 1, 0xC5},
-      {900000000, 2, 0, 1, 0xC3}, {915000000, 2, 0, 1, 0xC3}, {928000000, 2, 0, 1, 0xC3},
+      {387000000, 2, 0, 1, 0xC0}, {433920000, 2, 0, 1, 0xC0}, {464000000, 2, 0, 1, 0xC0},
+      {779000000, 4, 1, 1, 0xC5}, {868350000, 4, 1, 1, 0xC5}, {899999999, 4, 1, 1, 0xC5},
+      {900000000, 3, 1, 0, 0xC3}, {915000000, 3, 1, 0, 0xC3}, {928000000, 3, 1, 0, 0xC3},
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
     reset_test();
@@ -254,7 +254,7 @@ static void test_presets(void) {
   cc1101_set_preset(CC1101_PRESET_OOK_270KHZ, 315000000);
   assert(s_error == ESP_OK && s_registers[CC1101_TEST0] == 0x0B);
   cc1101_set_preset(CC1101_PRESET_OOK_270KHZ, 868350000);
-  assert(s_error == ESP_OK && s_registers[CC1101_TEST0] == 0x09 && s_v1 == 0 && s_v2 == 1);
+  assert(s_error == ESP_OK && s_registers[CC1101_TEST0] == 0x09 && s_v1 == 1 && s_v2 == 1);
 }
 
 static void test_preset_transitions(void) {
@@ -277,7 +277,7 @@ static void test_preset_transitions(void) {
       cc1101_set_dc_filter_off(true);
       assert(cc1101_set_preset(to, 433920000) == ESP_OK);
       assert(memcmp(expected[to], s_registers, sizeof(expected[to])) == 0);
-      assert(s_v1 == 0 && s_v2 == 0);
+      assert(s_v1 == 0 && s_v2 == 1);
       bool is_fsk = to >= 3 && to <= 5;
       assert(s_pa[is_fsk ? 0 : 1] == 0xC0 && s_pa[is_fsk ? 1 : 0] == 0);
       assert(cc1101_get_active_preset_id() == to);
@@ -358,7 +358,7 @@ static void test_custom_config(void) {
   assert(cc1101_get_radio_config(&observed) == ESP_OK);
   assert(observed.mdmcfg4 == config.mdmcfg4 && observed.mdmcfg3 == config.mdmcfg3);
   assert(observed.deviatn == config.deviatn && observed.agcctrl2 == config.agcctrl2);
-  assert(s_v1 == 0 && s_v2 == 1 && s_registers[CC1101_FSCAL1] == 0x2B);
+  assert(s_v1 == 1 && s_v2 == 0 && s_registers[CC1101_FSCAL1] == 0x2B);
   assert(s_registers[CC1101_AGCCTRL0] == 0x40);
   unsigned transactions = s_transactions;
   config.deviatn |= 0x80;
@@ -529,5 +529,5 @@ int main(void) {
   test_failures();
   test_initialization();
   test_packets();
-  puts("PASS: production CC1101 RF1/RF2 selection, modem math, preset ordering, timeouts, SPI/GPIO failures and recovery");
+  puts("PASS: production CC1101 RF1/RF2/RF3/RF4 selection, modem math, preset ordering, timeouts, SPI/GPIO failures and recovery");
 }

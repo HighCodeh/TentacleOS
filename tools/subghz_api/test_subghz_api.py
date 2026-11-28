@@ -101,6 +101,8 @@ typedef int esp_err_t;
         subprocess.run([str(binary)],check=True,timeout=30)
         subprocess.run([*command,str(HERE/'test_native_tx.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
+        subprocess.run([*command,str(HERE/'test_brute.c'),'-o',str(binary)],check=True)
+        subprocess.run([str(binary)],check=True,timeout=30)
         subprocess.run([*command,str(HERE/'test_spectrum.c'),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
         ui = ROOT/'firmware_p4/components/Applications/ui/screens/subghz'
@@ -112,6 +114,16 @@ typedef int esp_err_t;
         harness = (HERE/'test_ui.c').read_text().replace('/* CALLBACK */', callbacks)
         (temp/'ui_test.c').write_text(harness)
         subprocess.run([*command, str(temp/'ui_test.c'), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=30)
+        source = (ui/'subghz_menu_ui.c').read_text()
+        callbacks = '\n'.join(function(signature) for signature in [
+            'static void rebuild_async(void *p)', 'static void info_del_confirm(bool confirm)',
+            'void ui_subghz_menu_stop(void)'])
+        saved_input = source.split('    case VIEW_SAVED:\n      switch', 1)[1]
+        saved_input = '    case VIEW_SAVED:\n      switch' + saved_input.split('    case VIEW_SAVED_INFO:\n      switch', 1)[0]
+        harness = (HERE/'test_saved_ui.c').read_text().replace('/* CALLBACKS */', callbacks).replace('/* SAVED_INPUT */', saved_input)
+        (temp/'saved_test.c').write_text(harness)
+        subprocess.run([*command, str(temp/'saved_test.c'), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=30)
         (temp/'driver/gpio.h').write_text('#include "radio_platform.h"\n')
         (temp/'spi.h').write_text('#include "radio_platform.h"\n')

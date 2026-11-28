@@ -36,6 +36,7 @@
 #include "subghz_protocol_registry.h"
 #include "subghz_analyzer.h"
 #include "subghz_storage.h"
+#include "subghz_raw_file.h"
 #include "subghz_protocol_serializer.h"
 #include "subghz_transmitter.h"
 #include "resource_mgr.h"
@@ -47,13 +48,15 @@ static res_handle_t s_rx_res = RES_HANDLE_NONE;
 
 #define RMT_RESOLUTION_HZ      1000000
 #define RX_BUFFER_SIZE         1024
+#define RAW_RX_BUFFER_SIZE     4096
 #define DECODE_BUFFER_FACTOR   2
 #define MIN_PULSE_NS           1000
 #define SOFTWARE_FILTER_US     15
 #define MAX_PULSE_NS           30000000
-#define RMT_MEM_BLOCK_SYMBOLS  256
 #define RMT_DMA_ALIGNMENT      64
 #define RX_QUEUE_DEPTH         1
+#define RAW_RING_BLOCKS        16
+#define RAW_FINISH_WAIT_MS     100
 #define RX_QUEUE_TIMEOUT_MS    25
 #define HOP_INTERVAL_MS        100
 #define HOP_SIGNAL_HOLD_MS     1000
@@ -78,6 +81,10 @@ static res_handle_t s_rx_res = RES_HANDLE_NONE;
 #define RSSI_NOISE_MARGIN_DB   8
 #define RSSI_NOISE_WEIGHT      8
 #define RSSI_FLOOR_DBM         (-130)
+#define UNKNOWN_MIN_PULSE_US   80U
+#define UNKNOWN_MAX_PULSE_US   4000U
+#define UNKNOWN_MAX_RATIO      8U
+#define UNKNOWN_MIN_RUN        16U
 #define CC1101_STATUS_READ     0x40U
 
 typedef struct {
@@ -94,6 +101,7 @@ typedef struct {
   TickType_t started;
   TickType_t last_activity;
   bool is_limited;
+  uint32_t rejected_bursts;
   subghz_rx_candidate_t candidates[BURST_MAX_CANDIDATES];
 } subghz_rx_burst_t;
 
@@ -119,6 +127,7 @@ typedef enum {
 
 static atomic_uint s_state;
 static atomic_int s_error;
+static atomic_bool s_finish_requested;
 static subghz_mode_t s_rx_mode = SUBGHZ_MODE_SCAN;
 static cc1101_preset_t s_rx_preset = CC1101_PRESET_OOK_800KHZ;
 static cc1101_radio_config_t s_rx_radio;
@@ -128,6 +137,20 @@ static int s_hop_idx = 0;
 static char *s_capture_text;
 static size_t s_capture_length;
 static bool s_discard_capture;
+
+typedef struct {
+  rmt_symbol_word_t *symbols;
+  rmt_symbol_word_t *dma;
+  size_t dma_size;
+  size_t counts[RAW_RING_BLOCKS];
+  atomic_uint head;
+  atomic_uint tail;
+  atomic_int error;
+  atomic_bool stopping;
+  rmt_receive_config_t config;
+} subghz_raw_rx_t;
+static subghz_raw_rx_t s_raw_rx;
+static subghz_raw_file_t *s_raw_capture;
 
 static rmt_channel_handle_t s_rx_channel = NULL;
 static QueueHandle_t s_rx_queue = NULL;
@@ -151,6 +174,7 @@ static void update_progress(const subghz_rx_burst_t *burst,
   s_progress.pulse_count = burst->count;
   s_progress.frame_count = burst->frames;
   s_progress.is_limited = burst->is_limited;
+  s_progress.rejected_bursts = burst->rejected_bursts;
   if (has_rssi) {
     if (s_progress.rssi_count == SUBGHZ_RX_RSSI_SAMPLES) {
       memmove(s_progress.rssi_dbm,
@@ -263,6 +287,29 @@ retain_capture(const int32_t *pulses, size_t count, const subghz_data_t *data, u
 static bool subghz_rx_done_callback(rmt_channel_handle_t channel,
                                     const rmt_rx_done_event_data_t *edata,
                                     void *user_data) {
+  if (s_rx_mode == SUBGHZ_MODE_RAW) {
+    unsigned head = atomic_load(&s_raw_rx.head);
+    unsigned tail = atomic_load(&s_raw_rx.tail);
+    if (edata->num_symbols) {
+      if (head - tail == RAW_RING_BLOCKS || edata->num_symbols > RAW_RX_BUFFER_SIZE) {
+        atomic_store(&s_raw_rx.error, ESP_ERR_NO_MEM);
+        atomic_store(&s_raw_rx.stopping, true);
+        return false;
+      }
+      size_t slot = head % RAW_RING_BLOCKS;
+      memcpy(s_raw_rx.symbols + slot * RAW_RX_BUFFER_SIZE,
+             edata->received_symbols,
+             edata->num_symbols * sizeof(rmt_symbol_word_t));
+      s_raw_rx.counts[slot] = edata->num_symbols;
+      atomic_store(&s_raw_rx.head, head + 1);
+    }
+    if (edata->flags.is_last && !atomic_load(&s_raw_rx.stopping) && s_state == SUBGHZ_RX_RUNNING) {
+      esp_err_t error = rmt_receive(channel, s_raw_rx.dma, s_raw_rx.dma_size, &s_raw_rx.config);
+      if (error != ESP_OK)
+        atomic_store(&s_raw_rx.error, error);
+    }
+    return false;
+  }
   BaseType_t high_task_wakeup = pdFALSE;
   QueueHandle_t queue = (QueueHandle_t)user_data;
   xQueueSendFromISR(queue, edata, &high_task_wakeup);
@@ -290,14 +337,6 @@ static size_t decode_rmt_symbols(const rmt_symbol_word_t *symbols,
     }
   }
   return idx;
-}
-
-static void handle_raw_mode(const int32_t *decode_buffer, size_t decode_idx) {
-  ESP_LOGI(TAG, "RAW captured: %u pulses", (unsigned)decode_idx);
-  if (retain_capture(decode_buffer, decode_idx, NULL, 0)) {
-    publish_rx_result(false, NULL, NULL, "RAW", 0);
-    led_signal_info();
-  }
 }
 
 static void log_recovered_bitstream(const subghz_analyzer_result_t *analysis) {
@@ -379,7 +418,43 @@ static bool decode_burst(subghz_rx_burst_t *burst, subghz_data_t *out, uint32_t 
   return false;
 }
 
-static void handle_scan_mode(subghz_rx_burst_t *burst) {
+static bool has_signal_timing(const int32_t *pulses, size_t count) {
+  size_t run = 0;
+  uint64_t previous = 0;
+  bool was_high = false;
+  for (size_t i = 0; i < count; ++i) {
+    int64_t pulse = pulses[i];
+    uint64_t duration = pulse < 0 ? (uint64_t)-pulse : (uint64_t)pulse;
+    bool is_high = pulse > 0;
+    if (duration < UNKNOWN_MIN_PULSE_US || duration > UNKNOWN_MAX_PULSE_US) {
+      run = 0;
+      continue;
+    }
+    if (run && is_high != was_high && duration <= previous * UNKNOWN_MAX_RATIO &&
+        previous <= duration * UNKNOWN_MAX_RATIO) {
+      ++run;
+    } else {
+      run = 1;
+    }
+    if (run >= UNKNOWN_MIN_RUN)
+      return true;
+    previous = duration;
+    was_high = is_high;
+  }
+  return false;
+}
+
+static void reset_noise_burst(subghz_rx_burst_t *burst) {
+  burst->count = 0;
+  burst->frames = 0;
+  burst->started = 0;
+  burst->last_activity = 0;
+  burst->is_limited = false;
+  if (burst->rejected_bursts < UINT32_MAX)
+    ++burst->rejected_bursts;
+}
+
+static bool handle_scan_mode(subghz_rx_burst_t *burst) {
   const int32_t *decode_buffer = burst->pulses;
   size_t decode_idx = burst->count;
   uint32_t matches = 0;
@@ -397,12 +472,17 @@ static void handle_scan_mode(subghz_rx_burst_t *burst) {
     subghz_analyzer_result_t analysis = {0};
     subghz_analyzer_process(decode_buffer, decode_idx, &analysis);
     if (s_state != SUBGHZ_RX_RUNNING)
-      return;
+      return true;
     if (retain_capture(decode_buffer, decode_idx, &decoded, analysis.estimated_te)) {
       publish_rx_result(true, &decoded, &analysis, "Signal", matches);
       led_signal_info();
     }
-    return;
+    return true;
+  }
+
+  if (!s_finish_requested && !has_signal_timing(decode_buffer, decode_idx)) {
+    ESP_LOGD(TAG, "Discarded noise burst: %u pulses; continuing RX", (unsigned)decode_idx);
+    return false;
   }
 
   subghz_analyzer_result_t analysis = {0};
@@ -426,6 +506,7 @@ static void handle_scan_mode(subghz_rx_burst_t *burst) {
   for (size_t k = 0; k < preview; k++) {
     ESP_LOGD(TAG, "  [%d] %ld", (int)k, (long)decode_buffer[k]);
   }
+  return true;
 }
 
 static esp_err_t handle_frequency_hopping(TickType_t *last_hop_time) {
@@ -464,11 +545,16 @@ static void subghz_rx_task(void *pvParameters) {
   esp_err_t err = ESP_OK;
   bool is_channel_enabled = false;
   bool has_radio_config = false;
+  subghz_raw_file_t *raw_file = NULL;
+  bool raw_finished = false;
+
+  size_t raw_symbol_capacity = s_rx_mode == SUBGHZ_MODE_RAW ? RAW_RX_BUFFER_SIZE : RX_BUFFER_SIZE;
+  size_t raw_symbols_size = sizeof(rmt_symbol_word_t) * raw_symbol_capacity;
 
   rmt_rx_channel_config_t rx_channel_cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = RMT_RESOLUTION_HZ,
-      .mem_block_symbols = RMT_MEM_BLOCK_SYMBOLS,
+      .mem_block_symbols = raw_symbol_capacity,
       .gpio_num = GPIO_CC1101_GDO0_PIN,
       .flags.invert_in = false,
       .flags.with_dma = true,
@@ -501,9 +587,9 @@ static void subghz_rx_task(void *pvParameters) {
 
   rmt_rx_done_event_data_t rx_data;
 
-  size_t raw_symbols_size = sizeof(rmt_symbol_word_t) * RX_BUFFER_SIZE;
+  // IDF 6.1 RMT RX supports external DMA buffers and invalidates their cache before callbacks.
   raw_symbols = heap_caps_aligned_alloc(
-      RMT_DMA_ALIGNMENT, raw_symbols_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      RMT_DMA_ALIGNMENT, raw_symbols_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (raw_symbols == NULL) {
     ESP_LOGE(TAG, "Failed to allocate RMT RX buffer");
     err = ESP_ERR_NO_MEM;
@@ -519,6 +605,21 @@ static void subghz_rx_task(void *pvParameters) {
 
   memset(burst, 0, sizeof(*burst));
   decode_buffer = burst->pulses;
+  if (s_rx_mode == SUBGHZ_MODE_RAW) {
+    memset(&s_raw_rx, 0, sizeof(s_raw_rx));
+    s_raw_rx.symbols =
+        heap_caps_malloc(RAW_RING_BLOCKS * RAW_RX_BUFFER_SIZE * sizeof(rmt_symbol_word_t),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_raw_rx.symbols == NULL) {
+      ESP_LOGE(TAG, "Cannot allocate RAW SD ring");
+      err = ESP_ERR_NO_MEM;
+      goto cleanup;
+    }
+    receive_config.flags.en_partial_rx = true;
+    s_raw_rx.dma = raw_symbols;
+    s_raw_rx.dma_size = raw_symbols_size;
+    s_raw_rx.config = receive_config;
+  }
   if (s_state != SUBGHZ_RX_RUNNING)
     goto cleanup;
   err = cc1101_init();
@@ -550,6 +651,65 @@ static void subghz_rx_task(void *pvParameters) {
 
   while (s_state == SUBGHZ_RX_RUNNING) {
     TickType_t now = xTaskGetTickCount();
+    if (s_rx_mode == SUBGHZ_MODE_RAW) {
+      err = atomic_load(&s_raw_rx.error);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "RAW stream overflow or DMA failure; capture discarded");
+        break;
+      }
+      if (s_finish_requested && !raw_finished) {
+        atomic_store(&s_raw_rx.stopping, true);
+        // Allow a quiet-boundary callback to deliver the DMA tail before stopping.
+        vTaskDelay(pdMS_TO_TICKS(RAW_FINISH_WAIT_MS));
+        err = rmt_disable(s_rx_channel);
+        if (err != ESP_OK)
+          break;
+        is_channel_enabled = false;
+        raw_finished = true;
+      }
+      unsigned tail = atomic_load(&s_raw_rx.tail);
+      if (tail != atomic_load(&s_raw_rx.head)) {
+        size_t slot = tail % RAW_RING_BLOCKS;
+        size_t count = decode_rmt_symbols(s_raw_rx.symbols + slot * RAW_RX_BUFFER_SIZE,
+                                          s_raw_rx.counts[slot],
+                                          decode_buffer,
+                                          BURST_MAX_PULSES);
+        if (count && !raw_file)
+          err = subghz_raw_file_create(s_rx_freq, &s_rx_radio, &raw_file);
+        if (err == ESP_OK && count)
+          err = subghz_raw_file_append(raw_file, decode_buffer, count);
+        atomic_store(&s_raw_rx.tail, tail + 1);
+        if (err != ESP_OK)
+          break;
+        if (!burst->count && count)
+          burst->started = now;
+        burst->count += count > UINT32_MAX - burst->count ? UINT32_MAX - burst->count : count;
+        if (burst->frames < UINT32_MAX)
+          ++burst->frames;
+        update_progress(burst, SUBGHZ_RX_PHASE_CAPTURING, now, false, 0);
+        continue;
+      }
+      if (raw_finished) {
+        err = atomic_load(&s_raw_rx.error);
+        if (err == ESP_OK)
+          err = subghz_raw_file_finish(raw_file);
+        if (err != ESP_OK)
+          break;
+        xSemaphoreTake(s_result_mutex, portMAX_DELAY);
+        if (!s_discard_capture) {
+          s_raw_capture = raw_file;
+          raw_file = NULL;
+        }
+        xSemaphoreGive(s_result_mutex);
+        update_progress(burst, SUBGHZ_RX_PHASE_COMPLETE, now, false, 0);
+        if (!raw_file) {
+          publish_rx_result(false, NULL, NULL, "RAW", 0);
+          ESP_LOGI(TAG, "RAW capture ready for Save");
+          led_signal_info();
+        }
+        break;
+      }
+    }
     if (now - last_rssi >= pdMS_TO_TICKS(RSSI_POLL_MS)) {
       uint8_t raw_rssi;
       err = cc1101_get_register(CC1101_RSSI | CC1101_STATUS_READ, &raw_rssi);
@@ -576,29 +736,54 @@ static void subghz_rx_task(void *pvParameters) {
                       rssi);
       last_rssi = now;
     }
-    if (burst->count && s_rx_mode == SUBGHZ_MODE_SCAN &&
-        (burst->is_limited || now - burst->started >= pdMS_TO_TICKS(BURST_MAX_MS) ||
-         now - burst->last_activity >= pdMS_TO_TICKS(BURST_QUIET_MS))) {
+    if (s_rx_mode == SUBGHZ_MODE_SCAN && burst->count &&
+        (s_finish_requested || burst->is_limited ||
+         now - burst->started >= pdMS_TO_TICKS(BURST_MAX_MS) ||
+         (s_rx_mode == SUBGHZ_MODE_SCAN &&
+          now - burst->last_activity >= pdMS_TO_TICKS(BURST_QUIET_MS)))) {
       burst->is_limited |= now - burst->started >= pdMS_TO_TICKS(BURST_MAX_MS);
       err = rmt_disable(s_rx_channel);
       if (err != ESP_OK)
         break;
       is_channel_enabled = false;
       update_progress(burst, SUBGHZ_RX_PHASE_ANALYZING, now, false, 0);
-      if (s_state == SUBGHZ_RX_RUNNING)
-        handle_scan_mode(burst);
+      if (s_state == SUBGHZ_RX_RUNNING && !handle_scan_mode(burst)) {
+        while (xQueueReceive(s_rx_queue, &rx_data, 0) == pdPASS) {}
+        reset_noise_burst(burst);
+        is_signal_hold = false;
+        has_noise_floor = false;
+        last_hop_time = now;
+        update_progress(burst, SUBGHZ_RX_PHASE_WAITING, now, false, 0);
+        if (s_state != SUBGHZ_RX_RUNNING)
+          break;
+        err = rmt_enable(s_rx_channel);
+        if (err != ESP_OK)
+          break;
+        is_channel_enabled = true;
+        err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
+        if (err != ESP_OK)
+          break;
+        vTaskDelay(1);
+        continue;
+      }
       update_progress(burst, SUBGHZ_RX_PHASE_COMPLETE, now, false, 0);
       break;
     }
     if (!burst->count && s_is_hopping_active && uxQueueMessagesWaiting(s_rx_queue) == 0 &&
+        (s_rx_mode != SUBGHZ_MODE_RAW ||
+         atomic_load(&s_raw_rx.head) == atomic_load(&s_raw_rx.tail)) &&
         now - last_hop_time >= hop_interval &&
         (!is_signal_hold || now - hold_started >= pdMS_TO_TICKS(HOP_SIGNAL_HOLD_MS))) {
+      atomic_store(&s_raw_rx.stopping, true);
       err = rmt_disable(s_rx_channel);
       if (err != ESP_OK)
         break;
       is_channel_enabled = false;
       while (xQueueReceive(s_rx_queue, &rx_data, 0) == pdPASS) {}
-      err = handle_frequency_hopping(&last_hop_time);
+      bool has_raw_data = s_rx_mode == SUBGHZ_MODE_RAW &&
+                          atomic_load(&s_raw_rx.tail) != atomic_load(&s_raw_rx.head);
+      if (!has_raw_data)
+        err = handle_frequency_hopping(&last_hop_time);
       has_noise_floor = false;
       is_signal_hold = false;
       last_rssi = xTaskGetTickCount();
@@ -610,11 +795,16 @@ static void subghz_rx_task(void *pvParameters) {
       if (err != ESP_OK)
         break;
       is_channel_enabled = true;
+      atomic_store(&s_raw_rx.stopping, false);
       err = rmt_receive(s_rx_channel, raw_symbols, raw_symbols_size, &receive_config);
       if (err != ESP_OK)
         break;
     }
 
+    if (s_rx_mode == SUBGHZ_MODE_RAW) {
+      vTaskDelay(1);
+      continue;
+    }
     if (xQueueReceive(s_rx_queue, &rx_data, pdMS_TO_TICKS(RX_QUEUE_TIMEOUT_MS)) != pdPASS) {
       continue;
     }
@@ -631,31 +821,25 @@ static void subghz_rx_task(void *pvParameters) {
       continue;
     }
 
-    if (rx_data.num_symbols > RX_BUFFER_SIZE) {
+    if (rx_data.num_symbols > raw_symbol_capacity) {
       err = ESP_ERR_INVALID_SIZE;
       break;
     }
-    size_t offset = s_rx_mode == SUBGHZ_MODE_SCAN ? burst->count : 0;
+    size_t offset = burst->count;
     size_t decode_idx = decode_rmt_symbols(rx_data.received_symbols,
                                            rx_data.num_symbols,
                                            decode_buffer + offset,
                                            BURST_MAX_PULSES - offset);
-    if (s_rx_mode == SUBGHZ_MODE_RAW) {
-      if (decode_idx > 0) {
-        burst->count = decode_idx;
-        burst->frames = 1;
-        update_progress(burst, SUBGHZ_RX_PHASE_COMPLETE, now, false, 0);
-        handle_raw_mode(decode_buffer, decode_idx);
-        break;
-      }
-    } else if (decode_idx && (burst->count || decode_idx >= BURST_MIN_PULSES)) {
+    if (decode_idx &&
+        (s_rx_mode == SUBGHZ_MODE_RAW || burst->count || decode_idx >= BURST_MIN_PULSES)) {
       now = xTaskGetTickCount();
       if (!burst->count)
         burst->started = now;
       burst->count += decode_idx;
       burst->ends[burst->frames++] = burst->count;
       burst->last_activity = now;
-      burst->is_limited = burst->count == BURST_MAX_PULSES || burst->frames == BURST_MAX_FRAMES;
+      burst->is_limited = burst->count == BURST_MAX_PULSES || burst->frames == BURST_MAX_FRAMES ||
+                          rx_data.num_symbols == raw_symbol_capacity;
       update_progress(burst, SUBGHZ_RX_PHASE_CAPTURING, now, false, 0);
       if (burst->is_limited)
         continue;
@@ -670,6 +854,7 @@ static void subghz_rx_task(void *pvParameters) {
   }
 
 cleanup:
+  atomic_store(&s_raw_rx.stopping, true);
   s_state = SUBGHZ_RX_STOPPING;
   record_failure(err);
   while (s_rx_channel != NULL) {
@@ -690,6 +875,9 @@ cleanup:
     record_failure(err);
     vTaskDelay(pdMS_TO_TICKS(CLEANUP_RETRY_MS));
   }
+  free(s_raw_rx.symbols);
+  s_raw_rx.symbols = NULL;
+  subghz_raw_file_release(raw_file);
   if (raw_symbols != NULL) {
     free(raw_symbols);
   }
@@ -741,6 +929,7 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
     return ESP_ERR_INVALID_STATE;
   }
 
+  s_finish_requested = false;
   s_rx_mode = mode;
   s_rx_preset = preset;
   s_rx_radio = *config;
@@ -760,6 +949,8 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
     s_state = SUBGHZ_RX_IDLE;
     return ESP_ERR_TIMEOUT;
   }
+  subghz_raw_file_release(s_raw_capture);
+  s_raw_capture = NULL;
   free(s_capture_text);
   s_capture_text = NULL;
   s_capture_length = 0;
@@ -788,6 +979,13 @@ esp_err_t subghz_receiver_start_configured(subghz_mode_t mode,
   }
 
   return ESP_OK;
+}
+
+void subghz_receiver_finish(void) {
+  subghz_rx_progress_t progress;
+  if (subghz_receiver_get_progress(&progress) && progress.pulse_count &&
+      s_state == SUBGHZ_RX_RUNNING)
+    s_finish_requested = true;
 }
 
 void subghz_receiver_stop(void) {
@@ -823,6 +1021,8 @@ void subghz_receiver_discard(void) {
     return;
   xSemaphoreTake(s_result_mutex, portMAX_DELAY);
   s_discard_capture = true;
+  subghz_raw_file_release(s_raw_capture);
+  s_raw_capture = NULL;
   free(s_capture_text);
   s_capture_text = NULL;
   s_capture_length = 0;
@@ -851,10 +1051,29 @@ esp_err_t subghz_receiver_copy_capture(uint32_t sequence, char **out_text) {
 }
 
 esp_err_t subghz_receiver_save(uint32_t sequence, const char *name) {
+  subghz_raw_file_t *raw_file = NULL;
+  if (subghz_receiver_acquire_raw(sequence, &raw_file) == ESP_OK) {
+    esp_err_t error = subghz_raw_file_save(raw_file, name);
+    subghz_raw_file_release(raw_file);
+    return error;
+  }
   char *text = NULL;
   esp_err_t error = subghz_receiver_copy_capture(sequence, &text);
   if (error == ESP_OK)
     error = subghz_storage_save_capture(name, text);
   free(text);
   return error;
+}
+
+esp_err_t subghz_receiver_acquire_raw(uint32_t sequence, subghz_raw_file_t **out_file) {
+  if (!out_file || !s_result_mutex)
+    return ESP_ERR_INVALID_ARG;
+  *out_file = NULL;
+  xSemaphoreTake(s_result_mutex, portMAX_DELAY);
+  if (sequence && sequence == s_latest.seq && s_raw_capture) {
+    subghz_raw_file_acquire(s_raw_capture);
+    *out_file = s_raw_capture;
+  }
+  xSemaphoreGive(s_result_mutex);
+  return *out_file ? ESP_OK : ESP_ERR_NOT_FOUND;
 }

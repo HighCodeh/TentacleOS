@@ -22,6 +22,7 @@ extern "C" {
 
 /** @brief Open the Sub-GHz brute-force transmit screen. */
 void ui_subghz_brute_open(void);
+void ui_subghz_brute_stop(void);
 
 #ifdef __cplusplus
 }

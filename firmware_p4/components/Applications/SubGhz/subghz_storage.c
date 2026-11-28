@@ -40,15 +40,22 @@ static const char *TAG = "SUBGHZ_STORAGE";
 #define HEADER_PEEK_SIZE 256
 #define SUB_EXT          ".sub"
 
+static bool valid_name(const char *name) {
+  return name != NULL && name[0] != '\0' && name[0] != '.' &&
+         strlen(name) < SUBGHZ_STORAGE_NAME_MAX && strpbrk(name, "/\\") == NULL;
+}
+
 static void build_path(char *out, size_t out_size, const char *name) {
   snprintf(out, out_size, "%s/%s%s", STORAGE_DIR, name, SUB_EXT);
 }
 
 static esp_err_t write_file(const char *name, const char *content, size_t len) {
-  if (name == NULL || name[0] == '\0' || content == NULL || len == 0)
+  if (!valid_name(name) || content == NULL || len == 0)
     return ESP_ERR_INVALID_ARG;
 
-  storage_mkdir_recursive(STORAGE_DIR);
+  esp_err_t directory_error = storage_mkdir_recursive(STORAGE_DIR);
+  if (directory_error != ESP_OK)
+    return directory_error;
 
   char path[PATH_BUF_SIZE];
   build_path(path, sizeof(path), name);
@@ -100,9 +107,11 @@ esp_err_t subghz_storage_save_decoded(const char *name,
     return ESP_ERR_INVALID_ARG;
   }
 
-  char *buf = malloc(DECODED_BUF_SIZE);
-  if (buf == NULL)
+  char *buf = heap_caps_malloc(DECODED_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (buf == NULL) {
+    ESP_LOGE(TAG, "Cannot allocate decoded serialization buffer");
     return ESP_ERR_NO_MEM;
+  }
 
   size_t len = subghz_protocol_serialize_decoded(data, frequency, te, buf, DECODED_BUF_SIZE);
   esp_err_t err = write_file(name, buf, len);
@@ -132,7 +141,7 @@ subghz_storage_save_raw(const char *name, const int32_t *pulses, size_t count, u
 }
 
 int subghz_storage_read(const char *name, char *out_buf, size_t out_size) {
-  if (name == NULL || out_buf == NULL || out_size == 0)
+  if (!valid_name(name) || out_buf == NULL || out_size == 0)
     return -1;
 
   char path[PATH_BUF_SIZE];
@@ -143,7 +152,12 @@ int subghz_storage_read(const char *name, char *out_buf, size_t out_size) {
     return -1;
 
   size_t rd = fread(out_buf, 1, out_size - 1, f);
-  fclose(f);
+  bool failed = ferror(f) != 0;
+  int close_error = fclose(f);
+  if (failed || close_error != 0) {
+    out_buf[0] = '\0';
+    return -1;
+  }
   out_buf[rd] = '\0';
   return (int)rd;
 }
@@ -229,7 +243,7 @@ int subghz_storage_list(subghz_storage_entry_t *out, int max_entries) {
 }
 
 esp_err_t subghz_storage_delete(const char *name) {
-  if (name == NULL)
+  if (!valid_name(name))
     return ESP_ERR_INVALID_ARG;
 
   char path[PATH_BUF_SIZE];

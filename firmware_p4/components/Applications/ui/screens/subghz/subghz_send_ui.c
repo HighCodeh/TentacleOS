@@ -274,7 +274,7 @@ static void build_detail(const char *name) {
   stop_tx();
   subghz_replay_free(&s_replay);
   esp_err_t error = ESP_OK;
-  if (s_pending_replay.pulses != NULL) {
+  if ((s_pending_replay.pulses != NULL || s_pending_replay.raw_file != NULL)) {
     s_replay = s_pending_replay;
     s_pending_replay = (subghz_replay_t){0};
   } else {
@@ -303,6 +303,8 @@ static void build_detail(const char *name) {
     char key[DETAIL_KEY_SIZE];
     if (s_replay.key[0])
       snprintf(key, sizeof(key), "Key: %s", s_replay.key);
+    else if (s_replay.raw_file && !s_replay.count)
+      snprintf(key, sizeof(key), "RAW waveform: SD stream");
     else
       snprintf(key, sizeof(key), "RAW waveform: %u pulses", (unsigned)s_replay.count);
     detail_label(content, key, current_theme.text_secondary);
@@ -327,8 +329,10 @@ static void build_detail(const char *name) {
 }
 
 static void start_frame(void) {
-  if (s_refresh_timer == NULL || s_replay.pulses == NULL || s_is_active)
+  if (s_refresh_timer == NULL || (s_replay.pulses == NULL && s_replay.raw_file == NULL) ||
+      s_is_active)
     return;
+  s_replay.config.repeat_until_stopped = true;
   esp_err_t error = subghz_replay_send(&s_replay);
   if (error != ESP_OK) {
     // Init may have succeeded before queue submission failed.
@@ -440,6 +444,13 @@ void ui_subghz_send_stop(void) {
 esp_err_t ui_subghz_send_capture(uint32_t sequence) {
   char *text = NULL;
   subghz_replay_free(&s_pending_replay);
+  subghz_raw_file_t *file = NULL;
+  if (subghz_receiver_acquire_raw(sequence, &file) == ESP_OK) {
+    subghz_replay_from_raw(file, &s_pending_replay);
+    subghz_raw_file_release(file);
+    snprintf(s_pending_name, sizeof(s_pending_name), "Unsaved signal");
+    return ESP_OK;
+  }
   esp_err_t error = subghz_receiver_copy_capture(sequence, &text);
   if (error == ESP_OK)
     error = subghz_replay_prepare(text, &s_pending_replay);

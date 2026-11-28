@@ -831,6 +831,11 @@ Settings update immediately in RAM; BACK returns without an extra Apply step,
 and re-entry reflects current values. The screen uses the shared themed menu and
 live display metrics. Read passes a copied configuration to the receiver, which
 applies it after acquiring the radio; the screen performs no hardware access.
+Saved ignores OK when no captures exist and invalidates pending delete/rebuild
+callbacks when its screen closes. Brute Force counts only completed transmissions;
+errors preserve the partial count. Its scope/readout use theme colors and fit both
+orientations. The screen close hook cancels its worker and timers before navigation;
+`test_subghz_brute_ui.py` exercises layout, partial/error results and cleanup.
 Frequency Analyzer has its own [discovery service](../frequency_analyzer/README.md),
 with Auto, Radio Config carrier selection, preset groups/full search, threshold, RSSI history, pause and Read RAW handoff.
 The Waterfall action opens a separate spectrum/history screen with center, span,
@@ -845,8 +850,10 @@ custom values. Read's Send action, Saved's Send action and the Send picker open 
 shared transmit detail screen without emitting a signal on entry. It displays the
 filename, frequency, protocol, key or RAW pulse count and transmission status.
 Pressing OK immediately starts PTT and repeats while held, with at most one burst
-outstanding; no LONG_PRESS delay is required.
-Decoded bursts include the checked file/default frame repeats; RAW plays once.
+outstanding; no LONG_PRESS delay is required. Repeats are scheduled by the radio
+worker with the same waveform/configuration, rather than by UI refresh.
+Decoded bursts include the checked file/default frame repeats; each RAW repeat
+plays the complete loaded waveform.
 Releasing OK stops TX for both short taps and long holds. BACK stops and leaves the detail
 screen (returns to the picker, or to Sub-GHz for direct entry). Native transmission
 pulses the status LED using its configured info color and brightness.
@@ -868,6 +875,8 @@ visible while collecting; hopping pauses on the captured frequency. The graph
 uses remaining chrome/content height in portrait and landscape. Protocol/key
 identification appears only after collection. The result retains Send, Save/name,
 Capture again and Back; limits are explicitly titled “Capture limit reached”.
+Read RAW continues collecting blocks through silence until OK (finish), without a
+total pulse/block/time cap. BACK cancels, and Save remains an explicit action.
 A failed write does not expose a false saved filename. The receiver owns all
 sampling/collection/analysis and publishes snapshots; the screen only renders.
 `test_subghz_read_ui.py` checks phase transitions, real RSSI projection bounds,
@@ -1000,7 +1009,8 @@ an application-only flash cannot install this asset.
 
 IR capture Save and Sub-GHz capture Save now open the shared filename editor,
 with a suggested stem and an explicit extension hint. BACK cancels the name;
-Sub-GHz's existing automatic capture file remains on SD until a successful rename.
+Sub-GHz retains pending Read data in PSRAM and Read RAW data in a hidden temporary
+SD file until an explicit successful Save.
 Name conflicts are reported without replacing an existing destination. Missing
 Sub-GHz capture files no longer produce a false Saved confirmation. RFID read and
 manual-entry saves also request a name; this library still lasts only until reboot.
@@ -1025,9 +1035,12 @@ See [NFC naming and dump selection](../nfc/README.md) and
 [IR captured signals](../ir/README.md#captured-signals-and-names) for persistence
 and missing-data behavior. No folder chooser is introduced.
 
-Sub-GHz Read/Read RAW results remain in PSRAM until Save is chosen and a name is
-confirmed. Send can prepare an unsaved result directly in memory; Back/Discard
-and Capture again release it without creating an SD file. The Radio Config dial
+Sub-GHz Read results remain in PSRAM until Save. Read RAW streams continuously
+to a hidden temporary SD file, without a total pulse/block/time cap; OK finishes
+and Save names it. Send retains an unsaved file across navigation and streams it
+with bounded memory. Back/Discard and Capture again release it; the last owner
+removes an unsaved temporary file. SD/overflow failures produce an RX error instead
+of a successful truncated result. The Radio Config dial
 uses one full-height gradient in portrait and landscape. See the
 [Sub-GHz receiver flow](../SubGhz/README.md#receiver-subghz_receiver).
 

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "subghz_raw_file.h"
 #include "cc1101.h"
 
 #ifdef __cplusplus
@@ -32,6 +33,7 @@ extern "C" {
  *
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
+
 esp_err_t subghz_tx_init(void);
 
 /**
@@ -61,8 +63,12 @@ typedef struct {
   uint32_t frequency_hz;
   cc1101_preset_t preset;
   bool has_radio_config;
+  bool repeat_until_stopped;
   cc1101_radio_config_t radio;
 } subghz_tx_config_t;
+
+esp_err_t subghz_tx_send_file(subghz_raw_file_t *file, const subghz_tx_config_t *config);
+
 esp_err_t
 subghz_tx_send_configured(const int32_t *timings, size_t count, const subghz_tx_config_t *config);
 

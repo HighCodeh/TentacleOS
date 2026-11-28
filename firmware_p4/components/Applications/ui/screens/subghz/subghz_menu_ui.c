@@ -155,9 +155,11 @@ typedef enum {
 } view_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
+static uintptr_t s_generation;
+static uintptr_t s_delete_generation;
 
 static lv_obj_t *s_info_rows[INFO_ACTION_COUNT];
 static lv_obj_t *s_info_icons[INFO_ACTION_COUNT];
@@ -174,8 +176,8 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx);
 static void build_screen(void);
 
 static void rebuild_async(void *p) {
-  (void)p;
-  build_screen();
+  if ((uintptr_t)p == s_generation)
+    build_screen();
 }
 
 static void opa_anim_cb(void *var, int32_t v) {
@@ -533,14 +535,22 @@ static void build_saved_info(void) {
 }
 
 static void info_del_confirm(bool confirm) {
-  if (!confirm)
+  if (!confirm || s_delete_generation != s_generation || s_saved_count <= 0 || s_saved_sel < 0 ||
+      s_saved_sel >= s_saved_count)
     return;
   esp_err_t err = subghz_storage_delete(s_saved[s_saved_sel].name);
-  ui_feedback(UI_FB_WRITE);
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "Signal deleted");
+    led_signal_info();
+    ui_feedback(UI_FB_WRITE);
+  } else {
+    ESP_LOGW(TAG, "Delete failed: %s", esp_err_to_name(err));
+    led_signal_warning();
+  }
   notify(err == ESP_OK ? NOTIFY_INFO : NOTIFY_WARNING,
          err == ESP_OK ? "Signal deleted" : "Delete failed");
   s_view = VIEW_SAVED;
-  ui_async_call(rebuild_async, NULL);
+  ui_async_call(rebuild_async, (void *)s_generation);
 }
 
 static void screen_deleted_cb(lv_event_t *event) {
@@ -582,7 +592,9 @@ static void build_screen(void) {
   ui_screen_load_owned(&s_screen, s_screen);
 }
 
-void ui_subghz_menu_stop(void) {}
+void ui_subghz_menu_stop(void) {
+  ++s_generation;
+}
 
 static void start_saved_send(void) {
   ui_subghz_send_select(s_saved[s_saved_sel].name);
@@ -652,7 +664,7 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
           }
           break;
         case INPUT_BTN_OK:
-          if (press) {
+          if (press && s_saved_count > 0 && s_saved_sel >= 0 && s_saved_sel < s_saved_count) {
             s_view = VIEW_SAVED_INFO;
             build_screen();
           }
@@ -689,6 +701,7 @@ static void subghz_menu_input(const input_event_t *ev, void *ctx) {
             if (s_info_sel == 0) {
               start_saved_send();
             } else {
+              s_delete_generation = s_generation;
               msgbox_open(LV_SYMBOL_TRASH, "Delete signal?", "Delete", "Cancel", info_del_confirm);
             }
           }
