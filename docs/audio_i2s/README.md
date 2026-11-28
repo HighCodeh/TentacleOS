@@ -22,8 +22,14 @@ along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 The amplifier CTRL is C5 GPIO0; P4 GPIO49 is exclusively NFC CS. The kernel
 injects `board_service_controls()` through `audio_i2s_bind_controls()` before
 initialization. Only the enable level crosses SPI; PCM, volume, I2S and PDM
-capture stay local. Initialization allocates TX resources without enabling the
-amp or waiting for the C5, so an unavailable C5 does not block microphone use.
+capture stay local. Initialization creates the bounded queue, mutex and worker,
+but does not allocate the TX channel or sample buffer. Playback creates them
+under the TX mutex. The idle worker releases the channel, DMA buffers and sample
+buffer after ten seconds without playback, only after confirming amplifier mute.
+Streams and locked playback retain their resources; failed disable/delete retains
+ownership for a later retry. Nearby UI sounds reuse the same allocation. An
+unavailable C5 does not block microphone use. The queue/worker remain resident
+so late amplifier acknowledgements can still be reconciled.
 
 Blocking playback APIs run in audio/media workers, not LVGL callbacks. Before
 playback, the driver confirms amp off, sets/enables the I2S clock, flushes old
@@ -41,7 +47,7 @@ Uninitialized/busy one-shot playback now returns INVALID_STATE rather than
 reporting a sound as successful. Microphone functions have no amp dependency.
 
 
-This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmware only): a class-D speaker amplifier for playback (TX) and a PDM microphone for capture (RX), both on a single I2S port. It owns one persistent TX channel used for UI chimes, tones, melodies, raw PCM and continuous streaming, and opens independent PDM-RX channels for mic recording and live streaming.
+This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmware only): a class-D speaker amplifier for playback (TX) and a PDM microphone for capture (RX), both on a single I2S port. It owns one shared, lazily allocated TX channel used for UI chimes, tones, melodies, raw PCM and continuous streaming, and opens independent PDM-RX channels for mic recording and live streaming.
 
 ## Overview
 
@@ -59,7 +65,7 @@ This component drives the on-board audio path of the HighBoy V2 (ESP32-P4 firmwa
 
 - **Mode:** I2S standard (Philips) slot format, **16-bit**, **mono**, master.
 - **Default sample rate:** `44100` Hz (`SAMPLE_RATE_HZ`). PCM and stream calls may pass any rate; the driver reconfigures the TX clock only when the requested rate actually changes.
-- **One persistent channel:** `I2S_NUM_0` has exactly one TX channel. It is created once at init and never deleted; playback only enables/disables it and reconfigures its clock. Creating/deleting a channel per sound churned internal DMA RAM and stuttered the UI, so that is avoided.
+- **One shared channel:** `I2S_NUM_0` has exactly one TX channel. It is created on demand under the TX mutex and reused for nearby sounds. After ten seconds idle, confirmed mute and successful channel teardown release its DMA storage. The next playback recreates it; streams prevent idle teardown. This avoids creating/deleting a channel for every navigation click.
 - **DMA depth:** `AUDIO_DMA_DESC_NUM` = 8 descriptors x `AUDIO_DMA_FRAME_NUM` = 256 frames (~46 ms, ~8 KB internal RAM), deeper than the IDF default for underrun slack.
 - **Underrun behaviour:** `auto_clear = true`, so a starved channel emits zeros instead of looping the stale buffer.
 - **Anti-click:** each note gets a raised-cosine attack (`ENV_ATTACK_MS` = 4 ms) / release (`ENV_RELEASE_MS` = 8 ms) envelope, and playback brackets sounds with short silence; melodies use a continuous phase accumulator for gapless rendering.
@@ -101,7 +107,7 @@ MCLK and the TX-side DIN are `I2S_GPIO_UNUSED`.
 ```c
 esp_err_t audio_i2s_init(void);
 ```
-Brings up `I2S_NUM_0` on the amp pins, allocates the DMA chunk buffer, mutex and effect queue, and starts the playback task. Idempotent; safe to call multiple times.
+Creates the mutex and effect queue and starts the playback task. TX channel and sample-buffer allocation are deferred until playback. Idempotent; safe to call multiple times.
 
 #### `audio_i2s_set_volume`
 ```c
@@ -234,3 +240,8 @@ control functions with ASan/UBSan and explicit decoder/scheduler/I2S fakes. It
 covers malformed/no-progress decoder results, format changes, missing/oversized
 files, heap/task failures, claim races, short writes and failed cleanup. These
 fixtures do not execute the Helix decoder or actual I2S DMA.
+
+The host operation tests (`python3 tools/boot_report/test_operations.py`) exercise
+100 TX allocate/release cycles, allocation/start failures, idle grace, active
+stream retention and failed disable/delete retry in addition to playback/drain
+checks. Actual idle heap recovery and first-sound latency need device validation.

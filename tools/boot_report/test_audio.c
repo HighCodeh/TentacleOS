@@ -36,6 +36,31 @@ static void fixture_log(const char *tag,const char *format,...) {(void)tag;(void
 /* CONSTANTS */
 static const char *TAG="TEST";
 static esp_err_t s_play_error;
+static TickType_t s_last_tx_tick, s_tick;
+static TickType_t xTaskGetTickCount(void) {return s_tick;}
+#define ESP_ERR_NO_MEM 6
+#define MALLOC_CAP_DMA 1
+#define I2S_NUM_0 0
+#define I2S_ROLE_MASTER 1
+#define I2S_DATA_BIT_WIDTH_16BIT 16
+#define I2S_SLOT_MODE_MONO 1
+#define I2S_GPIO_UNUSED -1
+#define GPIO_AUDIO_BCLK_PIN 28
+#define GPIO_AUDIO_LRCLK_PIN 29
+#define GPIO_AUDIO_DIN_PIN 27
+#define I2S_CHANNEL_DEFAULT_CONFIG(a,b) ((i2s_chan_config_t){0})
+#define I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(a,b) 0
+typedef struct {int dma_desc_num,dma_frame_num;bool auto_clear;} i2s_chan_config_t;
+typedef struct {i2s_std_clk_config_t clk_cfg;int slot_cfg;struct {int mclk,bclk,ws,dout,din;} gpio_cfg;} i2s_std_config_t;
+static unsigned s_new_calls, s_delete_calls;
+static bool s_fail_alloc, s_fail_new, s_fail_init, s_fail_delete;
+static void *heap_caps_malloc(size_t size,int caps) {assert(caps==MALLOC_CAP_DMA);return s_fail_alloc?NULL:malloc(size);}
+static esp_err_t i2s_new_channel(const i2s_chan_config_t *cfg,void **tx,void *rx) {
+  (void)rx;assert(cfg->auto_clear);++s_new_calls;if(s_fail_new)return ESP_FAIL;*tx=(void *)1;return ESP_OK;
+}
+static esp_err_t i2s_channel_init_std_mode(void *tx,const i2s_std_config_t *cfg) {(void)tx;(void)cfg;return s_fail_init?ESP_FAIL:ESP_OK;}
+static esp_err_t i2s_del_channel(void *tx) {assert(tx);++s_delete_calls;return s_fail_delete?ESP_FAIL:ESP_OK;}
+
 static bool s_amp;
 static esp_err_t s_amp_fail;
 static esp_err_t amp_set(bool v) { if (s_amp_fail) return s_amp_fail; s_amp=v; return ESP_OK; }
@@ -100,5 +125,20 @@ int main(void) {
   assert(audio_i2s_stream_start(44100)==ESP_OK && s_amp);
   audio_i2s_stream_stop();
   assert(!s_amp);
+  s_chunk_buf=malloc(sizeof(s_storage));assert(s_chunk_buf);
+  s_tick=pdMS_TO_TICKS(AUDIO_IDLE_RELEASE_MS)-1;
+  tx_release_idle();assert(s_tx && s_chunk_buf && !s_delete_calls);
+  ++s_tick;s_streaming=true;tx_release_idle();assert(s_tx);s_streaming=false;
+  s_disable_fail=1;tx_release_idle();assert(s_tx && s_chunk_buf);s_disable_fail=0;
+  s_fail_delete=true;tx_release_idle();assert(s_tx && s_chunk_buf && !s_tx_enabled);s_fail_delete=false;
+  tx_release_idle();assert(!s_tx && !s_chunk_buf);
+  s_fail_new=true;assert(tx_prepare()!=ESP_OK && !s_tx);s_fail_new=false;
+  s_fail_init=true;assert(tx_prepare()!=ESP_OK && !s_tx);s_fail_init=false;
+  s_fail_alloc=true;assert(tx_prepare()==ESP_ERR_NO_MEM && !s_tx && !s_chunk_buf);s_fail_alloc=false;
+  for(unsigned i=0;i<100;++i) {
+    assert(tx_prepare()==ESP_OK && s_tx && s_chunk_buf);
+    unsigned created=s_new_calls;assert(tx_prepare()==ESP_OK && s_new_calls==created);
+    tx_release_idle();assert(!s_tx && !s_chunk_buf);
+  }
   puts("PASS: real I2S drain progress, timeouts in milliseconds, short writes, PCM volume, claim races and failed-stop retention");
 }

@@ -17,13 +17,8 @@
 //
 // Design notes, because two of these were learned the hard way:
 //
-//  1. ONE persistent TX channel. I2S_NUM_0 has exactly one TX channel, so a
-//     second i2s_new_channel() on it always fails. It is created once here and
-//     never deleted; playback only enables/disables it (cheap - no DMA realloc)
-//     and reconfigures its clock when the sample rate changes. Creating and
-//     deleting a channel per sound churned ~13 KB of internal DMA RAM and an
-//     interrupt handler on every coverflow tick, which fragmented the heap LVGL
-//     draws from and made the UI stutter.
+//  1. Retain one TX channel across nearby sounds; release DMA after idle.
+//     Never allocate a separate channel per queued effect.
 //
 //  2. NOTHING here waits forever. play_tone/_song/_pcm are called straight from
 //     the LVGL thread, so every lock has a finite timeout and drops the sound
@@ -64,13 +59,14 @@ static const char *TAG = "AUDIO_I2S";
 // I2S DMA. Rendering audio on the radio core keeps the sample feed steady.
 #define AUDIO_TASK_CORE SYS_CORE_RADIO
 
-// DMA depth, allocated once at init and kept for the life of the firmware.
+// DMA depth is allocated on first playback and retained through the idle grace.
 // A frame is one sample in ALL slots, so std 16-bit stereo = 4 bytes/frame:
 // 8 x 256 = 2048 frames ~= 46 ms, ~8 KB of internal RAM. Deeper than the IDF
 // default (~32 ms) for underrun slack, but not so deep that the queue latency
 // between writing a chirp and hearing it becomes noticeable.
-#define AUDIO_DMA_DESC_NUM  8
-#define AUDIO_DMA_FRAME_NUM 256
+#define AUDIO_IDLE_RELEASE_MS 10000
+#define AUDIO_DMA_DESC_NUM    8
+#define AUDIO_DMA_FRAME_NUM   256
 
 // Ceiling on how long a caller waits for the shared TX channel. Bounds the
 // worst-case UI stall; past this the sound is dropped.
@@ -99,6 +95,7 @@ typedef struct {
 static i2s_chan_handle_t s_tx = NULL;
 static uint32_t s_tx_rate = 0;
 static bool s_tx_enabled = false;
+static TickType_t s_last_tx_tick;
 
 static SemaphoreHandle_t s_tx_mux = NULL;
 static QueueHandle_t s_fx_q = NULL;
@@ -214,10 +211,81 @@ static esp_err_t tx_set_rate(uint32_t rate) {
   return ESP_OK;
 }
 
+static esp_err_t tx_prepare(void) {
+  if (s_tx != NULL && s_chunk_buf != NULL)
+    return ESP_OK;
+  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  chan_cfg.dma_desc_num = AUDIO_DMA_DESC_NUM;
+  chan_cfg.dma_frame_num = AUDIO_DMA_FRAME_NUM;
+  // On underrun send zeros instead of re-sending the last DMA buffer. The
+  // default (false) loops the stale buffer, which is what a starved channel
+  // sounds like: a buzzing, torn repeat of the last few milliseconds.
+  chan_cfg.auto_clear = true;
+
+  esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+      .gpio_cfg =
+          {
+              .mclk = I2S_GPIO_UNUSED,
+              .bclk = GPIO_AUDIO_BCLK_PIN,
+              .ws = GPIO_AUDIO_LRCLK_PIN,
+              .dout = GPIO_AUDIO_DIN_PIN,
+              .din = I2S_GPIO_UNUSED,
+          },
+  };
+  err = i2s_channel_init_std_mode(s_tx, &std_cfg);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "init_std_mode: %s", esp_err_to_name(err));
+    i2s_del_channel(s_tx);
+    s_tx = NULL;
+    return err;
+  }
+  s_tx_rate = SAMPLE_RATE_HZ;
+  s_tx_enabled = false; // enabled on demand by tx_begin()
+
+  s_chunk_buf = heap_caps_malloc(CHUNK_SAMPLES * sizeof(int16_t), MALLOC_CAP_DMA);
+  if (s_chunk_buf == NULL) {
+    ESP_LOGE(TAG, "chunk buf alloc failed");
+    i2s_del_channel(s_tx);
+    s_tx = NULL;
+    return ESP_ERR_NO_MEM;
+  }
+
+  return ESP_OK;
+}
+
+static void tx_release_idle(void) {
+  if (s_tx == NULL || s_streaming ||
+      (TickType_t)(xTaskGetTickCount() - s_last_tx_tick) < pdMS_TO_TICKS(AUDIO_IDLE_RELEASE_MS))
+    return;
+  if (s_tx_enabled) {
+    if (i2s_channel_disable(s_tx) != ESP_OK)
+      return;
+    s_tx_enabled = false;
+  }
+  if (i2s_del_channel(s_tx) != ESP_OK)
+    return;
+  s_tx = NULL;
+  s_tx_rate = 0;
+  free(s_chunk_buf);
+  s_chunk_buf = NULL;
+}
+
 /** @brief Set the rate and make sure the channel is running. */
 static esp_err_t tx_begin(uint32_t rate) {
+  s_last_tx_tick = xTaskGetTickCount();
   s_play_error = ESP_OK;
   esp_err_t err = amp_set(false);
+  if (err != ESP_OK)
+    return err;
+  err = tx_prepare();
   if (err != ESP_OK)
     return err;
   err = tx_set_rate(rate);
@@ -253,6 +321,7 @@ static esp_err_t tx_begin(uint32_t rate) {
  * sounded like.
  */
 static esp_err_t tx_end(void) {
+  s_last_tx_tick = xTaskGetTickCount();
   esp_err_t ret = tx_drain();
   esp_err_t mute = amp_set(false);
   if (ret != ESP_OK)
@@ -363,8 +432,8 @@ static void audio_task(void *arg) {
     if (xQueueReceive(s_fx_q, &fx, pdMS_TO_TICKS(TX_LOCK_WAIT_MS)) != pdTRUE) {
       // Reconcile a late enable ACK after a failed start without replaying audio.
       if (!s_streaming && tx_lock(0)) {
-        if (!s_streaming)
-          (void)amp_set(false);
+        if (!s_streaming && amp_set(false) == ESP_OK)
+          tx_release_idle();
         tx_unlock();
       }
       continue;
@@ -388,56 +457,8 @@ esp_err_t audio_i2s_init(void) {
   if (s_ready)
     return ESP_OK;
 
-  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-  chan_cfg.dma_desc_num = AUDIO_DMA_DESC_NUM;
-  chan_cfg.dma_frame_num = AUDIO_DMA_FRAME_NUM;
-  // On underrun send zeros instead of re-sending the last DMA buffer. The
-  // default (false) loops the stale buffer, which is what a starved channel
-  // sounds like: a buzzing, torn repeat of the last few milliseconds.
-  chan_cfg.auto_clear = true;
-
-  esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  i2s_std_config_t std_cfg = {
-      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE_HZ),
-      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-      .gpio_cfg =
-          {
-              .mclk = I2S_GPIO_UNUSED,
-              .bclk = GPIO_AUDIO_BCLK_PIN,
-              .ws = GPIO_AUDIO_LRCLK_PIN,
-              .dout = GPIO_AUDIO_DIN_PIN,
-              .din = I2S_GPIO_UNUSED,
-          },
-  };
-  err = i2s_channel_init_std_mode(s_tx, &std_cfg);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "init_std_mode: %s", esp_err_to_name(err));
-    i2s_del_channel(s_tx);
-    s_tx = NULL;
-    return err;
-  }
-  s_tx_rate = SAMPLE_RATE_HZ;
-  s_tx_enabled = false; // enabled on demand by tx_begin()
-
-  s_chunk_buf = heap_caps_malloc(CHUNK_SAMPLES * sizeof(int16_t), MALLOC_CAP_DMA);
-  if (s_chunk_buf == NULL) {
-    ESP_LOGE(TAG, "chunk buf alloc failed");
-    i2s_del_channel(s_tx);
-    s_tx = NULL;
-    return ESP_ERR_NO_MEM;
-  }
-
   s_tx_mux = xSemaphoreCreateMutex();
   if (s_tx_mux == NULL) {
-    free(s_chunk_buf);
-    s_chunk_buf = NULL;
-    i2s_del_channel(s_tx);
-    s_tx = NULL;
     return ESP_ERR_NO_MEM;
   }
 
@@ -445,10 +466,6 @@ esp_err_t audio_i2s_init(void) {
   if (s_fx_q == NULL) {
     vSemaphoreDelete(s_tx_mux);
     s_tx_mux = NULL;
-    free(s_chunk_buf);
-    s_chunk_buf = NULL;
-    i2s_del_channel(s_tx);
-    s_tx = NULL;
     return ESP_ERR_NO_MEM;
   }
 
@@ -463,10 +480,6 @@ esp_err_t audio_i2s_init(void) {
     s_fx_q = NULL;
     vSemaphoreDelete(s_tx_mux);
     s_tx_mux = NULL;
-    free(s_chunk_buf);
-    s_chunk_buf = NULL;
-    i2s_del_channel(s_tx);
-    s_tx = NULL;
     return ESP_ERR_NO_MEM;
   }
 

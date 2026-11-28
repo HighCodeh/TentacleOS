@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 HIGH CODE LLC
+#
+# TentacleOS is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# TentacleOS is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
 """Exercise production monitor/boot/audio code with explicit scheduler and HAL fakes."""
 from pathlib import Path
 import os
@@ -57,7 +72,7 @@ def main():
                         'static void show_reset_error(', 'static void factory_task(',
                         'static void start_reset(')))
         audio = (ROOT/'firmware_p4/components/Drivers/audio_i2s/audio_i2s.c').read_text()
-        signatures = ('static esp_err_t tx_drain(', 'static esp_err_t tx_set_rate(',
+        signatures = ('static esp_err_t tx_prepare(', 'static void tx_release_idle(', 'static esp_err_t tx_drain(', 'static esp_err_t tx_set_rate(',
                       'static esp_err_t tx_begin(', 'static esp_err_t tx_end(',
                       'static int write_all(', 'static void write_silence(',
                       'esp_err_t audio_i2s_play_pcm(', 'esp_err_t audio_i2s_stream_start(',
