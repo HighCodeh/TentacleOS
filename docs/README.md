@@ -35,6 +35,7 @@ below; in-tree READMEs point to it.
 
 | Component | Documentation |
 | --- | --- |
+| `header_spi` | [README.md](header_spi/README.md) - app-owned external SPI/GPIO |
 | `audio_i2s` | [README.md](audio_i2s/README.md) - I2S audio output driver |
 | `aw8623` | [README.md](aw8623/README.md) - haptic playback and diagnostics |
 | `bad_usb` | [README.md](bad_usb/README.md)  |

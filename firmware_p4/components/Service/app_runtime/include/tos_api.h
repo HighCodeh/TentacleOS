@@ -69,7 +69,8 @@ typedef struct host_link_handler host_link_handler_t; // opaque to apps
 // 1.8 = read-only fs subsystem. NOTE: 1.7 was briefly a (removed) IMU subsystem in
 // dev; fs took a fresh minor so a firmware built during the IMU era rejects an
 // fs app at the load gate instead of mismatching its api->fs pointer.
-#define TOS_ABI_VERSION_MINOR 23
+#define TOS_ABI_VERSION_MINOR 24
+// 1.24 = reserved external header SPI/GPIO sessions.
 
 /** Log levels; values match esp_log_level_t so they pass straight through. */
 typedef enum {
@@ -94,6 +95,7 @@ typedef enum {
   TOS_CAP_HID = 1u << 4,      // BadUSB / HID injection
   TOS_CAP_UI = 1u << 5,       // screen / LED / on-device UI
   TOS_CAP_HOSTLINK = 1u << 6, // register companion (host_link) commands
+  TOS_CAP_HEADER = 1u << 8,   // raw external header SPI/GPIO access
   TOS_CAP_CONSOLE = 1u << 7,  // register console commands
 } tos_cap_t;
 
@@ -550,6 +552,22 @@ typedef struct tos_lora_api {
  * The host API table. Built once and shared const by every app. Grouped by the
  * capability that gates each call; the lifecycle group is always available.
  */
+#define TOS_HEADER_TRANSFER_MAX 64U
+/* Physical header numbers from docs/pins, not GPIO numbers. Only pins 7/9
+ * may be CS/control; shared SPI uses header 14/16/17. Debug USB is unavailable. */
+typedef struct {
+  uint32_t clock_hz; ///< 100 kHz to 4 MHz
+  uint8_t cs_pin;
+  uint8_t control_pin; ///< Output initially low; lowered again on close/exit.
+  uint8_t mode;        ///< SPI mode 0..3
+} tos_header_spi_config_t;
+typedef struct {
+  esp_err_t (*spi_open)(const tos_header_spi_config_t *config, uint32_t *out_session);
+  esp_err_t (*spi_transfer)(uint32_t session, const uint8_t *tx, uint8_t *out_rx, size_t length);
+  esp_err_t (*gpio_write)(uint32_t session, uint8_t pin, bool level);
+  esp_err_t (*close)(uint32_t session);
+} tos_header_api_t;
+
 typedef struct tos_api {
   uint32_t abi_major;
   uint32_t abi_minor;
@@ -587,7 +605,8 @@ typedef struct tos_api {
   const tos_ir_api_t *ir;     ///< decoded infrared (minor 11+); receive/send capabilities
   const tos_subghz_api_t
       *subghz; ///< native observations and owned sessions (minor 21+); per-call RX/TX caps
-  const tos_lora_api_t *lora; ///< chat/text; copied nodes (minor 20+); per-call RX/TX caps
+  const tos_lora_api_t *lora;     ///< chat/text; copied nodes (minor 20+); per-call RX/TX caps
+  const tos_header_api_t *header; ///< external header, minor 24+, TOS_CAP_HEADER
 } tos_api_t;
 
 /** @brief The shared, const host API table handed to every app at entry. */

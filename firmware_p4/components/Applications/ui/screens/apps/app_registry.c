@@ -49,10 +49,15 @@ static void caps_str(uint32_t caps, char *out, size_t cap) {
     uint32_t bit;
     const char *n;
   } kNames[] = {
-      {TOS_CAP_FS_READ, "fs-read"},   {TOS_CAP_FS_WRITE, "fs-write"},
-      {TOS_CAP_RADIO_TX, "radio-tx"}, {TOS_CAP_RADIO_RX, "radio-rx"},
-      {TOS_CAP_HID, "hid"},           {TOS_CAP_UI, "ui"},
-      {TOS_CAP_HOSTLINK, "hostlink"}, {TOS_CAP_CONSOLE, "console"},
+      {TOS_CAP_FS_READ, "fs-read"},
+      {TOS_CAP_FS_WRITE, "fs-write"},
+      {TOS_CAP_RADIO_TX, "radio-tx"},
+      {TOS_CAP_RADIO_RX, "radio-rx"},
+      {TOS_CAP_HID, "hid"},
+      {TOS_CAP_UI, "ui"},
+      {TOS_CAP_HOSTLINK, "hostlink"},
+      {TOS_CAP_CONSOLE, "console"},
+      {TOS_CAP_HEADER, "header-spi/gpio"},
   };
   out[0] = '\0';
   bool any = false;
@@ -243,15 +248,16 @@ void app_registry_launch(const char *file) {
   size_t len = 0;
   uint8_t *buf = read_hb(file, &len);
   if (buf == NULL) {
-    msgbox_open_info(LV_SYMBOL_WARNING, "Error", "Could not read the app", current_theme.border_accent);
+    msgbox_open_info(
+        LV_SYMBOL_WARNING, "Error", "Could not read the app", current_theme.border_accent);
     return;
   }
 
   tos_hb_t meta;
   if (tos_hb_open(buf, len, &meta) != ESP_OK) {
     heap_caps_free(buf);
-    msgbox_open_info(LV_SYMBOL_WARNING, "Rejected", "Bad or untrusted signature",
-                     current_theme.border_accent);
+    msgbox_open_info(
+        LV_SYMBOL_WARNING, "Rejected", "Bad or untrusted signature", current_theme.border_accent);
     return;
   }
 
@@ -266,12 +272,16 @@ void app_registry_launch(const char *file) {
     esp_err_t e = tos_app_mgr_start(buf, len, tos_api_get());
     heap_caps_free(buf);
     if (e == ESP_ERR_INVALID_STATE)
-      msgbox_open_info(LV_SYMBOL_WARNING, "Full", "Too many apps running", current_theme.border_accent);
+      msgbox_open_info(
+          LV_SYMBOL_WARNING, "Full", "Too many apps running", current_theme.border_accent);
     else if (e == ESP_ERR_INVALID_VERSION)
-      msgbox_open_info(LV_SYMBOL_WARNING, "Incompatible", "App needs a newer firmware",
+      msgbox_open_info(LV_SYMBOL_WARNING,
+                       "Incompatible",
+                       "App needs a newer firmware",
                        current_theme.border_accent);
     else if (e != ESP_OK)
-      msgbox_open_info(LV_SYMBOL_WARNING, "Error", "Could not start the app", current_theme.border_accent);
+      msgbox_open_info(
+          LV_SYMBOL_WARNING, "Error", "Could not start the app", current_theme.border_accent);
     else if (!(meta.caps & TOS_CAP_UI))
       msgbox_open_info(LV_SYMBOL_OK, disp, "Launched", ui_theme_get_accent());
     return;

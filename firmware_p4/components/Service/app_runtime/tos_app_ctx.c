@@ -26,6 +26,7 @@
 #include "tos_api_subghz.h"
 #include "tos_api_nfc_session.h"
 #include "tos_api_lora.h"
+#include "tos_api_header.h"
 
 // One binding per running app task, plus headroom for handoffs.
 #define TOS_MAX_APP_BINDINGS 8
@@ -45,6 +46,7 @@ esp_err_t tos_app_ctx_bind(void *task, tos_app_ctx_t *ctx) {
   tos_api_subghz_cancel_owner(task);
   tos_api_nfc_session_cancel_owner(task);
   tos_api_lora_cancel_owner(task);
+  tos_api_header_cancel_owner(task);
   esp_err_t err = ESP_ERR_NO_MEM;
   portENTER_CRITICAL(&s_lock);
   int free_slot = -1;
@@ -74,6 +76,7 @@ void tos_app_ctx_unbind(void *task) {
   tos_api_subghz_cancel_owner(task);
   tos_api_nfc_session_cancel_owner(task);
   tos_api_lora_cancel_owner(task);
+  tos_api_header_cancel_owner(task);
   portENTER_CRITICAL(&s_lock);
   for (int i = 0; i < TOS_MAX_APP_BINDINGS; i++) {
     if (s_bindings[i].task == task) {

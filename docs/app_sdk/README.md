@@ -818,3 +818,7 @@ remain in firmware, so app/script unload cannot leave app callbacks or buffers
 attached to a peripheral. An unrelated task, stale ID or reused binding cannot
 inherit or stop those sessions. See [LoRa](../LoRa/README.md#app-ownership-and-raw-phy-abi-123)
 for the native lifecycle and validation boundary.
+
+## External SPI/GPIO (ABI 1.24)
+
+`api->header` requires `TOS_CAP_HEADER` (0x100). See the [header SPI contract and NRF24 example](../header_spi/README.md).

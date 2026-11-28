@@ -35,10 +35,15 @@ static void print_caps(uint32_t caps) {
     uint32_t bit;
     const char *name;
   } kNames[] = {
-      {TOS_CAP_FS_READ, "fs-read"},   {TOS_CAP_FS_WRITE, "fs-write"},
-      {TOS_CAP_RADIO_TX, "radio-tx"}, {TOS_CAP_RADIO_RX, "radio-rx"},
-      {TOS_CAP_HID, "hid"},           {TOS_CAP_UI, "ui"},
-      {TOS_CAP_HOSTLINK, "hostlink"}, {TOS_CAP_CONSOLE, "console"},
+      {TOS_CAP_FS_READ, "fs-read"},
+      {TOS_CAP_FS_WRITE, "fs-write"},
+      {TOS_CAP_RADIO_TX, "radio-tx"},
+      {TOS_CAP_RADIO_RX, "radio-rx"},
+      {TOS_CAP_HID, "hid"},
+      {TOS_CAP_UI, "ui"},
+      {TOS_CAP_HOSTLINK, "hostlink"},
+      {TOS_CAP_CONSOLE, "console"},
+      {TOS_CAP_HEADER, "header-spi/gpio"},
   };
   bool any = false;
   for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++) {
@@ -216,10 +221,11 @@ static int cmd_appgrant(int argc, char **argv) {
 }
 
 void register_apprun_commands(void) {
-  const esp_console_cmd_t run = {.command = "apprun",
-                                 .help = "Run a .hb app from /sdcard/apps: apprun <name>|/path.hb [grant]",
-                                 .hint = "<name>|/path.hb [grant]",
-                                 .func = &cmd_apprun};
+  const esp_console_cmd_t run = {
+      .command = "apprun",
+      .help = "Run a .hb app from /sdcard/apps: apprun <name>|/path.hb [grant]",
+      .hint = "<name>|/path.hb [grant]",
+      .func = &cmd_apprun};
   const esp_console_cmd_t stop = {.command = "appstop",
                                   .help = "Stop a running app: appstop [name]",
                                   .hint = "[name]",
