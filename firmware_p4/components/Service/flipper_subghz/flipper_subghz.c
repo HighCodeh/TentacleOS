@@ -338,3 +338,57 @@ flipper_subghz_encode(const char *fields, int32_t *pulses, size_t capacity, size
     *out_count = 0;
   return error;
 }
+
+typedef struct {
+  const char *fields;
+  char *out_text;
+  size_t capacity;
+} flipper_subghz_describe_job_t;
+
+static esp_err_t describe_job(void *context) {
+  flipper_subghz_describe_job_t *job = context;
+  FlipperFormat *format = malloc(sizeof(*format));
+  size_t length = strlen(job->fields);
+  if (length >= sizeof(format->text))
+    return ESP_ERR_INVALID_SIZE;
+  memcpy(format->text, job->fields, length + 1);
+  if (!validate_fields(format))
+    return ESP_ERR_INVALID_ARG;
+  FuriString *name = furi_string_alloc();
+  if (!flipper_format_read_string(format, "Protocol", name))
+    return ESP_ERR_INVALID_ARG;
+  const SubGhzProtocol *protocol = find_protocol(name->text);
+  if (!protocol || !protocol->decoder || !protocol->decoder->alloc ||
+      !protocol->decoder->deserialize || !protocol->decoder->get_string)
+    return ESP_ERR_NOT_SUPPORTED;
+  subghz_block_generic_global_reset(NULL);
+  subghz_custom_btns_reset();
+  void *decoder =
+      protocol->decoder->alloc(environment(protocol->type == SubGhzProtocolTypeDynamic));
+  if (!decoder)
+    return ESP_ERR_NO_MEM;
+  flipper_format_rewind(format);
+  if (protocol->decoder->deserialize(decoder, format) != SubGhzProtocolStatusOk)
+    return ESP_ERR_INVALID_ARG;
+  FuriString *description = furi_string_alloc();
+  protocol->decoder->get_string(decoder, description);
+  length = strlen(description->text);
+  if (length >= job->capacity)
+    return ESP_ERR_INVALID_SIZE;
+  memcpy(job->out_text, description->text, length + 1);
+  if (protocol->decoder->free)
+    protocol->decoder->free(decoder);
+  return ESP_OK;
+}
+
+esp_err_t flipper_subghz_describe(const char *fields, char *out_text, size_t capacity) {
+  if (!fields || !out_text || !capacity)
+    return ESP_ERR_INVALID_ARG;
+  out_text[0] = '\0';
+  flipper_subghz_describe_job_t job = {
+      .fields = fields, .out_text = out_text, .capacity = capacity};
+  esp_err_t error = flipper_subghz_guard(describe_job, &job);
+  if (error != ESP_OK)
+    out_text[0] = '\0';
+  return error;
+}

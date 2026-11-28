@@ -71,6 +71,12 @@ instead of saving truncated protocol data. File encoding accepts up to 16 KiB of
 protocol text. RAW files use the independent streaming reader and are not limited
 by that text buffer. A failed encoder publishes zero valid output pulses.
 
+`flipper_subghz_describe()` deserializes a capture into the upstream decoder and
+uses its `get_string` formatter inside the same guarded PSRAM workspace. It does
+not invoke the encoder or transmit. The native replay owns a separate optional
+1 KiB PSRAM description until freed; unsupported/oversized descriptions fall back
+to basic metadata without blocking replay.
+
 ## Files, assets and capabilities
 
 RCSwitch and decorated legacy protocol names are no longer registered. Files use

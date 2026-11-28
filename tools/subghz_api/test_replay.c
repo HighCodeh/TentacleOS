@@ -61,6 +61,11 @@ esp_err_t flipper_subghz_encode(const char *fields, int32_t *out, size_t capacit
   return ESP_OK;
 }
 
+esp_err_t flipper_subghz_describe(const char *fields, char *out, size_t capacity) {
+  (void)fields; (void)out; (void)capacity;
+  return ESP_ERR_NOT_SUPPORTED;
+}
+
 int main(void) {
   s_content = "Frequency: 315000000\nPreset: 1\nProtocol: CAME\nBit: 12\nKey: 00 00 00 00 00 00 00 2A\n";
   subghz_replay_t replay = {0};

@@ -50,6 +50,8 @@ esp_err_t flipper_subghz_decode_named(const char *name,
                                       flipper_subghz_result_t *out_result);
 esp_err_t
 flipper_subghz_encode(const char *fields, int32_t *pulses, size_t capacity, size_t *out_count);
+/* Format protocol-specific fields using the upstream decoder, without transmitting. */
+esp_err_t flipper_subghz_describe(const char *fields, char *out_text, size_t capacity);
 /* Guarded upstream calls use one temporary PSRAM arena and never touch the radio. */
 typedef esp_err_t (*flipper_subghz_job_cb_t)(void *context);
 esp_err_t flipper_subghz_guard(flipper_subghz_job_cb_t job, void *context);

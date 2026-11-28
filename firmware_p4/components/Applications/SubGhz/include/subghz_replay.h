@@ -21,10 +21,12 @@
 
 #define SUBGHZ_REPLAY_PROTOCOL_SIZE 40
 #define SUBGHZ_REPLAY_KEY_SIZE      96
+#define SUBGHZ_REPLAY_DETAILS_SIZE  1024
 
 typedef struct {
   subghz_raw_file_t *raw_file;
   int32_t *pulses;
+  char *details; ///< Optional protocol description, owned PSRAM allocation.
   size_t count;
   subghz_tx_config_t config;
   char protocol[SUBGHZ_REPLAY_PROTOCOL_SIZE];

@@ -499,6 +499,16 @@ static void test_flipper_princeton_timing(void) {
            "Filetype: Flipper SubGhz Key File\nVersion: 1\nFrequency: 433920000\n"
            "Preset: FuriHalSubGhzPresetOok270Async\nProtocol: Princeton\nBit: 24\n"
            "Key: 00 00 00 00 00 95 D5 D4\nTE: 400\nGuard_time: 35\n");
+  char description[SUBGHZ_REPLAY_DETAILS_SIZE];
+  const char *details_fixture = "Protocol: Princeton\nBit: 24\n"
+      "Key: 00 00 00 00 00 55 55 03\nTE: 465\nGuard_time: 31\n";
+  assert(flipper_subghz_describe(details_fixture, description, sizeof(description)) == ESP_OK);
+  assert(strstr(description, "Key:0x00555503"));
+  assert(strstr(description, "Yek:0x00C0AAAA"));
+  assert(strstr(description, "Sn:0x05555 Btn:03 (8b)"));
+  assert(strstr(description, "Te:465us  GT:Te*31"));
+  assert(flipper_subghz_describe(details_fixture, description, 4) == ESP_ERR_INVALID_SIZE);
+  assert(description[0] == '\0');
   size_t header_length = strlen(s_capture);
   assert(replay_fixture("flipper_princeton") == ESP_OK);
   assert(s_sent_preset == 1 && s_sent_count == 500);

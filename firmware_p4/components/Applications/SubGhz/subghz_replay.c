@@ -25,6 +25,7 @@
 #include "freertos/task.h"
 
 #include "cc1101.h"
+#include "flipper_subghz.h"
 #include "subghz_protocol_registry.h"
 #include "subghz_protocol_serializer.h"
 #include "subghz_receiver.h"
@@ -132,6 +133,18 @@ esp_err_t subghz_replay_prepare(const char *content, subghz_replay_t *out_replay
   out_replay->config = config;
   copy_field(content, "Protocol: ", out_replay->protocol, sizeof(out_replay->protocol));
   copy_field(content, "Key: ", out_replay->key, sizeof(out_replay->key));
+  if (strcmp(out_replay->protocol, "RAW") != 0) {
+    out_replay->details =
+        heap_caps_malloc(SUBGHZ_REPLAY_DETAILS_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (out_replay->details == NULL) {
+      ESP_LOGE(TAG, "Cannot allocate protocol details");
+    } else if (flipper_subghz_describe(content, out_replay->details, SUBGHZ_REPLAY_DETAILS_SIZE) !=
+               ESP_OK) {
+      free(out_replay->details);
+      out_replay->details = NULL;
+      ESP_LOGW(TAG, "Protocol details unavailable; using file summary");
+    }
+  }
   pulses = NULL;
 cleanup:
   free(pulses);
@@ -143,6 +156,7 @@ void subghz_replay_free(subghz_replay_t *replay) {
     return;
   subghz_raw_file_release(replay->raw_file);
   free(replay->pulses);
+  free(replay->details);
   *replay = (subghz_replay_t){0};
 }
 
