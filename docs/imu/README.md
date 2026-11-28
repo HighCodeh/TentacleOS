@@ -45,7 +45,10 @@ and lease release succeed. Repeated stop calls are safe, and a new start is
 rejected while the previous worker still owns resources.
 
 The [monitor UI](../ui/README.md#imu-motion-monitor) owns display objects, timer
-and model buffers, not the sensor worker's sample storage.
+and model buffers, not the sensor worker's sample storage. Canvas, depth, model,
+transformed vertices and projected points allocate explicitly in PSRAM on entry.
+Partial initialization and screen deletion free all five buffers after stopping
+the refresh timer; no internal-RAM fallback is used.
 
 Run `python3 tools/highboy/test_imu_orientation.py` for rotations, recentering,
 gravity correction and calibration. `tests/test_imu_motion_service.py` executes

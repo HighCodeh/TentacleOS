@@ -80,7 +80,7 @@ static const char *const BAND_NAMES[] = {"Dual", "2.4 GHz", "5 GHz"};
 static const char *const FILTER_NAMES[] = {"All", "Open", "Protected"};
 
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static survey_view_t s_view;
 static survey_mode_t s_mode = MODE_CONTINUOUS;
 static uint8_t s_band;

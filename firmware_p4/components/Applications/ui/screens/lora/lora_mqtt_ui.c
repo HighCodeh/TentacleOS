@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_chrome.h"
+#include "esp_attr.h"
 #include "lora_mqtt_ui.h"
 
 #include <string.h>
@@ -49,7 +50,7 @@ static const char *TAG = "LORA_MQTT";
 enum { ROW_BROKER = 0, ROW_USER, ROW_PASS, ROW_STATUS, ROW_ACTION, ROW_COUNT };
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_timer_t *s_refresh;
 
 static char s_broker[FIELD_MAX];

@@ -33,7 +33,7 @@
 #define APP_ICON "/assets/icons/description.bin"
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 EXT_RAM_BSS_ATTR static app_reg_entry_t s_reg[APP_REG_MAX];
 static int s_count = 0;
 

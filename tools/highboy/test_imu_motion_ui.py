@@ -130,7 +130,7 @@ int main(void){
  test_model_path="broken_model.bin";ui_imu_monitor_open();
  assert(!s_timer && strstr(lv_label_get_text(s_status),"INVALID"));lv_obj_delete(s_screen);
  test_model_path=MODEL_FIXTURE_PATH;
- for(int n=1;n<=3;n++){alloc_count=0;fail_alloc=n;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_depth&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"MEMORY"));lv_obj_delete(s_screen);}fail_alloc=0;
+ for(int n=1;n<=5;n++){alloc_count=0;fail_alloc=n;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_depth&&!s_mesh&&!s_xyz&&!s_projected);assert(strstr(lv_label_get_text(s_status),"MEMORY"));lv_obj_delete(s_screen);}fail_alloc=0;
  fail_start=true;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"START"));lv_obj_delete(s_screen);fail_start=false;
  fail_timer=true;ui_imu_monitor_open();assert(!s_timer&&!fake.running&&!held&&!s_pixels&&!s_mesh);assert(strstr(lv_label_get_text(s_status),"TIMER"));lv_obj_delete(s_screen);fail_timer=false;
  lv_display_set_resolution(d,320,240);ui_imu_monitor_open();capture("landscape.ppm",true);press(INPUT_BTN_RIGHT);capture("landscape_data.ppm",true);ui_imu_monitor_stop();lv_obj_delete(s_screen);

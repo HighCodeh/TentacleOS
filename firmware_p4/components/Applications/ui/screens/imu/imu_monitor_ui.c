@@ -48,8 +48,8 @@ static lv_timer_t *s_timer;
 static bool s_data_view, s_running, s_has_service;
 static esp_err_t s_reported_error;
 static uint32_t s_text_tick;
-static float s_xyz[IMU_MESH_VERTICES][3];
-static lv_point_precise_t s_projected[IMU_MESH_VERTICES];
+static float (*s_xyz)[3];
+static lv_point_precise_t *s_projected;
 static uint16_t *s_pixels, *s_depth;
 static imu_mesh_t *s_mesh;
 static const char *TAG = "IMU3D";
@@ -275,6 +275,10 @@ static void deleted(lv_event_t *event) {
   free(s_pixels);
   free(s_depth);
   free(s_mesh);
+  free(s_xyz);
+  free(s_projected);
+  s_xyz = NULL;
+  s_projected = NULL;
   s_mesh = NULL;
   s_pixels = s_depth = NULL;
   s_screen = s_view = s_status = s_values = s_hint = NULL;
@@ -365,7 +369,10 @@ void ui_imu_monitor_open(void) {
   s_pixels = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   s_depth = heap_caps_malloc(VIEW_PIXELS * sizeof(*s_depth), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   s_mesh = heap_caps_malloc(sizeof(*s_mesh), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!s_pixels || !s_depth || !s_mesh) {
+  s_xyz = heap_caps_malloc(IMU_MESH_VERTICES * sizeof(*s_xyz), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_projected = heap_caps_malloc(IMU_MESH_VERTICES * sizeof(*s_projected),
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_pixels || !s_depth || !s_mesh || !s_xyz || !s_projected) {
     ESP_LOGE(TAG, "IMU view allocation failed");
     lv_label_set_text(s_status, "NOT ENOUGH MEMORY");
     goto cleanup;
@@ -402,6 +409,10 @@ cleanup:
   free(s_pixels);
   free(s_depth);
   free(s_mesh);
+  free(s_xyz);
+  free(s_projected);
+  s_xyz = NULL;
+  s_projected = NULL;
   s_pixels = s_depth = NULL;
   s_mesh = NULL;
 }

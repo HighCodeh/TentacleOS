@@ -51,7 +51,7 @@ static const char *TAG = "IR_LIBRARY_UI";
 
 EXT_RAM_BSS_ATTR static library_entry_t s_entries[LIB_DIR_MAX];
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static ir_file_t s_remote;
 static char s_path[LIB_PATH_MAX];
 static char s_remote_name[LIB_NAME_MAX];

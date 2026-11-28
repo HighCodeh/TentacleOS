@@ -66,7 +66,7 @@ typedef enum {
 } send_view_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static send_view_t s_view = VIEW_LIST;
 static int s_sel = 0;
 

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_target_clients_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -63,7 +64,7 @@ typedef struct {
 } client_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_obj_t *s_probe_caption = NULL;
 
 static tc_state_t s_state = TC_PICK_SCANNING;

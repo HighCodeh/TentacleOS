@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "display_settings_ui.h"
+#include "esp_attr.h"
 
 #include "lvgl_glue.h"
 #include "menu_component_ui.h"
@@ -58,7 +59,7 @@ static int timeout_idx_for_seconds(int seconds) {
 }
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static bool s_changed = false;
 

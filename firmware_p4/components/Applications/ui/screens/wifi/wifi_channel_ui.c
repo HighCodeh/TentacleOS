@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_channel_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 
@@ -79,7 +80,7 @@ static const uint8_t REC_CANDIDATES_2G[] = {1, 6, 11};
 static const uint8_t REC_CANDIDATES_5G[] = {36, 40, 44, 48, 149, 153, 157, 161};
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;
@@ -90,7 +91,7 @@ static uint8_t s_row_ap_count[MAX_ROWS];
 static int8_t s_row_rssi[MAX_ROWS];
 static uint32_t s_row_color[MAX_ROWS];
 
-static lv_point_precise_t s_hump_pts[MAX_ROWS][SPEC_HUMP_PTS];
+EXT_RAM_BSS_ATTR static lv_point_precise_t s_hump_pts[MAX_ROWS][SPEC_HUMP_PTS];
 
 static void wifi_channel_input(const input_event_t *ev, void *ctx);
 

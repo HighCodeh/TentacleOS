@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_handshake_ui.h"
+#include "esp_attr.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -61,7 +62,7 @@ static const char *TAG = "WIFI_HANDSHAKE_UI";
 #define CARD_GAP              4
 #define COUNTER_WIDTH_PERCENT 48
 
-static menu_component_t s_scroll;
+EXT_RAM_BSS_ATTR static menu_component_t s_scroll;
 static lv_obj_t *s_screen;
 static lv_obj_t *s_body;
 static lv_obj_t *s_status;

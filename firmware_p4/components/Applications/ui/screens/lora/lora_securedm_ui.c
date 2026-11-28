@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "lora_securedm_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -104,7 +105,7 @@ static lv_timer_t *s_poll = NULL;
 
 static dm_view_t s_view = DM_VIEW_CONTACTS;
 static lora_proto_t s_proto = LORA_PROTO_NONE;
-static dm_contact_t s_contacts[DM_MAX_CONTACTS];
+EXT_RAM_BSS_ATTR static dm_contact_t s_contacts[DM_MAX_CONTACTS];
 static int s_contact_count = 0;
 static int s_sel = 0;
 static dm_contact_t s_peer;

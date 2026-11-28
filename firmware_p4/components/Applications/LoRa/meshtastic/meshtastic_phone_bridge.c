@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "meshtastic_phone_bridge.h"
+#include "esp_attr.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -63,7 +64,7 @@ static spi_mesh_status_t s_cached_status = {0};
 static uint8_t s_tx_seq = 0;
 static uint8_t s_log_seq = 0;
 static portMUX_TYPE s_log_mux = portMUX_INITIALIZER_UNLOCKED;
-static uint8_t s_log_ring[BRIDGE_LOG_RING_SIZE];
+EXT_RAM_BSS_ATTR static uint8_t s_log_ring[BRIDGE_LOG_RING_SIZE];
 static uint16_t s_log_head = 0;
 static uint16_t s_log_tail = 0;
 static vprintf_like_t s_prev_vprintf = NULL;

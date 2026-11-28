@@ -1092,3 +1092,26 @@ serial devices or transmit over radios.
 Its screen-close hook requests stop before navigation; deletion is an idempotent
 fallback. Theme-based labels use chrome content bounds and wrap in either
 orientation. See [state and lifecycle contract](../ethernet_share/README.md).
+
+## Internal RAM placement
+
+Persistent menu widget handles and selector state live in external BSS (PSRAM),
+not internal SRAM. They are only accessed by task-context UI code, never by
+cache-disabled interrupt handlers. LoRa contact/trace lists and Wi-Fi channel
+plot points follow this placement. These small persistent structures stay
+reserved in PSRAM; this is placement, not dynamic deallocation.
+
+The Motion/IMU vertex projection arrays allocate explicitly in PSRAM when its
+screen opens, alongside the canvas/depth/model buffers, and are freed on screen
+deletion or any partial initialization failure. All five allocation failure
+paths are covered by `tools/highboy/test_imu_motion_ui.py`, including repeated
+entry/exit and both orientations. DMA display buffers remain internal.
+
+Local P4 linker validation of this memory change reduced DIRAM reservations
+from 468,934 to 310,470 bytes (158,464 bytes / 154.75 KiB), including
+the follow-up CPU-buffer and optional DOOM sound-table placement. This includes code,
+data and BSS; it is not a measurement of free heap after boot. The audio driver's
+idle resource release provides a separate runtime benefit. The 32 KiB USB MSC
+transfer buffer, display DMA buffers, ISR storage and task synchronization
+objects retain their required internal placement. Hardware Home stability and
+heap recovery still require validation after flashing.

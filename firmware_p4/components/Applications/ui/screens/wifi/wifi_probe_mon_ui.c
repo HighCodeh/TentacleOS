@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_probe_mon_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -42,7 +43,7 @@ static const char *SSID_BROADCAST = "(broadcast)";
 #define TASK_PRIORITY    SYS_PRIO_SERVICE_LO
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static volatile bool s_poll_run = false;
 static volatile bool s_worker_busy = false;

@@ -66,7 +66,7 @@ typedef enum {
 } browse_level_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static capture_result_t s_cr = {0};
 
 static browse_level_t s_level = LEVEL_FILES;

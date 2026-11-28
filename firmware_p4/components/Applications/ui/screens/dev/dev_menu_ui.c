@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_chrome.h"
+#include "esp_attr.h"
 #include "dev_menu_ui.h"
 
 #include "lvgl.h"
@@ -46,7 +47,7 @@ static const struct {
 #define MENU_ITEM_COUNT ((int)(sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static void dev_menu_input(const input_event_t *ev, void *ctx);
 

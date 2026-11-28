@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ir_receive_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 
@@ -100,7 +101,7 @@ static ir_data_t s_captured = {0};
 static ir_ac_state_t s_ac = {0};
 static bool s_is_ac = false;
 static char s_card_text[48];
-static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
+EXT_RAM_BSS_ATTR static rmt_symbol_word_t s_raw_buf[IR_MAX_SYMBOLS];
 
 static void ir_receive_tick_cb(lv_timer_t *timer);
 static void ir_receive_input(const input_event_t *ev, void *ctx);

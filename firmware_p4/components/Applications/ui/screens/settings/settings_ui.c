@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "settings_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 
@@ -133,7 +134,7 @@ static const settings_item_t DEV_ITEMS[] = {
 #define DEV_COUNT ((int)(sizeof(DEV_ITEMS) / sizeof(DEV_ITEMS[0])))
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static settings_view_t s_view = VIEW_MAIN;
 static int s_selection[3];
 

@@ -339,3 +339,11 @@ storage survives failed RMT teardown and is reclaimed only after cleanup succeed
 This avoids freeing replay/AC symbols while a timed-out transmit may still use
 them. See the [app contract](../app_sdk/README.md#complete-ir-adapters-abi-116)
 and [script calls](../scripts/README.md#complete-ir-bindings-abi-116).
+
+## P4 RAW copy placement
+
+The P4 service's last-capture array, receive-screen RAW copy and Companion RAW
+copy reside in PSRAM BSS. They are serialized/copied in task context to the C5;
+no P4 RMT DMA consumes them. C5 RMT buffers, transfer timing and ownership remain
+unchanged. `tools/ir_remote/test_remote.py` exercises transfer, cancellation,
+fragment errors and retained ownership after failed hardware teardown.

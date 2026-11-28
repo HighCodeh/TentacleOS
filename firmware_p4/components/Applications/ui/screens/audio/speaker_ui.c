@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "speaker_ui.h"
+#include "esp_attr.h"
 
 #include <math.h>
 
@@ -239,7 +240,7 @@ static const speaker_cat_t CATS[] = {
 #define NUM_CATS COUNT(CATS)
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static int s_category = 0;
 
 static lv_obj_t *s_nowplaying = NULL;

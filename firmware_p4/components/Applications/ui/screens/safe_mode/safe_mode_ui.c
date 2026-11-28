@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "safe_mode_ui.h"
+#include "esp_attr.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -67,7 +68,7 @@ typedef enum {
 } sm_action_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static sm_state_t s_state = SM_MENU;
 static atomic_bool s_has_reset_error;
 

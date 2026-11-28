@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ble_spam_names_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,7 +45,7 @@ static const char *TAG = "BLE_SPAM_NAMES_UI";
 #define COLOR_ADD  0xCC00FF
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static char s_names[NAMES_MAX][NAME_LEN];
 static int s_count = 0;

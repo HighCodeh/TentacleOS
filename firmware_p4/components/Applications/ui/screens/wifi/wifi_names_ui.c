@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_names_ui.h"
+#include "esp_attr.h"
 
 #include "lvgl.h"
 
@@ -27,7 +28,7 @@
 #define COLOR_ADD  0xCC00FF
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static int s_edit_index = -1;
 

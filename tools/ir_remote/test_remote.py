@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "tools/board_control"))
 from test_board_control import MOCKS, NOTICE
 
 MOCKS = dict(MOCKS)
+MOCKS["esp_attr.h"] = "#define EXT_RAM_BSS_ATTR\n"
 MOCKS["esp_err.h"] = MOCKS["esp_err.h"].replace("ESP_ERR_NOT_FINISHED", "ESP_ERR_INVALID_SIZE, ESP_ERR_INVALID_CRC, ESP_ERR_NOT_FOUND, ESP_ERR_NOT_FINISHED") + '\nconst char *esp_err_to_name(esp_err_t);\n'
 MOCKS["esp_log.h"] += '#define ESP_LOGI(tag, ...) ((void)(tag))\n#define ESP_LOGD(tag, ...) ((void)(tag))\n'
 MOCKS["freertos/task.h"] = MOCKS["freertos/task.h"].replace('*h = (void *)1;', 'if (h) { *h = (void *)1; }') + '\nvoid vTaskDelay(unsigned ticks);\nTaskHandle_t xTaskGetCurrentTaskHandle(void);\n'

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_ui.h"
+#include "esp_attr.h"
 
 #include "esp_log.h"
 
@@ -25,7 +26,7 @@
 static const char *TAG = "UI_WIFI_MENU";
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static const struct {
   const char *name;

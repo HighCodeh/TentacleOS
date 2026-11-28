@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "nfc_config_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 
@@ -32,7 +33,7 @@ static const char *const POLL_NAMES[] = {"Slow", "Normal", "Fast"};
 #define POLL_N 3
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static int s_poll = 1;
 static bool s_field_on;
 

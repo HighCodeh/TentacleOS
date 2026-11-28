@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_evil_twin_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -50,7 +51,7 @@ static const char *ET_ICON = "/assets/icons/wifi_tethering.bin";
 typedef enum { ET_SCANNING, ET_PICK, ET_ATTACK } et_state_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_ssid_label = NULL;

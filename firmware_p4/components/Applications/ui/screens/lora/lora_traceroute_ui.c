@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "lora_traceroute_ui.h"
+#include "esp_attr.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -79,7 +80,7 @@ static lv_timer_t *s_poll_timer = NULL;
 static tr_view_t s_view = TR_PICKER;
 static int s_poll_ticks = 0;
 
-static pick_entry_t s_picks[PICK_MAX];
+EXT_RAM_BSS_ATTR static pick_entry_t s_picks[PICK_MAX];
 static int s_pick_count = 0;
 static int s_pick_sel = 0;
 static lv_obj_t *s_pick_list = NULL;

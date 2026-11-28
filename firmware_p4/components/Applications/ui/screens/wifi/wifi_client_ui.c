@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_client_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -68,7 +69,7 @@ static const char *TAG = "WIFI_CLI_UI";
 typedef enum { SCAN_RUNNING, SCAN_DONE, SCAN_FAIL } scan_state_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static scan_state_t s_scan_state = SCAN_RUNNING;
 static bool s_scanning = false;

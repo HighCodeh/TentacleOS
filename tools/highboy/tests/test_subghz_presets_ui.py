@@ -38,6 +38,7 @@ def write(name, text):
 for name in ("st7789.h", "ui_chrome.h", "ui_metrics.h", "ui_feedback.h", "ui_manager.h",
              "ui_theme.h", "assets_manager.h", "led_control.h", "notify_ui.h"):
     write(name, "")
+write("esp_attr.h", "#define EXT_RAM_BSS_ATTR\n")
 write("esp_err.h", """typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_ERR_INVALID_ARG 0x102

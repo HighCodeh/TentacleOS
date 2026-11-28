@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ir.h"
+#include "esp_attr.h"
 
 #include <string.h>
 
@@ -51,7 +52,7 @@ static uint64_t s_client;
 static uint64_t s_epoch;
 static uint32_t s_operation;
 static res_handle_t s_resource = RES_HANDLE_NONE;
-static rmt_symbol_word_t s_last_raw[IR_MAX_SYMBOLS];
+EXT_RAM_BSS_ATTR static rmt_symbol_word_t s_last_raw[IR_MAX_SYMBOLS];
 static size_t s_last_raw_count;
 
 static bool enter(void) {

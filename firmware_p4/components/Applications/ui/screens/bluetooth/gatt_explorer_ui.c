@@ -56,7 +56,7 @@ static const char *TAG = "GATT_UI";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_worker;
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_timer_t *s_timer;
 static bool s_is_open, s_has_target, s_is_scanning;
 static gatt_ui_job_t s_job;

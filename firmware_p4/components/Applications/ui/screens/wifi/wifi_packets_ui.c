@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_packets_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -85,7 +86,7 @@ static const char *const MODE_ICONS[] = {
 typedef enum { VIEW_LIST, VIEW_LIVE } view_t;
 
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static view_t s_view;
 static int s_mode_idx;
 

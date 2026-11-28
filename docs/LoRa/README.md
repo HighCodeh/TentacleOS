@@ -469,3 +469,9 @@ MeshCore key agreement rejects invalid peer points, clears failed output and
 propagates failure to senders; receive matching skips invalid contacts. The host
 regression checks shared-secret agreement and invalid/null input handling using
 real libsodium.
+
+## CPU buffer memory placement
+
+The bounded P4 Meshtastic packet-history and phone-log rings and MeshCore
+deduplication table use external BSS (PSRAM). Existing locks, capacities and
+packet ordering are unchanged; no ISR or SPI DMA storage is relocated.

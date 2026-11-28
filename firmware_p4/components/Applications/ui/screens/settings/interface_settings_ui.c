@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "interface_settings_ui.h"
+#include "esp_attr.h"
 
 #include "esp_log.h"
 
@@ -34,7 +35,7 @@ static const char *TAG = "INTERFACE_SETTINGS_UI";
 #define ROW_LED     2
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static int s_selected;
 static bool s_changed = false;
 

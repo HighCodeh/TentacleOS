@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "nfc_menu_ui.h"
+#include "esp_attr.h"
 
 #include "esp_log.h"
 
@@ -55,7 +56,7 @@ static const nfc_menu_item_t ITEMS[] = {
 #define ITEM_COUNT (sizeof(ITEMS) / sizeof(ITEMS[0]))
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 // Event-driven input (see ui_input_set_screen_handler). The central pump only
 // calls this while input is unlocked and no modal overlay is up, so the old

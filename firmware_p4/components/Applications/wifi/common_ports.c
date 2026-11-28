@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "common_ports.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 
@@ -62,7 +63,7 @@ static int load_from(const char *path, int *out, int max) {
   FILE *f = fopen(path, "rb");
   if (f == NULL)
     return 0;
-  static char buf[FILE_BUF];
+  EXT_RAM_BSS_ATTR static char buf[FILE_BUF];
   int len = (int)fread(buf, 1, sizeof(buf), f);
   fclose(f);
   if (len <= 0)

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_sniffer.h"
+#include "esp_attr.h"
 
 #include "led_control.h"
 
@@ -86,7 +87,7 @@ static char s_capture_path[WIFI_SNIFFER_PATH_MAX];
 static atomic_uint s_session_id = SPI_SESSION_INVALID_ID;
 static uint32_t s_reasm_session_id = SPI_SESSION_INVALID_ID;
 
-static uint8_t s_reasm_buf[SPI_WIFI_SNIFFER_FRAME_MAX];
+EXT_RAM_BSS_ATTR static uint8_t s_reasm_buf[SPI_WIFI_SNIFFER_FRAME_MAX];
 static uint16_t s_reasm_total;
 static uint16_t s_reasm_have;
 static int8_t s_reasm_rssi;

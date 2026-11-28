@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "rfid_menu_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -240,7 +241,7 @@ typedef enum {
 enum { CL_READ, CL_REVEAL, CL_WRITE, CL_DONE };
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static rfid_view_t s_view = VIEW_LIST;
 static int s_saved_sel = 0;
 static int s_pending_view = -1;

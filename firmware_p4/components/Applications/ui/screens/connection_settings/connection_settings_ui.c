@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "connection_settings_ui.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 
 #include "host_link.h"
@@ -35,7 +36,7 @@ static bool s_usb_pending;
 static bool s_usb_requested;
 
 static lv_obj_t *s_screen_conn = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static bool s_usb_no_sleep_held = false;
 
 static void usb_status_cb(lv_timer_t *timer);

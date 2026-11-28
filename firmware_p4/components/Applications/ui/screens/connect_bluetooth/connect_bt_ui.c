@@ -16,6 +16,7 @@
 // Copyright (c) 2025 HIGH CODE LLC
 
 #include "connect_bt_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,7 +52,7 @@ typedef struct {
 } bt_device_t;
 
 static lv_obj_t *s_screen;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static bt_device_t s_devices[BT_MAX_DEVICES];
 static volatile bt_state_t s_state;
 static volatile bool s_scanning;

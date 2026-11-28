@@ -20,14 +20,15 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_attr.h"
 
 #include "storage_assets.h"
 
 static const char *TAG = "SUBGHZ_KEELOQ";
 
-#define KL_NLF          0x3A5C742EUL
-#define kl_bit(x, n)    (((x) >> (n)) & 1)
-#define kl_g5(x, a, b, c, d, e)                                                                    \
+#define KL_NLF       0x3A5C742EUL
+#define kl_bit(x, n) (((x) >> (n)) & 1)
+#define kl_g5(x, a, b, c, d, e) \
   (kl_bit(x, a) + kl_bit(x, b) * 2 + kl_bit(x, c) * 4 + kl_bit(x, d) * 8 + kl_bit(x, e) * 16)
 
 #define KL_MFCODES_PATH "config/subghz/keeloq_mfcodes.txt"
@@ -43,7 +44,7 @@ static const char *TAG = "SUBGHZ_KEELOQ";
 #define KL_HEADER_THRESH (5 * KL_TE_SHORT)
 #define KL_DISC_MASK     0xFF // low 8 bits of the fixed part (HCS200/HCS300 common)
 
-static keeloq_mfkey_t s_mfkeys[KL_MAX_KEYS];
+EXT_RAM_BSS_ATTR static keeloq_mfkey_t s_mfkeys[KL_MAX_KEYS];
 static int s_mfkey_count = 0;
 
 uint32_t subghz_keeloq_encrypt(uint32_t x, uint64_t key) {
@@ -357,34 +358,44 @@ static bool keeloq_recover(uint64_t mkey,
     case KL_LEARN_AERF: {
       uint64_t man = aerf_learning(fix, mkey);
       p = decrypt_derived(hop, man, 0x240u);
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = decrypt_derived(hop, man, 0x210u);
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = subghz_keeloq_decrypt(hop, man);
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       return false;
     }
     case KL_LEARN_SECURE:
       p = subghz_keeloq_decrypt(hop, secure_learning(fix, fix & 0x0FFFFFFF, mkey));
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = subghz_keeloq_decrypt(hop, secure_learning(fix, 0, mkey));
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       return false;
     case KL_LEARN_UNKNOWN: {
       uint64_t rev = byte_reverse64(mkey);
       p = subghz_keeloq_decrypt(hop, mkey);
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = subghz_keeloq_decrypt(hop, rev);
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = subghz_keeloq_decrypt(hop, normal_learning(fix, mkey));
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       p = subghz_keeloq_decrypt(hop, normal_learning(fix, rev));
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       return false;
     }
     default:
       p = subghz_keeloq_decrypt(hop, subghz_keeloq_learn(mkey, fix, type, 0));
-      if (keeloq_check(p, serial, fix_btn)) break;
+      if (keeloq_check(p, serial, fix_btn))
+        break;
       return false;
   }
   *out_plain = p;
@@ -451,11 +462,11 @@ bool subghz_keeloq_selftest(char *report, size_t report_len) {
   if (report != NULL && report_len > 0) {
     report[0] = '\0';
   }
-#define KL_REPORT(...)                                                                             \
-  do {                                                                                            \
-    if (report != NULL && report_len > off) {                                                     \
-      off += snprintf(report + off, report_len - off, __VA_ARGS__);                                \
-    }                                                                                             \
+#define KL_REPORT(...)                                              \
+  do {                                                              \
+    if (report != NULL && report_len > off) {                       \
+      off += snprintf(report + off, report_len - off, __VA_ARGS__); \
+    }                                                               \
   } while (0)
 
   // 1) cipher is its own inverse.
@@ -481,7 +492,9 @@ bool subghz_keeloq_selftest(char *report, size_t report_len) {
               subghz_keeloq_decode_key(((uint64_t)fix << 32) | hop, &res) && res.counter == cnt &&
               res.serial == serial && res.button == btn;
     all_ok &= ok;
-    KL_REPORT("encode/pwm/roundtrip     %s (%s cnt=%04X)\n", ok ? "PASS" : "FAIL", res.mfname,
+    KL_REPORT("encode/pwm/roundtrip     %s (%s cnt=%04X)\n",
+              ok ? "PASS" : "FAIL",
+              res.mfname,
               (unsigned)res.counter);
   }
 
@@ -501,7 +514,10 @@ bool subghz_keeloq_selftest(char *report, size_t report_len) {
       bool ok = subghz_keeloq_decode_key(vec[v].key, &res) &&
                 strcmp(res.mfname, vec[v].name) == 0 && res.counter == vec[v].cnt;
       all_ok &= ok;
-      KL_REPORT("real %-12s %s (%s cnt=%04X)\n", vec[v].name, ok ? "PASS" : "FAIL", res.mfname,
+      KL_REPORT("real %-12s %s (%s cnt=%04X)\n",
+                vec[v].name,
+                ok ? "PASS" : "FAIL",
+                res.mfname,
                 (unsigned)res.counter);
     }
   } else {

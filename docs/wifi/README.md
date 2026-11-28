@@ -902,3 +902,9 @@ The Hotspot screen and USB Ethernet sharing use the shared firmware preset in
 `firmware_p4/components/Service/wifi/include/wifi_hotspot_preset.h`. Its current
 values are `HighBoy_AP`, open authentication, `192.168.4.1` and eight clients.
 See [Ethernet sharing](../ethernet_share/README.md) for application and persistence.
+
+## CPU buffer memory placement
+
+The P4 sniffer reassembly buffer and common-port file parsing scratch buffer
+use external BSS (PSRAM). Their sizes, scan ordering and deadlines are unchanged.
+The C5 radio and TCP/UDP scanner implementation is unaffected.

@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wifi_signal_locator_ui.h"
+#include "esp_attr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -87,7 +88,7 @@ typedef struct {
 } pick_ap_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static lv_obj_t *s_arc = NULL;
 static lv_obj_t *s_dbm_label = NULL;
 static lv_obj_t *s_hint = NULL;

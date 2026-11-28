@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "sound_settings_ui.h"
+#include "esp_attr.h"
 
 #include "esp_log.h"
 
@@ -57,7 +58,7 @@ static int vol_pct_from_level(int lvl) {
 static bool s_vol_changed = false;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static bool s_changed = false;
 
 static void sound_settings_input(const input_event_t *ev, void *ctx) {

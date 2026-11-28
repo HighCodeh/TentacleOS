@@ -67,7 +67,7 @@ typedef struct {
 static meshcore_channel_t s_channels[MESHCORE_MAX_CHANNELS];
 EXT_RAM_BSS_ATTR static meshcore_contact_t s_contacts[MESHCORE_MAX_CONTACTS];
 
-static mc_dedup_entry_t s_dedup[MC_DEDUP_SIZE];
+EXT_RAM_BSS_ATTR static mc_dedup_entry_t s_dedup[MC_DEDUP_SIZE];
 static uint16_t s_dedup_idx = 0;
 
 static mc_pending_t s_pendings[MC_PENDINGS_SIZE];

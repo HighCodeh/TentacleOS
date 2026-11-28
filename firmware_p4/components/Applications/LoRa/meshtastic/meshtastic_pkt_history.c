@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "meshtastic_pkt_history.h"
+#include "esp_attr.h"
 
 #include <string.h>
 
@@ -36,7 +37,7 @@ typedef struct {
   uint8_t relayed_by[MT_NUM_RELAYERS];
 } mt_pkt_record_t;
 
-static mt_pkt_record_t s_table[MT_PKT_HISTORY_MAX];
+EXT_RAM_BSS_ATTR static mt_pkt_record_t s_table[MT_PKT_HISTORY_MAX];
 
 static uint32_t now_ms(void) {
   return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);

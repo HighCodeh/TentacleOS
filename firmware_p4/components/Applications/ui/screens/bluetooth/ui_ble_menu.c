@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_ble_menu.h"
+#include "esp_attr.h"
 
 #include "esp_log.h"
 
@@ -43,7 +44,7 @@ static const ui_ble_menu_item_t MENU_ITEMS[] = {
 #define MENU_ITEMS_COUNT (sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]))
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 
 static void ble_menu_input(const input_event_t *ev, void *ctx);
 

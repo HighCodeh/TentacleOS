@@ -235,6 +235,7 @@ with tempfile.TemporaryDirectory(prefix="highboy-tcp-scan-") as temporary:
     (work / "esp_log.h").write_text(NOTICE + "\n".join(
         f"#define ESP_LOG{level}(tag, ...) ((void)(tag), test_log(__VA_ARGS__))" for level in "IWEVD") + "\n")
     (work / "freertos/FreeRTOS.h").write_text(NOTICE + "#define portTICK_PERIOD_MS 1\n")
+    (work / "esp_attr.h").write_text(NOTICE + "#define EXT_RAM_BSS_ATTR\n")
     code = CODE.replace("/* SCANNER */", f'#include "{WIFI / "port_scan.c"}"')
     code = code.replace("/* COMMON */", f'#include "{P4_WIFI / "common_ports.c"}"')
     (work / "test.c").write_text(NOTICE + code)

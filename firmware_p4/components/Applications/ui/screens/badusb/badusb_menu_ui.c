@@ -14,6 +14,7 @@
 // along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
 #include "badusb_menu_ui.h"
+#include "esp_attr.h"
 
 #include <dirent.h>
 #include <stdatomic.h>
@@ -227,7 +228,7 @@ typedef struct {
 } badusb_status_row_t;
 
 static lv_obj_t *s_screen = NULL;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static view_t s_view = VIEW_LIST;
 
 static int s_payload_sel = 0;

@@ -47,7 +47,7 @@ static lv_obj_t *s_screen;
 static lv_obj_t *s_output;
 static lv_obj_t *s_status;
 static lv_timer_t *s_timer;
-static menu_component_t s_menu;
+EXT_RAM_BSS_ATTR static menu_component_t s_menu;
 static char s_files[SCRIPT_LIST_MAX][SCRIPT_RUNNER_NAME_MAX];
 static size_t s_count;
 static bool s_is_output_view;
